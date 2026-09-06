@@ -80,14 +80,14 @@ jobs:
         run: |
           set -Eeuo pipefail
           docker ps --format '{{.Names}}' | grep -Fxq "$CONTAINER"
-          auth_db="$(docker exec "$CONTAINER" sh -lc 'printf %s "${AIMETON_AUTH_DB:-/app/data/auth.sqlite3}"')"
-          case "$auth_db" in
-            /app/data/*) ;;
-            *) echo "auth database outside persistent /app/data mount: $auth_db" >&2; exit 1 ;;
-          esac
-          state="$(docker exec -i "$CONTAINER" python - "$auth_db" <<'PY'
-          import sqlite3, sys
-          path=sys.argv[1]
+          state="$(docker exec -i "$CONTAINER" python - <<'PY'
+          import sqlite3
+          from app.auth_api import _database_path
+          path=_database_path().resolve()
+          if not str(path).startswith('/app/data/'):
+              raise RuntimeError(f'auth database outside persistent /app/data mount: {path}')
+          if not path.exists():
+              raise RuntimeError(f'auth database missing: {path}')
           with sqlite3.connect(f'file:{path}?mode=ro', uri=True) as db:
               assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
               tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -116,7 +116,11 @@ jobs:
           set -Eeuo pipefail
           install -d -m 0700 /opt/aimeton/auditor-stack/backups/auth
           backup="/opt/aimeton/auditor-stack/backups/auth/auth.sqlite3.$(date -u +%Y%m%dT%H%M%SZ).guard.bak"
-          auth_db="$(docker exec "$CONTAINER" sh -lc 'printf %s "${AIMETON_AUTH_DB:-/app/data/auth.sqlite3}"')"
+          auth_db="$(docker exec -i "$CONTAINER" python - <<'PY'
+          from app.auth_api import _database_path
+          print(_database_path().resolve())
+          PY
+          )"
           docker cp "$CONTAINER:$auth_db" "$backup"
           chmod 0600 "$backup"
           echo 'auth_backup=created'
