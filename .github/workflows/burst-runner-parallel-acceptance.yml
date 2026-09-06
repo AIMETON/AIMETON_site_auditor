@@ -36,7 +36,7 @@ jobs:
       TARGET_SHA: ${{ inputs.expected_sha }}
       GH_TOKEN: ${{ github.token }}
       AIMETON_RUNNER_CONTRACT: site-auditor-stage
-      AIMETON_EXPECTED_PROJECTION_SHA256: 684d6845ca763614c313c70de5f49242cb009ecea8ebc59d43b25dacc96978db
+      AIMETON_EXPECTED_PROJECTION_SHA256: 9dd96b50560532e79c14b67e9c015faf7c234ab191ec6b30bd5540f7056298dc
     steps:
       - name: Materialize exact Site Auditor main without marketplace actions
         shell: bash
@@ -88,7 +88,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       EVIDENCE_ISSUE: ${{ inputs.evidence_issue }}
       AIMETON_RUNNER_CONTRACT: site-auditor-stage
-      AIMETON_EXPECTED_PROJECTION_SHA256: 684d6845ca763614c313c70de5f49242cb009ecea8ebc59d43b25dacc96978db
+      AIMETON_EXPECTED_PROJECTION_SHA256: 9dd96b50560532e79c14b67e9c015faf7c234ab191ec6b30bd5540f7056298dc
     steps:
       - name: Materialize exact Site Auditor main without marketplace actions
         shell: bash
