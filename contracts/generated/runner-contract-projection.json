@@ -2,34 +2,97 @@
   "schema_version": "1.0-generated",
   "generation": {
     "version": 2,
-    "generated_at": "2026-08-30T14:47:48Z",
+    "generated_at": "2026-09-06T03:38:36.930211Z",
     "infrastructure_repository": "Dimar4713/aimeton-infrastructure",
-    "infrastructure_source_sha": "1270bab9161f7b90c426c55445f3b19800e6ce51",
+    "infrastructure_source_sha": "b43a43c593df61eadc8e74151dc1ad68b4d0fc8e",
     "sources": [
-      {"path": "ops/main-server/runners.json", "git_blob_sha": "eb5dfc4b5533e4fb40339202fb16f60f32757452"},
-      {"path": "ops/burst-runner/site-auditor-runners.json", "git_blob_sha": "153dab4f1e52ddccbe5e1db887780ee9f479b05d"},
-      {"path": "ops/burst-runner/repository-pools.json", "git_blob_sha": "99513f9f0124cc659f14850fbc9bbeeaee4a67ee"}
+      {
+        "path": "ops/main-server/runners.json",
+        "git_blob_sha": "0fc07c78f40cd2b0808e6ee63903e58c55c77539"
+      },
+      {
+        "path": "ops/burst-runner/site-auditor-runners.json",
+        "git_blob_sha": "0b66cf6a9f7166869a914c528cc361782ce05343"
+      },
+      {
+        "path": "ops/burst-runner/repository-pools.json",
+        "git_blob_sha": "41db87318bc4250abbd2993eb8c4c287031cc83b"
+      }
     ],
-    "canonical_projection_sha256": "684d6845ca763614c313c70de5f49242cb009ecea8ebc59d43b25dacc96978db"
+    "canonical_projection_sha256": "9dd96b50560532e79c14b67e9c015faf7c234ab191ec6b30bd5540f7056298dc"
   },
   "canonical_payload": {
-    "repository": "Dimar4713/AIMETON_site_auditor",
+    "repository": "AIMETON/AIMETON_site_auditor",
     "contract": {
       "name": "site-auditor-stage",
       "capability": "site-auditor-stage-validation",
-      "selector": ["self-hosted", "Linux", "X64", "stage", "auditor"],
+      "selector": [
+        "self-hosted",
+        "Linux",
+        "X64",
+        "stage",
+        "auditor"
+      ],
       "eligible_runners": [
-        {"inventory_key": "auditor_stage", "runner_name": "aimeton-site-auditor-stage", "repository": "Dimar4713/AIMETON_site_auditor", "source": "persistent", "labels": ["self-hosted", "Linux", "X64", "stage", "auditor"]},
-        {"inventory_key": "auditor_burst_stage_01", "runner_name": "aimeton-auditor-burst-stage-01", "repository": "Dimar4713/AIMETON_site_auditor", "source": "burst", "labels": ["self-hosted", "Linux", "X64", "stage", "auditor", "burst"]},
-        {"inventory_key": "auditor_burst_stage_02", "runner_name": "aimeton-auditor-burst-stage-02", "repository": "Dimar4713/AIMETON_site_auditor", "source": "burst", "labels": ["self-hosted", "Linux", "X64", "stage", "auditor", "burst"]}
+        {
+          "inventory_key": "auditor_stage",
+          "runner_name": "aimeton-site-auditor-stage",
+          "repository": "AIMETON/AIMETON_site_auditor",
+          "source": "persistent",
+          "labels": [
+            "self-hosted",
+            "Linux",
+            "X64",
+            "stage",
+            "auditor"
+          ]
+        },
+        {
+          "inventory_key": "auditor_burst_stage_01",
+          "runner_name": "aimeton-auditor-burst-stage-01",
+          "repository": "AIMETON/AIMETON_site_auditor",
+          "source": "burst",
+          "labels": [
+            "self-hosted",
+            "Linux",
+            "X64",
+            "stage",
+            "auditor",
+            "burst"
+          ]
+        },
+        {
+          "inventory_key": "auditor_burst_stage_02",
+          "runner_name": "aimeton-auditor-burst-stage-02",
+          "repository": "AIMETON/AIMETON_site_auditor",
+          "source": "burst",
+          "labels": [
+            "self-hosted",
+            "Linux",
+            "X64",
+            "stage",
+            "auditor",
+            "burst"
+          ]
+        }
       ]
     },
     "repository_pool": {
       "dispatch_enabled": false,
       "baseline_slots": 1,
       "burst_slots": 2,
-      "required_labels": ["self-hosted", "Linux", "X64", "stage", "auditor", "burst"],
-      "planned_runner_names": ["aimeton-auditor-burst-stage-01", "aimeton-auditor-burst-stage-02"]
+      "required_labels": [
+        "self-hosted",
+        "Linux",
+        "X64",
+        "stage",
+        "auditor",
+        "burst"
+      ],
+      "planned_runner_names": [
+        "aimeton-auditor-burst-stage-01",
+        "aimeton-auditor-burst-stage-02"
+      ]
     }
   }
 }

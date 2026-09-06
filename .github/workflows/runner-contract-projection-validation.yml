@@ -25,7 +25,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      AIMETON_EXPECTED_PROJECTION_SHA256: 684d6845ca763614c313c70de5f49242cb009ecea8ebc59d43b25dacc96978db
+      AIMETON_EXPECTED_PROJECTION_SHA256: 9dd96b50560532e79c14b67e9c015faf7c234ab191ec6b30bd5540f7056298dc
     steps:
       - name: Materialize exact revision without marketplace actions
         shell: bash
