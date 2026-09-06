@@ -86,27 +86,30 @@ jobs:
           path=_database_path().resolve()
           if not str(path).startswith('/app/data/'):
               raise RuntimeError(f'auth database outside persistent /app/data mount: {path}')
+          required={'users','sessions','auth_audit_events'}
           if not path.exists():
-              raise RuntimeError(f'auth database missing: {path}')
-          with sqlite3.connect(f'file:{path}?mode=ro', uri=True) as db:
-              assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
-              tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-              assert {'users','sessions','auth_audit_events'} <= tables, tables
-              users=db.execute('SELECT COUNT(*) FROM users').fetchone()[0]
-              admins=db.execute("SELECT COUNT(*) FROM users WHERE role='admin' AND is_active=1").fetchone()[0]
-              print(f'{users}|{admins}')
+              print('0|0|missing')
+          else:
+              with sqlite3.connect(f'file:{path}?mode=ro', uri=True) as db:
+                  integrity=db.execute('PRAGMA integrity_check').fetchone()[0]
+                  tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                  if integrity != 'ok' or not required <= tables:
+                      print('0|0|repair')
+                  else:
+                      users=db.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+                      admins=db.execute("SELECT COUNT(*) FROM users WHERE role='admin' AND is_active=1").fetchone()[0]
+                      print(f'{users}|{admins}|ok')
           PY
           )"
-          users="${state%%|*}"
-          admins="${state##*|}"
+          IFS='|' read -r users admins state_kind <<< "$state"
           echo "users=$users" >> "$GITHUB_OUTPUT"
           echo "admins=$admins" >> "$GITHUB_OUTPUT"
-          if (( admins > 0 )); then
+          if [[ "$state_kind" == ok ]] && (( admins > 0 )); then
             echo 'needs_repair=false' >> "$GITHUB_OUTPUT"
             echo "Persistent auth invariant OK: users=$users active_admins=$admins"
           else
             echo 'needs_repair=true' >> "$GITHUB_OUTPUT"
-            echo "Persistent auth invariant broken: users=$users active_admins=$admins"
+            echo "Persistent auth invariant requires repair: state=$state_kind users=$users active_admins=$admins"
           fi
 
       - name: Backup auth DB before self-heal
@@ -121,9 +124,13 @@ jobs:
           print(_database_path().resolve())
           PY
           )"
-          docker cp "$CONTAINER:$auth_db" "$backup"
-          chmod 0600 "$backup"
-          echo 'auth_backup=created'
+          if docker exec "$CONTAINER" test -f "$auth_db"; then
+            docker cp "$CONTAINER:$auth_db" "$backup"
+            chmod 0600 "$backup"
+            echo 'auth_backup=created'
+          else
+            echo 'auth_backup=not-required-missing-db'
+          fi
 
       - name: Reconcile bootstrap admin if invariant is broken
         if: ${{ steps.inspect.outputs.needs_repair == 'true' }}

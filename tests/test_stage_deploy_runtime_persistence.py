@@ -13,7 +13,7 @@ def test_transactional_deploy_includes_runtime_data_mount_before_container_start
     assert 'chmod 700 "$DATA_DIR"' in text
     assert '      - ./data/runtime-core:/app/data' in text
     assert '      AIMETON_RUNTIME_DB: "/app/data/runtime-core.sqlite3"' in text
-    assert '      AIMETON_AUTH_DB: "/app/data/runtime-core.sqlite3"' in text
+    assert '      AIMETON_AUTH_DB: "/app/data/auth.sqlite3"' in text
 
     configure_pos = text.index("configure_runtime_secrets")
     switch_pos = text.index('log "Switching bundle atomically')
