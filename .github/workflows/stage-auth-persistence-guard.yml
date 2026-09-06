@@ -29,7 +29,6 @@ jobs:
       CONTAINER: aimeton-auditor
       STAGE_URL: https://stage-auditor.aimeton.ru
       STACK_DIR: /opt/aimeton/auditor-stack
-      HOST_AUTH_DB: /opt/aimeton/auditor-stack/data/runtime-core/auth.sqlite3
       EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
       PARENT_RUN_ID: ${{ github.event.workflow_run.id }}
       AIMETON_BOOTSTRAP_ADMIN_USERNAME: ${{ vars.AIMETON_BOOTSTRAP_ADMIN_USERNAME }}
@@ -81,14 +80,18 @@ jobs:
         run: |
           set -Eeuo pipefail
           docker ps --format '{{.Names}}' | grep -Fxq "$CONTAINER"
-          test -f "$HOST_AUTH_DB"
-          state="$(python3 - <<'PY'
-          import sqlite3
-          path='/opt/aimeton/auditor-stack/data/runtime-core/auth.sqlite3'
+          auth_db="$(docker exec "$CONTAINER" sh -lc 'printf %s "${AIMETON_AUTH_DB:-/app/data/auth.sqlite3}"')"
+          case "$auth_db" in
+            /app/data/*) ;;
+            *) echo "auth database outside persistent /app/data mount: $auth_db" >&2; exit 1 ;;
+          esac
+          state="$(docker exec -i "$CONTAINER" python - "$auth_db" <<'PY'
+          import sqlite3, sys
+          path=sys.argv[1]
           with sqlite3.connect(f'file:{path}?mode=ro', uri=True) as db:
               assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
               tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-              assert {'users','sessions','auth_audit_events'} <= tables
+              assert {'users','sessions','auth_audit_events'} <= tables, tables
               users=db.execute('SELECT COUNT(*) FROM users').fetchone()[0]
               admins=db.execute("SELECT COUNT(*) FROM users WHERE role='admin' AND is_active=1").fetchone()[0]
               print(f'{users}|{admins}')
@@ -113,7 +116,8 @@ jobs:
           set -Eeuo pipefail
           install -d -m 0700 /opt/aimeton/auditor-stack/backups/auth
           backup="/opt/aimeton/auditor-stack/backups/auth/auth.sqlite3.$(date -u +%Y%m%dT%H%M%SZ).guard.bak"
-          cp -a "$HOST_AUTH_DB" "$backup"
+          auth_db="$(docker exec "$CONTAINER" sh -lc 'printf %s "${AIMETON_AUTH_DB:-/app/data/auth.sqlite3}"')"
+          docker cp "$CONTAINER:$auth_db" "$backup"
           chmod 0600 "$backup"
           echo 'auth_backup=created'
 
