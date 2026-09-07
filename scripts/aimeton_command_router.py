@@ -18,6 +18,7 @@ ROUTES: dict[str, tuple[int, str, dict[str, str]]] = {
     "probe-accb-openrouter-sol": (820, "accb-openrouter-sol-microprobe.yml", {"expected_sha": "{sha}", "evidence_issue": "820", "owner_spend_authorized": "true", "max_budget_rub": "1"}),
     "run-accb-openrouter-sol-32k": (820, "accb-openrouter-sol-32k-reference.yml", {"expected_sha": "{sha}", "evidence_issue": "820", "owner_spend_authorized": "true", "max_budget_rub": "100"}),
     "run-accb-openrouter-sol-triad": (820, "accb-openrouter-sol-32k-provider-triad.yml", {"expected_sha": "{sha}", "evidence_issue": "820", "owner_spend_authorized": "true", "max_budget_rub": "300"}),
+    "preflight-accb-layer-b-tokenizers": (798, "accb-layer-b-tokenizer-preflight.yml", {"expected_sha": "{sha}", "evidence_issue": "798"}),
     "probe-accb-openrouter-edge-large-body": (820, "accb-openrouter-edge-large-body-probe.yml", {"expected_sha": "{sha}", "evidence_issue": "820", "proxy_mode": "socks"}),
     "probe-accb-openrouter-edge-http": (820, "accb-openrouter-edge-large-body-probe.yml", {"expected_sha": "{sha}", "evidence_issue": "820", "proxy_mode": "http"}),
     "accept-admin-trace-stage": (293, "accept-admin-trace-stage.yml", {"expected_sha": "{sha}"}),
