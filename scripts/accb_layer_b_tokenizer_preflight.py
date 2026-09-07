@@ -79,6 +79,7 @@ def tiktoken_counter(encoding_name: str) -> tuple[Callable[[str], int], dict[str
 
 
 def build_report(architecture_root: Path) -> dict[str, Any]:
+    snapshot_verification = dry.verify_snapshot(architecture_root)
     frozen = payload.load_frozen_artifacts(architecture_root)
     report: dict[str, Any] = {
         "schema_version": "0.1",
@@ -86,6 +87,7 @@ def build_report(architecture_root: Path) -> dict[str, Any]:
         "architecture_source_sha": payload.FROZEN_ARCHITECTURE_SHA,
         "execution_admission_sha": EXECUTION_ADMISSION_SHA,
         "payload_version": payload.PAYLOAD_VERSION,
+        "snapshot_verification": snapshot_verification,
         "filler_corpus_version": "accb-layer-b-synthetic-filler-v0.1",
         "provider_generation_requests": 0,
         "paid_spend_authorized_rub": 0,
