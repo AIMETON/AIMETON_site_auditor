@@ -4,6 +4,7 @@ on:
     inputs:
       expected_sha: { required: true, type: string }
       evidence_issue: { required: true, default: "820", type: string }
+      proxy_mode: { required: true, default: "socks", type: string }
 permissions:
   contents: read
   issues: write
@@ -16,6 +17,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       EXPECTED_SHA: ${{ inputs.expected_sha }}
       EVIDENCE_ISSUE: ${{ inputs.evidence_issue }}
+      PROXY_MODE: ${{ inputs.proxy_mode }}
       OPENROUTER_PROXY_URL: ${{ vars.OPENROUTER_PROXY_URL }}
       OPENROUTER_SOCKS_URL: ${{ vars.OPENROUTER_SOCKS_URL }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -91,18 +93,27 @@ jobs:
               }
 
           key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-          socks_endpoint = os.environ.get("OPENROUTER_SOCKS_URL", "").strip()
-          if socks_endpoint.startswith(("http://", "https://")):
-              parsed = urllib.parse.urlsplit(socks_endpoint)
-              if not parsed.hostname or parsed.username or parsed.password:
-                  raise RuntimeError("openrouter_socks_endpoint_invalid")
-              host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
-              socks_endpoint = f"socks5h://{host}:{parsed.port or 50101}"
-          proxy = client.resolve_proxy(
-              os.environ.get("OPENROUTER_PROXY_URL", "").strip(),
-              socks_endpoint,
-          )
+          proxy_mode = os.environ.get("PROXY_MODE", "").strip().lower()
+          if proxy_mode == "http":
+              proxy = os.environ.get("OPENROUTER_PROXY_URL", "").strip()
+              if not proxy.startswith(("http://", "https://")):
+                  raise RuntimeError("openrouter_http_proxy_invalid")
+          elif proxy_mode == "socks":
+              socks_endpoint = os.environ.get("OPENROUTER_SOCKS_URL", "").strip()
+              if socks_endpoint.startswith(("http://", "https://")):
+                  parsed = urllib.parse.urlsplit(socks_endpoint)
+                  if not parsed.hostname or parsed.username or parsed.password:
+                      raise RuntimeError("openrouter_socks_endpoint_invalid")
+                  host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+                  socks_endpoint = f"socks5h://{host}:{parsed.port or 50101}"
+              proxy = client.resolve_proxy(
+                  os.environ.get("OPENROUTER_PROXY_URL", "").strip(),
+                  socks_endpoint,
+              )
+          else:
+              raise RuntimeError("unsupported_proxy_mode")
           client.validate_proxy_and_key(proxy, key)
+          receipt["proxy_mode"] = proxy_mode
           receipt["proxy_transport"] = "socks5h" if proxy.startswith("socks5h://") else "http"
           receipt["key_before"] = sanitized_key_state(proxy, key)
           if receipt["key_before"].get("http_status") != 200:
@@ -236,6 +247,7 @@ jobs:
               f"- target request bytes: `{receipt.get('target_request_body_bytes')}`",
               f"- HTTP status: `{receipt.get('http_status')}`",
               f"- edge response observed: `{receipt.get('edge_response_observed')}`",
+              f"- proxy mode: `{receipt.get('proxy_mode')}`",
               f"- transport: `{json.dumps(receipt.get('transport_metrics') or {}, sort_keys=True)}`",
               f"- failure class: `{receipt.get('failure_class')}`",
               f"- ambiguous delivery: `{receipt.get('ambiguous_delivery')}`",
@@ -276,6 +288,7 @@ jobs:
           assert receipt["paid_spend_authorized_rub"] == 0
           assert receipt["automatic_retries"] == 0
           assert receipt["allow_fallbacks"] is False
+          assert receipt["proxy_mode"] in {"socks", "http"}
           assert receipt["request_body_bytes"] == 89470
           assert receipt["transport_metrics"].get("upload_complete") is True
           assert receipt["key_usage_unchanged"] is True
