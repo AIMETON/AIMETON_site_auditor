@@ -4,6 +4,7 @@ on:
     inputs:
       expected_sha: { required: true, type: string }
       evidence_issue: { required: true, default: "798", type: string }
+      sol_transport_mode: { required: true, default: "direct", type: string }
 permissions:
   contents: read
   issues: write
@@ -17,6 +18,7 @@ jobs:
       EXPECTED_SHA: ${{ inputs.expected_sha }}
       EVIDENCE_ISSUE: ${{ inputs.evidence_issue }}
       OPENROUTER_PROXY_URL: ${{ vars.OPENROUTER_PROXY_URL }}
+      SOL_TRANSPORT_MODE: ${{ inputs.sol_transport_mode }}
     steps:
       - name: Materialize exact source
         shell: bash
@@ -40,7 +42,7 @@ jobs:
           set -Eeuo pipefail
           OUT="$RUNNER_TEMP/accb-layer-b-hybrid-census-$GITHUB_RUN_ID.json"
           set +e
-          python3 scripts/accb_layer_b_hybrid_census.py             --openrouter-proxy-url "$OPENROUTER_PROXY_URL"             --output "$OUT"
+          python3 scripts/accb_layer_b_hybrid_census.py             --openrouter-proxy-url "$OPENROUTER_PROXY_URL"             --sol-transport-mode "$SOL_TRANSPORT_MODE"             --output "$OUT"
           rc=$?
           set -e
           echo "ACCB_HYBRID_CENSUS_RC=$rc" >> "$GITHUB_ENV"
@@ -142,5 +144,8 @@ jobs:
           assert p["budget_admitted"] is True
           assert p["whole_tranche_conservative_guard_rub"] <= 10000
           assert p["openrouter_sol"]["provider_pin"] == "openai"
-          assert p["openrouter_sol"]["transport"] == "openrouter-responses-via-http-proxy"
+          assert p["openrouter_sol"]["transport"] in {
+              "openrouter-responses-via-direct",
+              "openrouter-responses-via-http",
+          }
           PY
