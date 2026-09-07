@@ -1,0 +1,286 @@
+name: ACCB OpenRouter Edge Same-Body No-Paid Probe
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha: { required: true, type: string }
+      evidence_issue: { required: true, default: "820", type: string }
+permissions:
+  contents: read
+  issues: write
+jobs:
+  edge-probe:
+    environment: stage
+    runs-on: [self-hosted, Linux, X64, stage, auditor]
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      EVIDENCE_ISSUE: ${{ inputs.evidence_issue }}
+      OPENROUTER_PROXY_URL: ${{ vars.OPENROUTER_PROXY_URL }}
+      OPENROUTER_SOCKS_URL: ${{ vars.OPENROUTER_SOCKS_URL }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    steps:
+      - name: Materialize exact source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          cd "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if [[ ! -d .git ]]; then git init; fi
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git fetch --no-tags --depth=1 origin "$EXPECTED_SHA"
+          git checkout --detach --force FETCH_HEAD
+          git reset --hard "$EXPECTED_SHA"
+          git clean -ffdx
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Send same-size authenticated invalid-schema body with zero generation authority
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import sys
+          import urllib.parse
+
+          sys.path.insert(0, "scripts")
+          import accb_layer_b_dry_run as dry
+          import openrouter_proxy_client as client
+
+          TARGET_REQUEST_BYTES = 89470
+          receipt_path = pathlib.Path("/tmp/accb-openrouter-edge-large-body-probe.json")
+          receipt = {
+              "schema_version": "1.0",
+              "status": "OPENROUTER_EDGE_LARGE_BODY_PROBE_FAILED",
+              "transport_target": client.OPENROUTER_RESPONSES_URL,
+              "target_request_body_bytes": TARGET_REQUEST_BYTES,
+              "invalid_schema_probe": True,
+              "model_generation_requests": 0,
+              "paid_spend_authorized_rub": 0,
+              "allow_fallbacks": False,
+              "store": False,
+              "raw_request_retained": False,
+              "raw_response_retained": False,
+              "proxy_value_retained": False,
+              "api_key_value_retained": False,
+              "automatic_retries": 0,
+              "expected_result": "explicit_http_4xx_after_complete_upload",
+          }
+
+          def persist():
+              receipt_path.write_text(json.dumps(receipt, sort_keys=True), encoding="utf-8")
+
+          def sanitized_key_state(proxy, key):
+              result = client.authenticated_get(
+                  url=client.OPENROUTER_KEY_URL,
+                  proxy=proxy,
+                  api_key=key,
+                  total_timeout_seconds=90,
+              )
+              data = json.loads(result.body.decode("utf-8"))
+              data = data.get("data") if isinstance(data.get("data"), dict) else data
+              allowed = ("limit", "limit_remaining", "usage", "usage_daily", "usage_weekly", "usage_monthly")
+              return {
+                  "http_status": result.http_status,
+                  **{name: data.get(name) for name in allowed if isinstance(data.get(name), (int, float))},
+              }
+
+          key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+          socks_endpoint = os.environ.get("OPENROUTER_SOCKS_URL", "").strip()
+          if socks_endpoint.startswith(("http://", "https://")):
+              parsed = urllib.parse.urlsplit(socks_endpoint)
+              if not parsed.hostname or parsed.username or parsed.password:
+                  raise RuntimeError("openrouter_socks_endpoint_invalid")
+              host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+              socks_endpoint = f"socks5h://{host}:{parsed.port or 50101}"
+          proxy = client.resolve_proxy(
+              os.environ.get("OPENROUTER_PROXY_URL", "").strip(),
+              socks_endpoint,
+          )
+          client.validate_proxy_and_key(proxy, key)
+          receipt["proxy_transport"] = "socks5h" if proxy.startswith("socks5h://") else "http"
+          receipt["key_before"] = sanitized_key_state(proxy, key)
+          if receipt["key_before"].get("http_status") != 200:
+              raise RuntimeError("openrouter_key_preflight_not_200")
+
+          scenario = dry._read_json(dry.SCENARIO_PATH)
+          seed, _ = dry.derive_assembly_seed(
+              scenario["scenario_id"], scenario["scenario_version"], 32768
+          )
+          context, manifest = dry.assemble_context(
+              scenario,
+              anchor_tokens=32768,
+              seed=seed,
+              density=float(scenario["context_targets"]["distractor_density"]),
+          )
+          wire_context, wire_manifest = client.compact_accb_context(context)
+          checkpoint = str(scenario["events"][5]["payload"])
+          task = checkpoint + (
+              " Return JSON only with keys old_policy_status, fallback_authorization_status, "
+              "budget_rub, current_policy, next_safe_step. Use statuses superseded/revoked where applicable."
+          )
+          input_text = (
+              "[FILLER LEGEND] old = stale legacy fallback noise; n = neutral noise.\n"
+              + wire_context
+              + "\n\n[CHECKPOINT]\n"
+              + task
+          )
+          receipt.update({
+              "logical_context_tokens": manifest["logical_whitespace_tokens"],
+              "input_text_sha256": hashlib.sha256(input_text.encode("utf-8")).hexdigest(),
+              "wire_context_sha256": wire_manifest["wire_context_sha256"],
+          })
+
+          # The model field is intentionally the wrong JSON type. The OpenRouter
+          # edge can only return a schema 4xx; it has no valid model identifier to
+          # route and therefore cannot authorize provider generation.
+          def build_probe_body(padding_spaces):
+              payload = {
+                  "model": {"invalid": True},
+                  "input": input_text + (" " * padding_spaces),
+                  "max_output_tokens": 256,
+                  "reasoning": {"effort": "low"},
+                  "store": False,
+                  "stream": True,
+                  "provider": {
+                      "only": ["openai"],
+                      "order": ["openai"],
+                      "allow_fallbacks": False,
+                      "require_parameters": True,
+                      "data_collection": "deny",
+                  },
+              }
+              return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+          base_body = build_probe_body(0)
+          padding = TARGET_REQUEST_BYTES - len(base_body)
+          if padding < 0:
+              raise RuntimeError("invalid_schema_probe_base_body_exceeds_target")
+          request_body = build_probe_body(padding)
+          if len(request_body) != TARGET_REQUEST_BYTES:
+              raise RuntimeError("invalid_schema_probe_exact_size_mismatch")
+          receipt["request_body_bytes"] = len(request_body)
+          receipt["request_body_sha256"] = hashlib.sha256(request_body).hexdigest()
+          receipt["semantic_padding_spaces"] = padding
+          persist()
+
+          try:
+              result = client.post_response(
+                  proxy=proxy,
+                  api_key=key,
+                  body=request_body,
+                  total_timeout_seconds=90,
+              )
+              receipt.update({
+                  "http_status": result.http_status,
+                  "transport_metrics": result.metrics,
+                  "diagnostic_headers": result.diagnostic_headers,
+                  "response_received": True,
+                  "response_bytes": len(result.body),
+              })
+              if 400 <= result.http_status < 500:
+                  receipt["edge_response_observed"] = True
+                  receipt["status"] = "OPENROUTER_EDGE_LARGE_BODY_PROBE_COMPLETE"
+              else:
+                  receipt["edge_response_observed"] = False
+                  receipt["failure_class"] = f"unexpected_http_{result.http_status}"
+          except client.CurlTransportError as exc:
+              receipt["edge_response_observed"] = False
+              receipt["failure_class"] = exc.failure_class
+              receipt["transport_metrics"] = exc.metrics
+              receipt["ambiguous_delivery"] = bool(exc.metrics.get("upload_complete"))
+          persist()
+
+          receipt["key_after"] = sanitized_key_state(proxy, key)
+          usage_fields = ("usage", "usage_daily", "usage_weekly", "usage_monthly")
+          receipt["key_usage_unchanged"] = all(
+              receipt["key_before"].get(name) == receipt["key_after"].get(name)
+              for name in usage_fields
+          )
+          if not receipt["key_usage_unchanged"]:
+              receipt["status"] = "OPENROUTER_EDGE_LARGE_BODY_PROBE_FAILED"
+              receipt["failure_class"] = "openrouter_key_usage_changed"
+          persist()
+          print(json.dumps(receipt, sort_keys=True))
+          PY
+
+      - name: Publish sanitized edge receipt
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import urllib.request
+
+          path = pathlib.Path("/tmp/accb-openrouter-edge-large-body-probe.json")
+          receipt = json.loads(path.read_text()) if path.exists() else {
+              "status": "EDGE_PROBE_DID_NOT_EMIT_RECEIPT"
+          }
+          lines = [
+              "## ACCB OpenRouter authenticated same-body edge probe",
+              "",
+              f"- exact SHA: `{os.environ['EXPECTED_SHA']}`",
+              f"- runner: `{os.environ.get('RUNNER_NAME')}`",
+              f"- status: **{receipt.get('status')}**",
+              f"- logical context tokens: `{receipt.get('logical_context_tokens')}`",
+              f"- input fixture digest: `{receipt.get('input_text_sha256')}`",
+              f"- request bytes: `{receipt.get('request_body_bytes')}`",
+              f"- target request bytes: `{receipt.get('target_request_body_bytes')}`",
+              f"- HTTP status: `{receipt.get('http_status')}`",
+              f"- edge response observed: `{receipt.get('edge_response_observed')}`",
+              f"- transport: `{json.dumps(receipt.get('transport_metrics') or {}, sort_keys=True)}`",
+              f"- failure class: `{receipt.get('failure_class')}`",
+              f"- ambiguous delivery: `{receipt.get('ambiguous_delivery')}`",
+              f"- key state before: `{json.dumps(receipt.get('key_before') or {}, sort_keys=True)}`",
+              f"- key state after: `{json.dumps(receipt.get('key_after') or {}, sort_keys=True)}`",
+              f"- key usage unchanged: `{receipt.get('key_usage_unchanged')}`",
+              "- model generation requests: `0`",
+              "- paid spend authorized: `0 RUB`",
+              "- invalid model schema: `true`",
+              "- fallback: `false`",
+              "- raw request/response retained: `false`",
+              "- automatic retries: `0`",
+          ]
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/issues/{os.environ['EVIDENCE_ISSUE']}/comments",
+              data=json.dumps({"body": "\n".join(lines)}).encode("utf-8"),
+              method="POST",
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              if response.status not in (200, 201):
+                  raise SystemExit(response.status)
+          PY
+
+      - name: Enforce explicit edge response and zero-spend contract
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import pathlib
+
+          receipt = json.loads(pathlib.Path("/tmp/accb-openrouter-edge-large-body-probe.json").read_text())
+          assert receipt["model_generation_requests"] == 0
+          assert receipt["paid_spend_authorized_rub"] == 0
+          assert receipt["automatic_retries"] == 0
+          assert receipt["allow_fallbacks"] is False
+          assert receipt["request_body_bytes"] == 89470
+          assert receipt["transport_metrics"].get("upload_complete") is True
+          assert receipt["key_usage_unchanged"] is True
+          assert receipt.get("edge_response_observed") is True
+          assert 400 <= int(receipt["http_status"]) < 500
+          if receipt["status"] != "OPENROUTER_EDGE_LARGE_BODY_PROBE_COMPLETE":
+              raise SystemExit(receipt["status"])
+          PY
