@@ -23,6 +23,7 @@ def test_command_router_is_the_sanitized_single_ingress_contract() -> None:
     for command, issue_number, workflow_id in (
         ("deploy-stage", 337, "deploy-stage.yml"),
         ("validate-baseline-self-hosted", 767, "baseline-self-hosted-dispatch.yml"),
+        ("probe-accb-openrouter-edge-large-body", 820, "accb-openrouter-edge-large-body-probe.yml"),
         ("accept-admin-trace-stage", 293, "accept-admin-trace-stage.yml"),
         ("accept-aimeton-self-audit-stage", 293, "accept-aimeton-self-audit-stage.yml"),
         ("accept-checkpoint-stage", 88, "accept-checkpoint-stage.yml"),
