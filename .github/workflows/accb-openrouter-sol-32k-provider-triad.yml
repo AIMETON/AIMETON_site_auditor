@@ -1,0 +1,326 @@
+name: ACCB OpenRouter Sol 32K Provider Triad
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha: { required: true, type: string }
+      evidence_issue: { required: true, default: "820", type: string }
+      owner_spend_authorized: { required: true, type: string }
+      max_budget_rub: { required: true, type: string }
+permissions:
+  contents: read
+  issues: write
+jobs:
+  triad:
+    environment: stage
+    runs-on: [self-hosted, Linux, X64, stage, auditor]
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      EVIDENCE_ISSUE: ${{ inputs.evidence_issue }}
+      OWNER_SPEND_AUTHORIZED: ${{ inputs.owner_spend_authorized }}
+      MAX_BUDGET_RUB: ${{ inputs.max_budget_rub }}
+      OPENROUTER_PROXY_URL: ${{ vars.OPENROUTER_PROXY_URL }}
+      OPENROUTER_SOCKS_URL: ${{ vars.OPENROUTER_SOCKS_URL }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    steps:
+      - name: Materialize exact source and enforce budget
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$OWNER_SPEND_AUTHORIZED" == "true" ]]
+          [[ "$MAX_BUDGET_RUB" == "300" ]]
+          cd "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if [[ ! -d .git ]]; then git init; fi
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git fetch --no-tags --depth=1 origin "$EXPECTED_SHA"
+          git checkout --detach --force FETCH_HEAD
+          git reset --hard "$EXPECTED_SHA"
+          git clean -ffdx
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Run one identical 32K fixture through three pinned providers
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import sys
+          import urllib.parse
+
+          sys.path.insert(0, "scripts")
+          import accb_layer_b_dry_run as dry
+          import openrouter_proxy_client as client
+
+          providers = ["openai", "azure", "amazon-bedrock"]
+          receipt_path = pathlib.Path("/tmp/accb-openrouter-sol-provider-triad.json")
+          receipt = {
+              "status": "ACCB_OPENROUTER_SOL_PROVIDER_TRIAD_FAILED",
+              "model_requested": "openai/gpt-5.6-sol",
+              "providers": providers,
+              "allow_fallbacks": False,
+              "store": False,
+              "raw_request_retained": False,
+              "raw_model_output_retained": False,
+              "proxy_value_retained": False,
+              "api_key_value_retained": False,
+              "max_budget_rub": 300,
+              "max_budget_rub_per_lane": 100,
+              "max_output_tokens": 256,
+              "stream": True,
+              "automatic_retries": 0,
+              "results": [],
+          }
+
+          def persist():
+              receipt_path.write_text(json.dumps(receipt, sort_keys=True), encoding="utf-8")
+
+          def key_state(proxy, key):
+              result = client.authenticated_get(
+                  url=client.OPENROUTER_KEY_URL,
+                  proxy=proxy,
+                  api_key=key,
+                  total_timeout_seconds=90,
+              )
+              data = json.loads(result.body.decode("utf-8"))
+              data = data.get("data") if isinstance(data.get("data"), dict) else data
+              allowed = ("limit", "limit_remaining", "usage", "usage_daily", "usage_weekly", "usage_monthly")
+              return {
+                  "http_status": result.http_status,
+                  **{name: data.get(name) for name in allowed if isinstance(data.get(name), (int, float))},
+              }
+
+          key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+          socks_endpoint = os.environ.get("OPENROUTER_SOCKS_URL", "").strip()
+          if socks_endpoint.startswith(("http://", "https://")):
+              parsed = urllib.parse.urlsplit(socks_endpoint)
+              if not parsed.hostname or parsed.username or parsed.password:
+                  raise RuntimeError("openrouter_socks_endpoint_invalid")
+              host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+              socks_endpoint = f"socks5h://{host}:{parsed.port or 50101}"
+          proxy = client.resolve_proxy(
+              os.environ.get("OPENROUTER_PROXY_URL", "").strip(),
+              socks_endpoint,
+          )
+          client.validate_proxy_and_key(proxy, key)
+          receipt["proxy_transport"] = "socks5h" if proxy.startswith("socks5h://") else "http"
+          receipt["key_before"] = key_state(proxy, key)
+
+          snapshot = dry.verify_snapshot()
+          scenario = dry._read_json(dry.SCENARIO_PATH)
+          seed, _ = dry.derive_assembly_seed(
+              scenario["scenario_id"], scenario["scenario_version"], 32768
+          )
+          context, manifest = dry.assemble_context(
+              scenario,
+              anchor_tokens=32768,
+              seed=seed,
+              density=float(scenario["context_targets"]["distractor_density"]),
+          )
+          wire_context, wire_manifest = client.compact_accb_context(context)
+          if wire_manifest["logical_whitespace_tokens"] != 32768:
+              raise RuntimeError("compact_logical_token_target_mismatch")
+          checkpoint = str(scenario["events"][5]["payload"])
+          task = checkpoint + (
+              " Return JSON only with keys old_policy_status, fallback_authorization_status, "
+              "budget_rub, current_policy, next_safe_step. Use statuses superseded/revoked where applicable."
+          )
+          input_text = (
+              "[FILLER LEGEND] old = stale legacy fallback noise; n = neutral noise.\n"
+              + wire_context
+              + "\n\n[CHECKPOINT]\n"
+              + task
+          )
+          receipt.update({
+              "snapshot": snapshot,
+              "context_sha256": manifest["context_sha256"],
+              **wire_manifest,
+              "logical_context_tokens": manifest["logical_whitespace_tokens"],
+              "source_context_bytes": len(context.encode("utf-8")),
+              "context_bytes": len(wire_context.encode("utf-8")),
+              "input_text_sha256": hashlib.sha256(input_text.encode("utf-8")).hexdigest(),
+          })
+          persist()
+
+          for provider in providers:
+              lane = {
+                  "provider": provider,
+                  "submission_attempts": 0,
+                  "confirmed_generation_requests": 0,
+                  "generation_confirmed": False,
+                  "ambiguous_delivery": False,
+                  "automatic_retries": 0,
+              }
+              try:
+                  payload = json.loads(client.build_response_body(
+                      input_text,
+                      max_output_tokens=receipt["max_output_tokens"],
+                      stream=True,
+                  ).decode("utf-8"))
+                  payload["provider"] = {
+                      "only": [provider],
+                      "order": [provider],
+                      "allow_fallbacks": False,
+                      "require_parameters": True,
+                      "data_collection": "deny",
+                  }
+                  request_body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                  if len(request_body) >= 98304:
+                      raise RuntimeError("compact_request_exceeds_observed_complete_upload_bound")
+                  lane.update({
+                      "request_body_bytes": len(request_body),
+                      "request_body_sha256": hashlib.sha256(request_body).hexdigest(),
+                  })
+                  lane["submission_attempts"] = 1
+                  result = client.post_response(
+                      proxy=proxy,
+                      api_key=key,
+                      body=request_body,
+                      total_timeout_seconds=1200,
+                  )
+                  lane.update({
+                      "http_status": result.http_status,
+                      "response_received": True,
+                      "transport_metrics": result.metrics,
+                      "diagnostic_headers": result.diagnostic_headers,
+                  })
+                  if not 200 <= result.http_status < 300:
+                      raise RuntimeError(f"openrouter_http_{result.http_status}")
+                  stream_result = client.parse_response_stream(result.body)
+                  data = stream_result["terminal_response"]
+                  if not data:
+                      raise RuntimeError("openrouter_stream_missing_terminal_response")
+                  response_id = str(data.get("id") or stream_result.get("response_id") or "")[:128]
+                  lane.update({
+                      "status": "COMPLETE",
+                      "response_model": str(data.get("model") or "")[:128],
+                      "response_id": response_id,
+                      "dashboard_generation_id": client.find_generation_id(data)
+                      or stream_result.get("generation_id")
+                      or client.find_generation_id(result.diagnostic_headers),
+                      "stream_event_types": stream_result["event_types"],
+                      "provider_usage": data.get("usage") if isinstance(data.get("usage"), dict) else {},
+                      "response_sha256": hashlib.sha256(result.body).hexdigest(),
+                      "generation_confirmed": bool(response_id),
+                      "confirmed_generation_requests": 1 if response_id else 0,
+                      "ambiguous_delivery": False,
+                  })
+              except client.CurlTransportError as exc:
+                  lane["status"] = "FAILED"
+                  lane["failure_class"] = exc.failure_class
+                  lane["transport_metrics"] = exc.metrics
+                  if exc.partial_body:
+                      partial = client.parse_response_stream(exc.partial_body)
+                      lane["partial_stream_event_types"] = partial["event_types"]
+                      lane["response_id"] = partial.get("response_id")
+                      lane["dashboard_generation_id"] = partial.get("generation_id")
+                  lane["ambiguous_delivery"] = bool(exc.metrics.get("upload_complete"))
+              except Exception as exc:
+                  lane["status"] = "FAILED"
+                  lane["failure_class"] = str(exc)[:160]
+                  metrics = lane.get("transport_metrics")
+                  lane["ambiguous_delivery"] = bool(
+                      isinstance(metrics, dict)
+                      and metrics.get("upload_complete")
+                      and not lane.get("response_received")
+                  )
+              receipt["results"].append(lane)
+              persist()
+
+          receipt["key_after"] = key_state(proxy, key)
+          receipt["total_submission_attempts"] = sum(x["submission_attempts"] for x in receipt["results"])
+          receipt["total_confirmed_generations"] = sum(x["confirmed_generation_requests"] for x in receipt["results"])
+          receipt["status"] = "ACCB_OPENROUTER_SOL_PROVIDER_TRIAD_COMPLETE"
+          persist()
+          print(json.dumps(receipt, sort_keys=True))
+          PY
+      - name: Publish sanitized triad receipt
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import urllib.request
+
+          path = pathlib.Path("/tmp/accb-openrouter-sol-provider-triad.json")
+          receipt = json.loads(path.read_text()) if path.exists() else {"status": "TRIAD_DID_NOT_EMIT_RECEIPT", "results": []}
+          lines = [
+              "## ACCB OpenRouter GPT-5.6 Sol 32K provider triad",
+              "",
+              f"- exact SHA: `{os.environ['EXPECTED_SHA']}`",
+              f"- runner: `{os.environ.get('RUNNER_NAME')}`",
+              f"- status: **{receipt.get('status')}**",
+              "- model: `openai/gpt-5.6-sol`",
+              "- providers: `openai`, `azure`, `amazon-bedrock`",
+              "- same input fixture for all lanes: `true`",
+              f"- logical context tokens: `{receipt.get('logical_context_tokens')}`",
+              f"- input fixture digest: `{receipt.get('input_text_sha256')}`",
+              f"- proxy transport: `{receipt.get('proxy_transport')}`",
+              "- fallback: `false` for every lane",
+              "- storage: `false`",
+              "- raw request/output retained: `false`",
+              "- automatic retries: `0`",
+              "- authorized session ceiling: `300 RUB`",
+              f"- key state before: `{json.dumps(receipt.get('key_before') or {}, sort_keys=True)}`",
+              f"- key state after: `{json.dumps(receipt.get('key_after') or {}, sort_keys=True)}`",
+              f"- total submission attempts: `{receipt.get('total_submission_attempts')}`",
+              f"- total confirmed generations: `{receipt.get('total_confirmed_generations')}`",
+              "",
+          ]
+          for lane in receipt.get("results") or []:
+              lines.extend([
+                  f"### {lane.get('provider')}",
+                  f"- status: `{lane.get('status')}`",
+                  f"- request bytes: `{lane.get('request_body_bytes')}`",
+                  f"- HTTP status: `{lane.get('http_status')}`",
+                  f"- response model: `{lane.get('response_model')}`",
+                  f"- response ID: `{lane.get('response_id')}`",
+                  f"- generation ID: `{lane.get('dashboard_generation_id')}`",
+                  f"- stream events: `{json.dumps(lane.get('stream_event_types') or lane.get('partial_stream_event_types') or [])}`",
+                  f"- transport: `{json.dumps(lane.get('transport_metrics') or {}, sort_keys=True)}`",
+                  f"- provider usage: `{json.dumps(lane.get('provider_usage') or {}, sort_keys=True)}`",
+                  f"- confirmed generation: `{lane.get('generation_confirmed')}`",
+                  f"- ambiguous delivery: `{lane.get('ambiguous_delivery')}`",
+                  f"- failure class: `{lane.get('failure_class')}`",
+                  "",
+              ])
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/issues/{os.environ['EVIDENCE_ISSUE']}/comments",
+              data=json.dumps({"body": "\n".join(lines)}).encode("utf-8"),
+              method="POST",
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              if response.status not in (200, 201):
+                  raise SystemExit(response.status)
+          PY
+      - name: Enforce bounded triad contract
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import pathlib
+          receipt = json.loads(pathlib.Path("/tmp/accb-openrouter-sol-provider-triad.json").read_text())
+          assert receipt["providers"] == ["openai", "azure", "amazon-bedrock"]
+          assert receipt["allow_fallbacks"] is False and receipt["store"] is False
+          assert receipt["automatic_retries"] == 0
+          assert receipt["max_budget_rub"] == 300
+          assert receipt["total_submission_attempts"] == 3
+          assert len(receipt["results"]) == 3
+          assert all(x["submission_attempts"] == 1 for x in receipt["results"])
+          assert all(x["automatic_retries"] == 0 for x in receipt["results"])
+          if receipt["status"] != "ACCB_OPENROUTER_SOL_PROVIDER_TRIAD_COMPLETE":
+              raise SystemExit(receipt["status"])
+          PY

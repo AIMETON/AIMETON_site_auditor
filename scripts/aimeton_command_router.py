@@ -17,6 +17,7 @@ ROUTES: dict[str, tuple[int, str, dict[str, str]]] = {
     "preflight-accb-openrouter-large-body": (820, "accb-openrouter-proxy-large-body-preflight.yml", {"expected_sha": "{sha}", "evidence_issue": "820"}),
     "probe-accb-openrouter-sol": (820, "accb-openrouter-sol-microprobe.yml", {"expected_sha": "{sha}", "evidence_issue": "820", "owner_spend_authorized": "true", "max_budget_rub": "1"}),
     "run-accb-openrouter-sol-32k": (820, "accb-openrouter-sol-32k-reference.yml", {"expected_sha": "{sha}", "evidence_issue": "820", "owner_spend_authorized": "true", "max_budget_rub": "100"}),
+    "run-accb-openrouter-sol-triad": (820, "accb-openrouter-sol-32k-provider-triad.yml", {"expected_sha": "{sha}", "evidence_issue": "820", "owner_spend_authorized": "true", "max_budget_rub": "300"}),
     "accept-admin-trace-stage": (293, "accept-admin-trace-stage.yml", {"expected_sha": "{sha}"}),
     "accept-aimeton-self-audit-stage": (293, "accept-aimeton-self-audit-stage.yml", {"expected_sha": "{sha}"}),
     "audit-competitor-services-realty-stage": (293, "audit-competitor-services-realty-stage.yml", {"expected_sha": "{sha}"}),
