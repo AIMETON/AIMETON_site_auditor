@@ -52,6 +52,8 @@ class MaterializedPayload:
     messages: list[dict[str, str]]
     payload_sha256: str
     request_text_bytes: int
+    context_local_tokens: int
+    critical_event_local_token_positions: dict[str, float]
     context_manifest: dict[str, Any]
     assembly_seed_u32: int
     assembly_seed_derivation_sha256: str
@@ -185,6 +187,33 @@ def local_count_text(system_text: str, user_text: str) -> str:
     return system_text + "\n\n" + user_text
 
 
+def _measure_context_local_positions(
+    user_text: str,
+    count_tokens: Callable[[str], int],
+) -> tuple[int, dict[str, float]]:
+    begin_marker = "TEMPORAL_EVIDENCE_BEGIN\n"
+    end_marker = "\nTEMPORAL_EVIDENCE_END"
+    try:
+        start = user_text.index(begin_marker) + len(begin_marker)
+        end = user_text.index(end_marker, start)
+    except ValueError as exc:
+        raise PayloadError("temporal evidence markers missing from scored payload") from exc
+    context = user_text[start:end]
+    total = count_tokens(context)
+    if total <= 0:
+        raise PayloadError("local tokenizer returned empty context")
+    positions: dict[str, float] = {}
+    for event_id in ("B1", "B2", "B3", "B4", "B5"):
+        marker = f"[{event_id}:"
+        try:
+            char_index = context.index(marker)
+        except ValueError as exc:
+            raise PayloadError(f"critical event marker missing: {event_id}") from exc
+        prefix_tokens = count_tokens(context[:char_index])
+        positions[event_id] = round(prefix_tokens / total, 6)
+    return total, positions
+
+
 def fit_payload_to_local_anchor(
     scenario: dict[str, Any],
     trace_schema: dict[str, Any],
@@ -267,6 +296,9 @@ def fit_payload_to_local_anchor(
     measured, system_text, user_text, manifest, seed, digest = measure(best_budget)
     text = local_count_text(system_text, user_text)
     payload_sha = _sha256(text)
+    context_local_tokens, critical_local_positions = _measure_context_local_positions(
+        user_text, count_tokens
+    )
     return MaterializedPayload(
         nominal_anchor=nominal_anchor,
         logical_context_tokens=best_budget,
@@ -280,6 +312,8 @@ def fit_payload_to_local_anchor(
         ],
         payload_sha256=payload_sha,
         request_text_bytes=len(text.encode("utf-8")),
+        context_local_tokens=context_local_tokens,
+        critical_event_local_token_positions=critical_local_positions,
         context_manifest=manifest,
         assembly_seed_u32=seed,
         assembly_seed_derivation_sha256=digest,
@@ -297,6 +331,9 @@ def sanitized_manifest(payload: MaterializedPayload) -> dict[str, Any]:
         "local_count_scope": payload.local_count_scope,
         "payload_sha256": payload.payload_sha256,
         "request_text_bytes": payload.request_text_bytes,
+        "context_local_tokens": payload.context_local_tokens,
+        "critical_event_local_token_positions": payload.critical_event_local_token_positions,
+        "target_critical_fact_positions": manifest.get("target_critical_fact_positions"),
         "filler_corpus_version": manifest.get("filler_corpus_version"),
         "context_sha256": manifest.get("context_sha256"),
         "context_bytes": manifest.get("context_bytes"),
