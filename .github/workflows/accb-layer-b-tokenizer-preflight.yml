@@ -1,0 +1,186 @@
+name: ACCB Layer B Tokenizer No-Paid Preflight
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha: { required: true, type: string }
+      evidence_issue: { required: true, default: "798", type: string }
+permissions:
+  contents: read
+  issues: write
+jobs:
+  preflight:
+    environment: stage
+    runs-on: [self-hosted, Linux, X64, stage, auditor]
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      EVIDENCE_ISSUE: ${{ inputs.evidence_issue }}
+      FROZEN_ARCHITECTURE_SHA: b47b937873ef980601b5c741af9b327fb18365bc
+    steps:
+      - name: Materialize exact Site Auditor source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          cd "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if [[ ! -d .git ]]; then git init; fi
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git fetch --no-tags --depth=1 origin "$EXPECTED_SHA"
+          git checkout --detach --force FETCH_HEAD
+          git reset --hard "$EXPECTED_SHA"
+          git clean -ffdx
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Create isolated tokenizer research environment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          VENV="$RUNNER_TEMP/accb-tokenizer-venv-$GITHUB_RUN_ID"
+          rm -rf "$VENV"
+          python3 -m venv "$VENV"
+          "$VENV/bin/python" -m pip install --disable-pip-version-check             "transformers==5.16.1"             "huggingface-hub==1.30.0"             "tiktoken==0.14.0"
+          echo "ACCB_TOKENIZER_PYTHON=$VENV/bin/python" >> "$GITHUB_ENV"
+          "$VENV/bin/python" - <<'PY'
+          import importlib.metadata as m
+          import json
+          print(json.dumps({
+              "transformers": m.version("transformers"),
+              "huggingface-hub": m.version("huggingface-hub"),
+              "tiktoken": m.version("tiktoken"),
+          }, sort_keys=True))
+          PY
+
+      - name: Materialize exact frozen architecture source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ARCH="$RUNNER_TEMP/accb-architecture-$GITHUB_RUN_ID"
+          rm -rf "$ARCH"
+          mkdir -p "$ARCH"
+          cd "$ARCH"
+          git init -q
+          git remote add origin "https://github.com/AIMETON/aimeton-architecture.git"
+          git fetch --no-tags --depth=1 origin "$FROZEN_ARCHITECTURE_SHA"
+          git checkout --detach --force FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$FROZEN_ARCHITECTURE_SHA"
+          echo "ACCB_ARCHITECTURE_ROOT=$ARCH" >> "$GITHUB_ENV"
+
+      - name: Fit all 15 Layer B payloads with pinned local tokenizers
+        shell: bash
+        env:
+          TOKENIZERS_PARALLELISM: "false"
+          HF_HUB_DISABLE_TELEMETRY: "1"
+        run: |
+          set -Eeuo pipefail
+          cd "$GITHUB_WORKSPACE"
+          OUT="$RUNNER_TEMP/accb-layer-b-tokenizer-preflight-$GITHUB_RUN_ID.json"
+          "$ACCB_TOKENIZER_PYTHON" scripts/accb_layer_b_tokenizer_preflight.py             --architecture-root "$ACCB_ARCHITECTURE_ROOT"             --output "$OUT"
+          echo "ACCB_TOKENIZER_RECEIPT=$OUT" >> "$GITHUB_ENV"
+
+      - name: Validate zero-spend tokenizer receipt
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          "$ACCB_TOKENIZER_PYTHON" - "$ACCB_TOKENIZER_RECEIPT" <<'PY'
+          import json,sys
+          p=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert p["status"] == "ACCB_LAYER_B_TOKENIZER_PREFLIGHT_COMPLETE"
+          assert p["architecture_source_sha"] == "b47b937873ef980601b5c741af9b327fb18365bc"
+          assert p["provider_generation_requests"] == 0
+          assert p["paid_spend_authorized_rub"] == 0
+          assert p["provider_api_secrets_used"] is False
+          assert p["planned_scored_cells"] == 15
+          assert p["fitted_cells"] == 15
+          assert len(p["models"]) == 5
+          for row in p["models"]:
+              assert len(row["anchors"]) == 3
+              for cell in row["anchors"]:
+                  target=int(cell["nominal_anchor"])
+                  local=int(cell["L_payload_local"])
+                  assert 0 <= target-local <= 8
+                  assert cell["provider_input_tokens"] is None
+                  assert cell["provider_input_tokens_status"] == "PENDING_SCORED_PROVIDER_RESPONSE"
+          print(json.dumps({
+              "status":p["status"],
+              "models":len(p["models"]),
+              "cells":p["fitted_cells"],
+          },sort_keys=True))
+          PY
+
+      - name: Publish sanitized tokenizer receipt
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          "$ACCB_TOKENIZER_PYTHON" - <<'PY'
+          import json
+          import os
+          import pathlib
+          import urllib.request
+
+          path=pathlib.Path(os.environ.get("ACCB_TOKENIZER_RECEIPT",""))
+          if path.is_file():
+              p=json.loads(path.read_text(encoding="utf-8"))
+              rows=[]
+              for model in p.get("models") or []:
+                  rows.append({
+                      "model":model.get("model"),
+                      "tokenizer_identity":model.get("tokenizer_identity"),
+                      "anchors":[{
+                          "nominal_anchor":x.get("nominal_anchor"),
+                          "logical_context_tokens":x.get("logical_context_tokens"),
+                          "L_payload_local":x.get("L_payload_local"),
+                          "payload_sha256":x.get("payload_sha256"),
+                          "request_text_bytes":x.get("request_text_bytes"),
+                          "context_sha256":x.get("context_sha256"),
+                          "fit_attempts":x.get("fit_attempts"),
+                      } for x in model.get("anchors") or []],
+                  })
+              compact={
+                  "status":p.get("status"),
+                  "architecture_source_sha":p.get("architecture_source_sha"),
+                  "payload_version":p.get("payload_version"),
+                  "provider_generation_requests":p.get("provider_generation_requests"),
+                  "paid_spend_authorized_rub":p.get("paid_spend_authorized_rub"),
+                  "provider_api_secrets_used":p.get("provider_api_secrets_used"),
+                  "fitted_cells":p.get("fitted_cells"),
+                  "models":rows,
+              }
+          else:
+              compact={"status":"TOKENIZER_PREFLIGHT_DID_NOT_EMIT_RECEIPT"}
+          body="\n".join([
+              "## ACCB Layer B tokenizer no-paid preflight",
+              "",
+              f"- exact Site Auditor SHA: `{os.environ['EXPECTED_SHA']}`",
+              f"- runner: `{os.environ.get('RUNNER_NAME')}`",
+              "- provider generations: `0`",
+              "- authorized spend: `0 RUB`",
+              "- provider API secrets used: `false`",
+              "",
+              "```json",
+              json.dumps(compact,ensure_ascii=False,indent=2,sort_keys=True),
+              "```",
+          ])
+          request=urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/issues/{os.environ['EVIDENCE_ISSUE']}/comments",
+              data=json.dumps({"body":body},ensure_ascii=False).encode("utf-8"),
+              method="POST",
+              headers={
+                  "Authorization":f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept":"application/vnd.github+json",
+                  "Content-Type":"application/json",
+              },
+          )
+          with urllib.request.urlopen(request,timeout=30) as response:
+              if response.status not in (200,201):
+                  raise SystemExit(response.status)
+          PY
+
+      - name: Cleanup tokenizer research environment
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/accb-tokenizer-venv-$GITHUB_RUN_ID"                  "$RUNNER_TEMP/accb-architecture-$GITHUB_RUN_ID"
