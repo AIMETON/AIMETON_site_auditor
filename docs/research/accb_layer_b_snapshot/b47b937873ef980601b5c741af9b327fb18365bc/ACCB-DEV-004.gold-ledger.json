@@ -1,0 +1,82 @@
+{
+  "ledger_version": "0.1",
+  "scenario_id": "ACCB-DEV-004",
+  "generated_at": "2026-08-23T02:45:00+07:00",
+  "claims": [
+    {
+      "claim_id": "C-B01",
+      "type": "decision",
+      "status": "superseded",
+      "source": "document",
+      "timestamp": "2026-08-23T09:00:00+07:00",
+      "valid_from": "2026-08-23T09:00:00+07:00",
+      "valid_to": "2026-08-23T09:20:00+07:00",
+      "provenance_ref": "event:B1",
+      "mission_relevance": "required",
+      "confidence": 1.0,
+      "supersedes": null,
+      "contradicts": ["C-B03"],
+      "payload": "P-old uses automatic provider fallback for the calibration retry."
+    },
+    {
+      "claim_id": "C-B02",
+      "type": "constraint",
+      "status": "active",
+      "source": "user_instruction",
+      "timestamp": "2026-08-23T09:05:00+07:00",
+      "valid_from": "2026-08-23T09:05:00+07:00",
+      "valid_to": null,
+      "provenance_ref": "event:B2",
+      "mission_relevance": "required",
+      "confidence": 1.0,
+      "supersedes": null,
+      "contradicts": [],
+      "payload": "The bounded retry must remain within a 100 RUB micro-gate."
+    },
+    {
+      "claim_id": "C-B03",
+      "type": "decision",
+      "status": "active",
+      "source": "user_instruction",
+      "timestamp": "2026-08-23T09:20:00+07:00",
+      "valid_from": "2026-08-23T09:20:00+07:00",
+      "valid_to": null,
+      "provenance_ref": "event:B3",
+      "mission_relevance": "required",
+      "confidence": 1.0,
+      "supersedes": "C-B01",
+      "contradicts": ["C-B01"],
+      "payload": "P-new pins the selected provider and disables silent fallback."
+    },
+    {
+      "claim_id": "C-B04",
+      "type": "constraint",
+      "status": "revoked",
+      "source": "user_instruction",
+      "timestamp": "2026-08-23T09:00:00+07:00",
+      "valid_from": "2026-08-23T09:00:00+07:00",
+      "valid_to": "2026-08-23T09:25:00+07:00",
+      "provenance_ref": "event:B4",
+      "mission_relevance": "required",
+      "confidence": 1.0,
+      "supersedes": null,
+      "contradicts": ["C-B03"],
+      "payload": "Authorization to use automatic provider fallback is revoked as of 09:25."
+    },
+    {
+      "claim_id": "C-B05",
+      "type": "decision",
+      "status": "active",
+      "source": "model_inference",
+      "timestamp": "2026-08-23T09:45:00+07:00",
+      "valid_from": "2026-08-23T09:45:00+07:00",
+      "valid_to": null,
+      "provenance_ref": "derived-from:C-B02+C-B03+C-B04",
+      "mission_relevance": "required",
+      "confidence": 1.0,
+      "supersedes": null,
+      "contradicts": [],
+      "payload": "Use current P-new with provider pinning and no silent fallback under the active 100 RUB micro-gate; reject the stale handoff and proceed only to the bounded next step."
+    }
+  ]
+}
