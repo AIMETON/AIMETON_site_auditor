@@ -210,7 +210,7 @@ def fit_payload_to_local_anchor(
     # The original whitespace filler token normally expands to >=1 model token,
     # so the frozen nominal anchor is the first upper candidate. Grow only when
     # a tokenizer proves otherwise.
-    low = 128
+    low = 256
     high = nominal_anchor
     low_count = measure(low)[0]
     if low_count > nominal_anchor:
