@@ -13,6 +13,8 @@ import tiktoken
 
 import accb_layer_b_payload as payload
 
+EXECUTION_ADMISSION_SHA = "6db671e8afd1fb4a38adb172c7cf288cf2b53b63"
+
 MODEL_SPECS: dict[str, dict[str, str]] = {
     "z-ai/glm-5.2": {"kind": "hf", "source": "zai-org/GLM-5.2"},
     "deepseek/deepseek-v4-pro-0813": {
@@ -82,6 +84,7 @@ def build_report(architecture_root: Path) -> dict[str, Any]:
         "schema_version": "0.1",
         "status": "ACCB_LAYER_B_TOKENIZER_PREFLIGHT_FAILED",
         "architecture_source_sha": payload.FROZEN_ARCHITECTURE_SHA,
+        "execution_admission_sha": EXECUTION_ADMISSION_SHA,
         "payload_version": payload.PAYLOAD_VERSION,
         "filler_corpus_version": "accb-layer-b-synthetic-filler-v0.1",
         "provider_generation_requests": 0,
