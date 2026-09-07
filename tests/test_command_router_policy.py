@@ -26,6 +26,7 @@ def test_command_router_is_the_sanitized_single_ingress_contract() -> None:
         ("preflight-accb-layer-b-tokenizers", 798, "accb-layer-b-tokenizer-preflight.yml"),
         ("probe-accb-openrouter-edge-large-body", 820, "accb-openrouter-edge-large-body-probe.yml"),
         ("probe-accb-openrouter-edge-http", 820, "accb-openrouter-edge-large-body-probe.yml"),
+        ("probe-accb-openrouter-edge-direct", 820, "accb-openrouter-edge-large-body-probe.yml"),
         ("accept-admin-trace-stage", 293, "accept-admin-trace-stage.yml"),
         ("accept-aimeton-self-audit-stage", 293, "accept-aimeton-self-audit-stage.yml"),
         ("accept-checkpoint-stage", 88, "accept-checkpoint-stage.yml"),
