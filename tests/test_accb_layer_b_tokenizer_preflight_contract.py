@@ -23,6 +23,10 @@ def test_tokenizer_preflight_is_dispatch_only_and_zero_provider_spend() -> None:
     assert "huggingface-hub==1.30.0" in text
     assert "tiktoken==0.14.0" in text
     assert "b47b937873ef980601b5c741af9b327fb18365bc" in text
+    assert "git remote add origin \"https://github.com/AIMETON/aimeton-architecture.git\"" not in text
+    assert "ACCB-DEV-004.gold-ledger.json" in text
+    assert "candidate_trace.schema.json" in text
+    assert "score_accb_trace.py" in text
 
 
 def test_tokenizer_dependencies_do_not_enter_product_runtime() -> None:
@@ -35,3 +39,22 @@ def test_tokenizer_dependencies_do_not_enter_product_runtime() -> None:
     assert '"deepseek-ai/DeepSeek-V4-Pro-0813"' in script
     assert '"moonshotai/Kimi-K3"' in script
     assert '"o200k_base"' in script
+
+
+def test_frozen_execution_snapshot_contains_exact_required_blobs() -> None:
+    import json
+
+    root = Path(
+        "docs/research/accb_layer_b_snapshot/"
+        "b47b937873ef980601b5c741af9b327fb18365bc"
+    )
+    manifest = json.loads((root / "SNAPSHOT_MANIFEST.json").read_text(encoding="utf-8"))
+    expected = {
+        "ACCB-DEV-004.scenario.json": "7ae1d4cc1819538a3acccc0d7700dc2ca7606161",
+        "ACCB-DEV-004.gold-ledger.json": "936572048d77860b7cdfff4cea4e2514de812764",
+        "candidate_trace.schema.json": "efd61bc108e654edcba6a9315861b7ae1b5a05cb",
+        "score_accb_trace.py": "68c533e844bb77f3637b194e61365268e0babb43",
+    }
+    for name, source_blob_sha in expected.items():
+        assert (root / name).is_file()
+        assert manifest["files"][name]["source_blob_sha"] == source_blob_sha
