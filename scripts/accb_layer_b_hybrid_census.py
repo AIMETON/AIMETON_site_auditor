@@ -47,16 +47,21 @@ def _positive(raw: Any, label: str) -> float:
     return value
 
 
-def _get_openrouter_json(proxy_url: str) -> dict[str, Any]:
-    parsed = urllib.parse.urlsplit(proxy_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise HybridCensusError("OpenRouter HTTP proxy URL missing/invalid")
-    if parsed.username or parsed.password:
-        raise HybridCensusError("credential-bearing proxy URLs are not admitted")
-
-    opener = urllib.request.build_opener(
-        urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
-    )
+def _get_openrouter_json(proxy_url: str, transport_mode: str) -> dict[str, Any]:
+    mode = transport_mode.strip().lower()
+    if mode == "direct":
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    elif mode == "http":
+        parsed = urllib.parse.urlsplit(proxy_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise HybridCensusError("OpenRouter HTTP proxy URL missing/invalid")
+        if parsed.username or parsed.password:
+            raise HybridCensusError("credential-bearing proxy URLs are not admitted")
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url})
+        )
+    else:
+        raise HybridCensusError(f"unsupported OpenRouter transport mode: {mode!r}")
     request = urllib.request.Request(
         OPENROUTER_ENDPOINTS_URL,
         method="GET",
@@ -230,7 +235,7 @@ def select_openrouter_sol(body: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def run(proxy_url: str) -> dict[str, Any]:
+def run(proxy_url: str, transport_mode: str) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     router_total = 0.0
     for model in ROUTERAI_MODELS:
@@ -248,8 +253,9 @@ def run(proxy_url: str) -> dict[str, Any]:
             }
         )
 
-    openrouter_body = _get_openrouter_json(proxy_url)
+    openrouter_body = _get_openrouter_json(proxy_url, transport_mode)
     sol = select_openrouter_sol(openrouter_body)
+    sol["transport"] = f"openrouter-responses-via-{transport_mode.strip().lower()}"
     sol_rub = float(sol["estimate"]["model_total_rub_guard"])
     whole = router_total + sol_rub
     result = {
@@ -284,11 +290,12 @@ def run(proxy_url: str) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--openrouter-proxy-url", required=True)
+    parser.add_argument("--openrouter-proxy-url", default="")
+    parser.add_argument("--sol-transport-mode", choices=("direct", "http"), required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
-        result = run(args.openrouter_proxy_url)
+        result = run(args.openrouter_proxy_url, args.sol_transport_mode)
         rc = 0
     except BaseException as exc:
         raw = repr(exc).encode("utf-8", errors="replace")
