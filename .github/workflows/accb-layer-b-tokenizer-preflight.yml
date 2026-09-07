@@ -17,6 +17,7 @@ jobs:
       EXPECTED_SHA: ${{ inputs.expected_sha }}
       EVIDENCE_ISSUE: ${{ inputs.evidence_issue }}
       FROZEN_ARCHITECTURE_SHA: b47b937873ef980601b5c741af9b327fb18365bc
+      EXECUTION_ADMISSION_SHA: 6db671e8afd1fb4a38adb172c7cf288cf2b53b63
     steps:
       - name: Materialize exact Site Auditor source
         shell: bash
@@ -89,6 +90,7 @@ jobs:
           p=json.load(open(sys.argv[1],encoding="utf-8"))
           assert p["status"] == "ACCB_LAYER_B_TOKENIZER_PREFLIGHT_COMPLETE"
           assert p["architecture_source_sha"] == "b47b937873ef980601b5c741af9b327fb18365bc"
+          assert p["execution_admission_sha"] == "6db671e8afd1fb4a38adb172c7cf288cf2b53b63"
           assert p["provider_generation_requests"] == 0
           assert p["paid_spend_authorized_rub"] == 0
           assert p["provider_api_secrets_used"] is False
@@ -142,6 +144,7 @@ jobs:
               compact={
                   "status":p.get("status"),
                   "architecture_source_sha":p.get("architecture_source_sha"),
+                  "execution_admission_sha":p.get("execution_admission_sha"),
                   "payload_version":p.get("payload_version"),
                   "provider_generation_requests":p.get("provider_generation_requests"),
                   "paid_spend_authorized_rub":p.get("paid_spend_authorized_rub"),
