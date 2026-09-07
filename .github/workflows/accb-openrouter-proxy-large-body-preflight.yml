@@ -288,7 +288,7 @@ jobs:
           assert receipt["model_generation_requests"] == 0
           assert receipt["paid_spend_authorized_rub"] == 0
           assert receipt["authorization_header_sent_to_transport_target"] is False
-          assert receipt["proxy_transport"] == "http"
+          assert receipt["proxy_transport"] == "socks5h"
           assert receipt["exact_model_request_body_bytes"] < 98304
           assert all(item.get("upload_complete") is True for item in receipt["uploads"])
           assert all(
