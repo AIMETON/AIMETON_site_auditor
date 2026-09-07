@@ -66,10 +66,25 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def load_frozen_artifacts(architecture_root: Path) -> FrozenArtifacts:
-    scenario_path = architecture_root / SCENARIO_REL
-    schema_path = architecture_root / SCHEMA_REL
-    gold_path = architecture_root / GOLD_REL
-    scorer_path = architecture_root / SCORER_REL
+    # The canonical execution path uses the vendored exact-blob snapshot so a
+    # private cross-repository token is never required at runtime. Retain
+    # compatibility with a full architecture checkout for offline research.
+    flat = {
+        "scenario": architecture_root / "ACCB-DEV-004.scenario.json",
+        "schema": architecture_root / "candidate_trace.schema.json",
+        "gold": architecture_root / "ACCB-DEV-004.gold-ledger.json",
+        "scorer": architecture_root / "score_accb_trace.py",
+    }
+    if all(path.is_file() for path in flat.values()):
+        scenario_path = flat["scenario"]
+        schema_path = flat["schema"]
+        gold_path = flat["gold"]
+        scorer_path = flat["scorer"]
+    else:
+        scenario_path = architecture_root / SCENARIO_REL
+        schema_path = architecture_root / SCHEMA_REL
+        gold_path = architecture_root / GOLD_REL
+        scorer_path = architecture_root / SCORER_REL
     for path in (scenario_path, schema_path, gold_path, scorer_path):
         if not path.is_file():
             raise PayloadError(f"missing frozen architecture artifact: {path}")
