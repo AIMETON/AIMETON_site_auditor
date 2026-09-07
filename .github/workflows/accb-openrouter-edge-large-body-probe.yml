@@ -77,12 +77,13 @@ jobs:
           def persist():
               receipt_path.write_text(json.dumps(receipt, sort_keys=True), encoding="utf-8")
 
-          def sanitized_key_state(proxy, key):
+          def sanitized_key_state(proxy, key, *, allow_direct=False):
               result = client.authenticated_get(
                   url=client.OPENROUTER_KEY_URL,
                   proxy=proxy,
                   api_key=key,
                   total_timeout_seconds=90,
+                  allow_direct=allow_direct,
               )
               data = json.loads(result.body.decode("utf-8"))
               data = data.get("data") if isinstance(data.get("data"), dict) else data
@@ -123,7 +124,10 @@ jobs:
           receipt["proxy_transport"] = (
               "direct" if not proxy else ("socks5h" if proxy.startswith("socks5h://") else "http")
           )
-          receipt["key_before"] = sanitized_key_state(proxy, key)
+          allow_direct = proxy_mode == "direct"
+          receipt["key_before"] = sanitized_key_state(
+              proxy, key, allow_direct=allow_direct
+          )
           if receipt["key_before"].get("http_status") != 200:
               raise RuntimeError("openrouter_key_preflight_not_200")
 
@@ -194,6 +198,7 @@ jobs:
                   api_key=key,
                   body=request_body,
                   total_timeout_seconds=90,
+                  allow_direct=allow_direct,
               )
               receipt.update({
                   "http_status": result.http_status,
@@ -215,7 +220,9 @@ jobs:
               receipt["ambiguous_delivery"] = bool(exc.metrics.get("upload_complete"))
           persist()
 
-          receipt["key_after"] = sanitized_key_state(proxy, key)
+          receipt["key_after"] = sanitized_key_state(
+              proxy, key, allow_direct=allow_direct
+          )
           usage_fields = ("usage", "usage_daily", "usage_weekly", "usage_monthly")
           receipt["key_usage_unchanged"] = all(
               receipt["key_before"].get(name) == receipt["key_after"].get(name)
