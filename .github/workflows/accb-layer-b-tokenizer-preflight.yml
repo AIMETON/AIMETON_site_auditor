@@ -54,19 +54,16 @@ jobs:
           }, sort_keys=True))
           PY
 
-      - name: Materialize exact frozen architecture source
+      - name: Bind vendored exact frozen architecture snapshot
         shell: bash
         run: |
           set -Eeuo pipefail
-          ARCH="$RUNNER_TEMP/accb-architecture-$GITHUB_RUN_ID"
-          rm -rf "$ARCH"
-          mkdir -p "$ARCH"
-          cd "$ARCH"
-          git init -q
-          git remote add origin "https://github.com/AIMETON/aimeton-architecture.git"
-          git fetch --no-tags --depth=1 origin "$FROZEN_ARCHITECTURE_SHA"
-          git checkout --detach --force FETCH_HEAD
-          test "$(git rev-parse HEAD)" = "$FROZEN_ARCHITECTURE_SHA"
+          ARCH="$GITHUB_WORKSPACE/docs/research/accb_layer_b_snapshot/$FROZEN_ARCHITECTURE_SHA"
+          test -f "$ARCH/SNAPSHOT_MANIFEST.json"
+          test -f "$ARCH/ACCB-DEV-004.scenario.json"
+          test -f "$ARCH/ACCB-DEV-004.gold-ledger.json"
+          test -f "$ARCH/candidate_trace.schema.json"
+          test -f "$ARCH/score_accb_trace.py"
           echo "ACCB_ARCHITECTURE_ROOT=$ARCH" >> "$GITHUB_ENV"
 
       - name: Fit all 15 Layer B payloads with pinned local tokenizers
@@ -186,4 +183,4 @@ jobs:
         if: always()
         shell: bash
         run: |
-          rm -rf "$RUNNER_TEMP/accb-tokenizer-venv-$GITHUB_RUN_ID"                  "$RUNNER_TEMP/accb-architecture-$GITHUB_RUN_ID"
+          rm -rf "$RUNNER_TEMP/accb-tokenizer-venv-$GITHUB_RUN_ID"
