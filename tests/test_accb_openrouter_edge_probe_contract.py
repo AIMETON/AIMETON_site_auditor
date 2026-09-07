@@ -29,6 +29,6 @@ def test_accb_edge_probe_is_dispatch_only_exact_size_and_zero_spend() -> None:
 
 def test_large_body_preflight_enforces_current_socks_transport() -> None:
     text = PREFLIGHT.read_text(encoding="utf-8")
-    assert 'receipt["proxy_transport"] = "socks5h"' in text
+    assert '"proxy_transport": "socks5h"' in text
     assert 'assert receipt["proxy_transport"] == "socks5h"' in text
     assert 'assert receipt["proxy_transport"] == "http"' not in text
