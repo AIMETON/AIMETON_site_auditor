@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aimeton.example/schemas/accb/candidate_trace.schema.json",
+  "title": "AIMETON Cognitive Continuity Benchmark Candidate Trace",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scenario_id",
+    "claim_statuses",
+    "reused_resources",
+    "created_resources",
+    "action_trace",
+    "mission_complete",
+    "next_safe_step",
+    "runtime_state_verified",
+    "mutation_performed"
+  ],
+  "properties": {
+    "scenario_id": {"type": "string", "minLength": 1},
+    "claim_statuses": {
+      "type": "object",
+      "additionalProperties": {
+        "enum": ["active", "superseded", "revoked", "uncertain", "contradicted", "unknown"]
+      }
+    },
+    "reused_resources": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "created_resources": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "action_trace": {"type": "array", "items": {"type": "string"}},
+    "mission_complete": {"type": "boolean"},
+    "next_safe_step": {"type": ["string", "null"]},
+    "runtime_state_verified": {"type": "boolean"},
+    "mutation_performed": {"type": "boolean"},
+    "notes": {"type": ["string", "null"]}
+  }
+}
