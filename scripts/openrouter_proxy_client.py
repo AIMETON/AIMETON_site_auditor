@@ -215,8 +215,12 @@ def request(
     body: bytes | None = None,
     connect_timeout_seconds: int = 30,
     total_timeout_seconds: int = 240,
+    allow_direct: bool = False,
 ) -> CurlResult:
-    validate_proxy_and_key(proxy)
+    if proxy:
+        validate_proxy_and_key(proxy)
+    elif not allow_direct:
+        raise RuntimeError("proxy_url_missing_or_invalid")
     request_headers = dict(headers or {})
     expected_upload = len(body or b"")
     write_out = "AIMETON_CURL_METRICS|%{http_code}|%{size_upload}|%{time_connect}|%{time_appconnect}|%{time_starttransfer}|%{time_total}"
@@ -240,8 +244,6 @@ def request(
             "--no-progress-meter",
             "--request",
             method,
-            "--proxy",
-            proxy,
             "--connect-timeout",
             str(connect_timeout_seconds),
             "--max-time",
@@ -257,6 +259,8 @@ def request(
             "--write-out",
             write_out,
         ]
+        if proxy:
+            command.extend(["--proxy", proxy])
         if body is not None:
             body_path = root / "request.bin"
             body_path.write_bytes(body)
@@ -297,8 +301,20 @@ def request(
         )
 
 
-def authenticated_get(*, url: str, proxy: str, api_key: str, total_timeout_seconds: int = 90) -> CurlResult:
-    validate_proxy_and_key(proxy, api_key)
+def authenticated_get(
+    *,
+    url: str,
+    proxy: str,
+    api_key: str,
+    total_timeout_seconds: int = 90,
+    allow_direct: bool = False,
+) -> CurlResult:
+    if proxy:
+        validate_proxy_and_key(proxy, api_key)
+    elif not allow_direct:
+        raise RuntimeError("proxy_url_missing_or_invalid")
+    elif not api_key.strip():
+        raise RuntimeError("openrouter_api_key_missing")
     return request(
         method="GET",
         url=url,
@@ -309,11 +325,24 @@ def authenticated_get(*, url: str, proxy: str, api_key: str, total_timeout_secon
             "User-Agent": "aimeton-accb-openrouter-client",
         },
         total_timeout_seconds=total_timeout_seconds,
+        allow_direct=allow_direct,
     )
 
 
-def post_response(*, proxy: str, api_key: str, body: bytes, total_timeout_seconds: int) -> CurlResult:
-    validate_proxy_and_key(proxy, api_key)
+def post_response(
+    *,
+    proxy: str,
+    api_key: str,
+    body: bytes,
+    total_timeout_seconds: int,
+    allow_direct: bool = False,
+) -> CurlResult:
+    if proxy:
+        validate_proxy_and_key(proxy, api_key)
+    elif not allow_direct:
+        raise RuntimeError("proxy_url_missing_or_invalid")
+    elif not api_key.strip():
+        raise RuntimeError("openrouter_api_key_missing")
     return request(
         method="POST",
         url=OPENROUTER_RESPONSES_URL,
@@ -328,6 +357,7 @@ def post_response(*, proxy: str, api_key: str, body: bytes, total_timeout_second
         body=body,
         connect_timeout_seconds=30,
         total_timeout_seconds=total_timeout_seconds,
+        allow_direct=allow_direct,
     )
 
 
