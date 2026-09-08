@@ -1,0 +1,53 @@
+name: ACCB Layer B Low-Byte No-Paid Preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+
+    steps:
+      - name: Materialize exact source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          cd "$GITHUB_WORKSPACE"
+          git init -q
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git fetch --no-tags --depth=1 origin "$EXPECTED_SHA"
+          git checkout --detach --force FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Materialize exact 32 KiB and 64 KiB payloads
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ARCH="docs/research/accb_layer_b_snapshot/b47b937873ef980601b5c741af9b327fb18365bc"
+          python3 scripts/accb_layer_b_low_byte_preflight.py             --architecture-root "$ARCH"             --output "$RUNNER_TEMP/accb-low-byte-preflight.json"
+
+      - name: Enforce zero-spend boundary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - "$RUNNER_TEMP/accb-low-byte-preflight.json" <<'PY'
+          import json,sys
+          p=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert p["status"] == "ACCB_LAYER_B_LOW_BYTE_PREFLIGHT_READY"
+          assert p["planned_cells"] == 10
+          assert p["provider_generation_requests"] == 0
+          assert p["paid_spend_authorized_rub"] == 0
+          assert p["tokenizer_required_at_execution"] is False
+          assert [x["request_text_bytes"] for x in p["tiers"]] == [32768,65536]
+          PY
