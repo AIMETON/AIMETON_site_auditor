@@ -592,9 +592,14 @@ def main() -> int:
     accounted_spend = 0.0
     generation_attempts = 0
 
+    execution_order = tuple(
+        (model, tier_id)
+        for tier_id in TIER_ORDER
+        for model in ALL_MODELS
+    )
+
     with tempfile.TemporaryDirectory(prefix="aimeton-accb-b2-live-") as _:
-        for model in ALL_MODELS:
-            for tier_id in TIER_ORDER:
+        for model, tier_id in execution_order:
                 tier = tiers[tier_id]
                 request_text = str(tier["request_text"])
                 request_bytes = int(tier["request_text_bytes"])
