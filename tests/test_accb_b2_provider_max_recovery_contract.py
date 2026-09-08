@@ -26,7 +26,9 @@ def test_provider_max_recovery_is_selective_manifest_only() -> None:
     assert "--manifest" in text
     assert "load_recovery_manifest" in text
     assert "source_run_id" in text
-    assert "34196764456" in text
+    assert "source_site_auditor_sha" in text
+    assert "source_evidence_comment_id" in text
+    assert "provider_max_policy_sha" in text
     assert "for selected in recovery_cells" in text
     assert "for model in ALL_MODELS" not in text
     assert "for tier_id in TIER_ORDER" not in text
@@ -39,7 +41,7 @@ def test_provider_max_endpoint_limit_is_model_capability_boundary() -> None:
     assert "MODEL_ENDPOINT_COMPUTE_LIMIT_REACHED" in text
     assert 'call["status"] = "MODEL_ENDPOINT_COMPUTE_LIMIT_REACHED"' in text
     assert "OUTPUT_BUDGET_EXHAUSTED" in text
-    assert 'row["ACI_B2"] = 0.0' in text  # only delivered malformed model output path
+    assert 'row["ACI_B2"] = 0.0' in text
 
 
 def test_provider_max_recovery_keeps_no_retry_no_fallback() -> None:
