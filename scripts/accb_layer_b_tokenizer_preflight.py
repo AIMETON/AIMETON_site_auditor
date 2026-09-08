@@ -23,7 +23,7 @@ MODEL_SPECS: dict[str, dict[str, str]] = {
         "source": "deepseek-ai/DeepSeek-V4-Pro-0813",
     },
     "qwen/qwen3.7-plus": {"kind": "tiktoken", "source": "o200k_base"},
-    "moonshotai/kimi-k3": {"kind": "hf", "source": "moonshotai/Kimi-K3"},
+    "moonshotai/kimi-k3": {\n        "kind": "hf",\n        "source": "moonshotai/Kimi-K3",\n        "trust_remote_code": True,\n    },
     "openai/gpt-5.6-sol": {"kind": "tiktoken", "source": "o200k_base"},
 }
 
@@ -36,7 +36,7 @@ def package_version(name: str) -> str:
     return importlib.metadata.version(name)
 
 
-def hf_counter(repo_id: str) -> tuple[Callable[[str], int], dict[str, Any]]:
+def hf_counter(\n    repo_id: str,\n    *,\n    trust_remote_code: bool = False,\n) -> tuple[Callable[[str], int], dict[str, Any]]:
     api = HfApi()
     info = api.model_info(repo_id, revision="main")
     revision = str(info.sha or "").strip()
@@ -45,7 +45,7 @@ def hf_counter(repo_id: str) -> tuple[Callable[[str], int], dict[str, Any]]:
     tokenizer = AutoTokenizer.from_pretrained(
         repo_id,
         revision=revision,
-        trust_remote_code=False,
+        trust_remote_code=trust_remote_code,
         use_fast=True,
     )
 
@@ -60,7 +60,7 @@ def hf_counter(repo_id: str) -> tuple[Callable[[str], int], dict[str, Any]]:
         "tokenizer_class": type(tokenizer).__name__,
         "transformers_version": package_version("transformers"),
         "huggingface_hub_version": package_version("huggingface-hub"),
-        "trust_remote_code": False,
+        "trust_remote_code": trust_remote_code,
         "count_scope": "system_text + two_newlines + user_text; add_special_tokens=false",
     }
 
@@ -100,7 +100,7 @@ def build_report(architecture_root: Path) -> dict[str, Any]:
     for model, spec in MODEL_SPECS.items():
         kind = spec["kind"]
         if kind == "hf":
-            count_tokens, identity = hf_counter(spec["source"])
+            count_tokens, identity = hf_counter(\n                spec["source"],\n                trust_remote_code=bool(spec.get("trust_remote_code", False)),\n            )
         elif kind == "tiktoken":
             count_tokens, identity = tiktoken_counter(spec["source"])
         else:
