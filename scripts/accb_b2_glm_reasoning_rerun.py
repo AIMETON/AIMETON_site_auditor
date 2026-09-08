@@ -315,17 +315,13 @@ def routerai_call(
     if not tag:
         raise ExecutionError(f"selected RouterAI route has no tag for {model}")
     params = set(str(x) for x in (route.get("supported_parameters") or []))
-    max_tokens_sent = common_ceiling
-    reasoning_effort_sent = None
-    reasoning_budget_tokens_sent = None
-    if model == GLM_MODEL:
-        if "reasoning" not in params:
-            raise ExecutionError("selected GLM route does not advertise reasoning support")
-        if common_ceiling <= GLM_THINKING_BUDGET:
-            raise ExecutionError("selected GLM endpoint leaves no final-answer reserve")
-        max_tokens_sent = common_ceiling - GLM_THINKING_BUDGET
-        reasoning_effort_sent = GLM_REASONING_EFFORT
-        reasoning_budget_tokens_sent = GLM_THINKING_BUDGET
+    if model != GLM_MODEL:
+        raise ExecutionError("GLM reasoning rerun received non-GLM model")
+    if "reasoning" not in params:
+        raise ExecutionError("selected GLM route does not advertise reasoning support")
+    if common_ceiling <= GLM_THINKING_BUDGET:
+        raise ExecutionError("selected GLM endpoint leaves no final-answer reserve")
+    max_tokens_sent = common_ceiling - GLM_THINKING_BUDGET
     body: dict[str, Any] = {
         "model": model,
         "messages": [
@@ -333,11 +329,10 @@ def routerai_call(
             {"role": "user", "content": user_text},
         ],
         "max_tokens": max_tokens_sent,
+        "reasoning": {"effort": GLM_REASONING_EFFORT},
+        "thinking_budget": GLM_THINKING_BUDGET,
         "provider": {"only": [tag], "allow_fallbacks": False},
     }
-    if model == GLM_MODEL:
-        body["reasoning"] = {"effort": GLM_REASONING_EFFORT}
-        body["thinking_budget"] = GLM_THINKING_BUDGET
     if "temperature" in params:
         body["temperature"] = 0.0
 
@@ -352,7 +347,9 @@ def routerai_call(
             "response_body_bytes": response.get("_body_bytes"),
             "response_body_sha256": response.get("_body_sha256"),
             "failure_reason_type": response.get("_reason_type"),
-            "reasoning_effort_sent": reasoning_effort_sent,\n            "reasoning_budget_tokens_sent": reasoning_budget_tokens_sent,\n            "max_output_tokens_sent_actual": max_tokens_sent,
+            "reasoning_effort_sent": GLM_REASONING_EFFORT,
+            "reasoning_budget_tokens_sent": GLM_THINKING_BUDGET,
+            "max_output_tokens_sent_actual": max_tokens_sent,
             "provider_seed_sent": False,
         }
     safe = routerai_safe_response(response, common_ceiling)
@@ -360,7 +357,9 @@ def routerai_call(
         "transport": "routerai-chat",
         "provider_tag": tag,
         "elapsed_seconds": round(elapsed, 6),
-        "reasoning_effort_sent": reasoning_effort_sent,\n            "reasoning_budget_tokens_sent": reasoning_budget_tokens_sent,\n            "max_output_tokens_sent_actual": max_tokens_sent,
+        "reasoning_effort_sent": GLM_REASONING_EFFORT,
+        "reasoning_budget_tokens_sent": GLM_THINKING_BUDGET,
+        "max_output_tokens_sent_actual": max_tokens_sent,
         "provider_seed_sent": False,
     })
     return safe
@@ -445,7 +444,7 @@ def openrouter_sol_call(api_key: str, request_text: str, common_ceiling: int) ->
             "failure_class": exc.failure_class,
             "transport_metrics": exc.metrics,
             "elapsed_seconds": round(time.monotonic() - started, 6),
-            "reasoning_effort_sent": reasoning_effort_sent,\n            "reasoning_budget_tokens_sent": reasoning_budget_tokens_sent,\n            "max_output_tokens_sent_actual": max_tokens_sent,
+            "reasoning_effort_sent": None,
             "provider_seed_sent": False,
         }
     elapsed = time.monotonic() - started
@@ -459,7 +458,7 @@ def openrouter_sol_call(api_key: str, request_text: str, common_ceiling: int) ->
             "response_body_sha256": sha256_bytes(result.body),
             "transport_metrics": result.metrics,
             "elapsed_seconds": round(elapsed, 6),
-            "reasoning_effort_sent": reasoning_effort_sent,\n            "reasoning_budget_tokens_sent": reasoning_budget_tokens_sent,\n            "max_output_tokens_sent_actual": max_tokens_sent,
+            "reasoning_effort_sent": None,
             "provider_seed_sent": False,
         }
     try:
@@ -470,7 +469,7 @@ def openrouter_sol_call(api_key: str, request_text: str, common_ceiling: int) ->
             "transport": "openrouter-responses-direct",
             "provider_tag": "openai",
             "elapsed_seconds": round(elapsed, 6),
-            "reasoning_effort_sent": reasoning_effort_sent,\n            "reasoning_budget_tokens_sent": reasoning_budget_tokens_sent,\n            "max_output_tokens_sent_actual": max_tokens_sent,
+            "reasoning_effort_sent": None,
             "provider_seed_sent": False,
         }
     if not isinstance(response, dict):
@@ -479,7 +478,7 @@ def openrouter_sol_call(api_key: str, request_text: str, common_ceiling: int) ->
             "transport": "openrouter-responses-direct",
             "provider_tag": "openai",
             "elapsed_seconds": round(elapsed, 6),
-            "reasoning_effort_sent": reasoning_effort_sent,\n            "reasoning_budget_tokens_sent": reasoning_budget_tokens_sent,\n            "max_output_tokens_sent_actual": max_tokens_sent,
+            "reasoning_effort_sent": None,
             "provider_seed_sent": False,
         }
 
@@ -534,7 +533,7 @@ def openrouter_sol_call(api_key: str, request_text: str, common_ceiling: int) ->
         "transport_metrics": result.metrics,
         "elapsed_seconds": round(elapsed, 6),
         "output_text": output_text,
-        "reasoning_effort_sent": reasoning_effort_sent,\n            "reasoning_budget_tokens_sent": reasoning_budget_tokens_sent,\n            "max_output_tokens_sent_actual": max_tokens_sent,
+        "reasoning_effort_sent": None,
         "provider_seed_sent": False,
     }
 
@@ -682,9 +681,10 @@ def main() -> int:
                     "provider_generation_attempts": 1,
                     "silent_retries": 0,
                     "fallbacks": False,
-                    "max_output_tokens_sent": endpoint_ceiling,
+                    "max_output_tokens_sent": max_tokens_sent,
                     "selected_endpoint_max_completion_tokens": endpoint_ceiling,
-                    "reasoning_effort_sent": reasoning_effort_sent,\n            "reasoning_budget_tokens_sent": reasoning_budget_tokens_sent,\n            "max_output_tokens_sent_actual": max_tokens_sent,
+                    "reasoning_effort_sent": GLM_REASONING_EFFORT,
+                    "reasoning_budget_tokens_sent": GLM_THINKING_BUDGET,
                     "provider_seed_sent": False,
                     "conservative_cell_guard_rub": round(cell_guard, 6),
                     "ACI_B2": None,
