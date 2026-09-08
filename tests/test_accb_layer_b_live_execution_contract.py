@@ -106,3 +106,13 @@ def test_owner_command_router_has_exact_layer_b_live_route() -> None:
         '"owner_spend_authorized": "true", "max_budget_rub": "10000"})'
     )
     assert expected in text
+
+
+def test_harness_failures_are_preserved_in_sanitized_evidence() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    assert '"error_message_sha256"' in script
+    assert '"failure_stage"' in script
+    assert '"failure_evidence"' in workflow
+    assert 'row.get("error_type")' in workflow
+    assert 'row.get("error_message_sha256")' in workflow
