@@ -59,3 +59,9 @@ def test_frozen_execution_snapshot_contains_exact_required_blobs() -> None:
     for name, source_blob_sha in expected.items():
         assert (root / name).is_file()
         assert manifest["files"][name]["source_blob_sha"] == source_blob_sha
+
+
+def test_tokenizer_preflight_binds_snapshot_verifier_module() -> None:
+    script = Path("scripts/accb_layer_b_tokenizer_preflight.py").read_text(encoding="utf-8")
+    assert "import accb_layer_b_dry_run as dry" in script
+    assert "dry.verify_snapshot(architecture_root)" in script
