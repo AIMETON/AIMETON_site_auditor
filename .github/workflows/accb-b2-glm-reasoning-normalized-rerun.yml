@@ -1,0 +1,185 @@
+name: ACCB B2 GLM Reasoning-Normalized Rerun
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        required: true
+        type: string
+      manifest_path:
+        required: true
+        default: "docs/research/ACCB_B2_GLM_REASONING_RERUN_MANIFEST_v0.1.json"
+        type: string
+      evidence_issue:
+        required: true
+        default: "798"
+        type: string
+      owner_spend_authorized:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: accb-b2-glm-reasoning-normalized-rerun
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    environment: stage
+    timeout-minutes: 720
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ACCB_B2_EXPECTED_SHA: ${{ inputs.expected_sha }}
+      RECOVERY_MANIFEST: ${{ inputs.manifest_path }}
+      EVIDENCE_ISSUE: ${{ inputs.evidence_issue }}
+      OWNER_SPEND_AUTHORIZED: ${{ inputs.owner_spend_authorized }}
+      PROVIDER_MAX_POLICY_SHA: f66e0aac76848879c212365b9b040f5ad5b7d605
+      ROUTERAI_API_KEY: ${{ secrets.ROUTERAI_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+    steps:
+      - name: Require exact owner-authorized recovery boundary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$ACCB_B2_EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$OWNER_SPEND_AUTHORIZED" = "true"
+          test "$PROVIDER_MAX_POLICY_SHA" = "f66e0aac76848879c212365b9b040f5ad5b7d605"
+          test -n "$RECOVERY_MANIFEST"
+          test -n "$ROUTERAI_API_KEY"
+          test -n "$OPENROUTER_API_KEY"
+
+      - name: Materialize exact Site Auditor source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if [[ ! -d .git ]]; then git init; fi
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git fetch --no-tags --depth=1 origin "$ACCB_B2_EXPECTED_SHA"
+          git checkout --detach --force FETCH_HEAD
+          git reset --hard "$ACCB_B2_EXPECTED_SHA"
+          git clean -ffdx
+          test "$(git rev-parse HEAD)" = "$ACCB_B2_EXPECTED_SHA"
+          git remote set-url origin "https://github.com/$GITHUB_REPOSITORY.git"
+          test -f "$RECOVERY_MANIFEST"
+
+      - name: Verify GLM reasoning-normalized scientific contract
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -f scripts/accb_b2_glm_reasoning_rerun.py
+          ! grep -F 'EXPECTED_COMMON_OUTPUT_CEILING' scripts/accb_b2_glm_reasoning_rerun.py
+          ! grep -F 'MAX_OUTPUT_TOKENS = 8192' scripts/accb_b2_glm_reasoning_rerun.py
+          ! grep -F '"effort": "low"' scripts/accb_b2_glm_reasoning_rerun.py
+          grep -F 'GLM_REASONING_EFFORT = "high"' scripts/accb_b2_glm_reasoning_rerun.py
+          grep -F 'GLM_THINKING_BUDGET = 32768' scripts/accb_b2_glm_reasoning_rerun.py
+          grep -F '"compute_policy": "selected_endpoint_advertised_maximum_with_glm_reasoning_reserve"' scripts/accb_b2_glm_reasoning_rerun.py
+
+      - name: Execute frozen five-cell GLM reasoning-normalized tranche
+        shell: bash
+        run: |
+          set +e
+          OUT="$RUNNER_TEMP/accb-b2-glm-reasoning-rerun-$GITHUB_RUN_ID.json"
+          python3 scripts/accb_b2_glm_reasoning_rerun.py             --manifest "$RECOVERY_MANIFEST"             --output "$OUT"
+          rc=$?
+          echo "RECOVERY_RC=$rc" >> "$GITHUB_ENV"
+          echo "RECOVERY_RECEIPT=$OUT" >> "$GITHUB_ENV"
+          exit 0
+
+      - name: Publish sanitized GLM reasoning-normalized evidence
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json,os,pathlib,urllib.request
+          path=pathlib.Path(os.environ.get("RECOVERY_RECEIPT",""))
+          if path.is_file():
+              p=json.loads(path.read_text(encoding="utf-8"))
+              lines=[
+                "## ACCB B2 GLM reasoning-normalized rerun",
+                "",
+                f"- exact Site Auditor SHA: {p.get('site_auditor_sha')}",
+                f"- status: {p.get('status')}",
+                f"- planned/completed/scored: {p.get('planned_cells')}/{p.get('completed_cells')}/{p.get('scored_cells')}",
+                f"- endpoint-compute-limit cells: {p.get('model_endpoint_compute_limit_cells')}",
+                f"- integration cells: {p.get('terminal_integration_cells')}",
+                f"- harness failures: {p.get('harness_failure_cells')}",
+                f"- accounted/guarded spend: {p.get('accounted_spend_rub')} RUB",
+                "- compute policy: selected endpoint advertised maximum with GLM reasoning reserve",
+                "- retries: 0",
+                "- fallbacks: false",
+                "- forced low reasoning effort: false",
+                "",
+                "| model | tier | bytes | endpoint max | output/reasoning/final | status | ACI_B2 | ACI_min | cost RUB |",
+                "|---|---|---:|---:|---|---|---:|---:|---:|",
+              ]
+              for r in p.get("cells") or []:
+                  of=f"{r.get('provider_output_tokens')}/{r.get('provider_reasoning_tokens')}/{r.get('provider_final_answer_tokens')}"
+                  lines.append(
+                    f"| {r.get('model')} | {r.get('tier_id')} | {r.get('request_text_bytes')} | "
+                    f"{r.get('selected_endpoint_max_completion_tokens')} | {of} | {r.get('status')} | "
+                    f"{r.get('ACI_B2')} | {r.get('ACI_B2_min')} | {r.get('accounted_cost_rub')} |"
+                  )
+              body="\n".join(lines)
+          else:
+              body="\n".join([
+                "## ACCB B2 GLM reasoning-normalized rerun",
+                "",
+                f"- exact Site Auditor SHA: {os.environ.get('ACCB_B2_EXPECTED_SHA')}",
+                "- status: RECOVERY_DID_NOT_EMIT_RECEIPT",
+              ])
+          req=urllib.request.Request(
+            f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/issues/{os.environ['EVIDENCE_ISSUE']}/comments",
+            data=json.dumps({"body":body}).encode(),
+            method="POST",
+            headers={
+              "Authorization":f"Bearer {os.environ['GH_TOKEN']}",
+              "Accept":"application/vnd.github+json",
+              "Content-Type":"application/json",
+            },
+          )
+          with urllib.request.urlopen(req,timeout=30) as response:
+              assert response.status in (200,201)
+          PY
+
+      - name: Enforce GLM reasoning-normalized completion
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - "$RECOVERY_RECEIPT" <<'PY'
+          import json,sys
+          p=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert p["experiment_id"] == "ACCB-B2-GLM-REASONING-NORMALIZED-v0.1"
+          assert p["planned_cells"] == p["completed_cells"]
+          assert p["provider_generation_attempts_total"] == p["planned_cells"]
+          assert p["silent_retries"] == 0
+          assert p["fallbacks"] is False
+          assert p["common_output_ceiling_tokens"] is None
+          assert p["compute_policy"] == "selected_endpoint_advertised_maximum_with_glm_reasoning_reserve"
+          assert p["legacy_global_8192_output_cap_allowed"] is False
+          assert p["forced_low_reasoning_effort"] is False
+          assert p["harness_failure_cells"] == 0
+          assert p["status"] == "ACCB_B2_GLM_REASONING_NORMALIZED_COMPLETE"
+          assert p["completion_criterion_met"] is True
+          assert p["planned_cells"] == 5
+          assert p["planned_models"] == ["z-ai/glm-5.2"]
+          assert p["reasoning_policy"]["effort"] == "high"
+          assert p["reasoning_policy"]["thinking_budget_tokens"] == 32768
+          assert all(r["model"] == "z-ai/glm-5.2" for r in p["cells"])
+          assert all(r["reasoning_effort_sent"] == "high" for r in p["cells"])
+          assert all(r["reasoning_budget_tokens_sent"] == 32768 for r in p["cells"])
+          assert all(
+              r["max_output_tokens_sent"] + r["reasoning_budget_tokens_sent"]
+              == r["selected_endpoint_max_completion_tokens"]
+              for r in p["cells"]
+          )
+          PY
+          test "${RECOVERY_RC:-99}" = "0"
