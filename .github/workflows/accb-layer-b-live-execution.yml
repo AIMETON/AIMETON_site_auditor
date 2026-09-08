@@ -144,6 +144,10 @@ jobs:
               ]
               for row in p.get("cells") or []:
                   status = str(row.get("status") or "")
+                  if status == "HARNESS_FAILURE":
+                      et = str(row.get("error_type") or "unknown")
+                      stage = str(row.get("failure_stage") or "unknown")
+                      status += f" / {et} / {stage}"
                   critical = row.get("critical_failures") or []
                   if critical:
                       status += " / CF:" + str(len(critical))
@@ -164,6 +168,21 @@ jobs:
                   "experiment_id": p.get("experiment_id"),
                   "completion_criterion_met": p.get("completion_criterion_met"),
                   "tokenizer_required_at_execution": p.get("tokenizer_required_at_execution"),
+                  "failure_evidence": [
+                      {
+                          "model": row.get("model"),
+                          "anchor": row.get("nominal_anchor"),
+                          "request_text_bytes": row.get("request_text_bytes"),
+                          "payload_sha256": row.get("payload_sha256"),
+                          "status": row.get("status"),
+                          "measurement_status": row.get("measurement_status"),
+                          "error_type": row.get("error_type"),
+                          "error_message_sha256": row.get("error_message_sha256"),
+                          "failure_stage": row.get("failure_stage"),
+                      }
+                      for row in p.get("cells") or []
+                      if row.get("status") == "HARNESS_FAILURE"
+                  ],
                   "payload_hashes": [
                       {
                           "model": row.get("model"),
