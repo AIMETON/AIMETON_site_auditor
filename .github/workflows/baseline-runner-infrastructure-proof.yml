@@ -1,0 +1,45 @@
+name: Baseline Runner Infrastructure Proof
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prove-stage-runner:
+    runs-on: [self-hosted, Linux, X64, stage, auditor]
+    timeout-minutes: 5
+    steps:
+      - name: Prove canonical Site Auditor runner identity and external tool cache
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$RUNNER_NAME" = 'aimeton-site-auditor-stage'
+          test "$(hostname)" = 'aimeton-main-server'
+          cache_mount=/mnt/aimeton-dependency-cache
+          expected="${cache_mount}/toolchains/runners/${RUNNER_NAME}"
+          test "${RUNNER_TOOL_CACHE:-}" = "$expected"
+          test -d "$expected"
+          mountpoint -q "$cache_mount"
+          root_source="$(findmnt -n -o SOURCE /)"
+          cache_source="$(findmnt -n -o SOURCE "$cache_mount")"
+          tool_source="$(findmnt -n -o SOURCE -T "$expected")"
+          test -n "$cache_source"
+          test "$cache_source" != "$root_source"
+          test "$tool_source" = "$cache_source"
+          echo "runner_tool_cache_job_proof=verified runner=$RUNNER_NAME cache=$RUNNER_TOOL_CACHE source=$cache_source"
+
+      - name: Record machine-specific proof
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Site Auditor runner infrastructure proof'
+            echo
+            echo "- runner: \`$RUNNER_NAME\`"
+            echo "- machine: \`$(hostname)\`"
+            echo "- runner tool cache: \`${RUNNER_TOOL_CACHE:-MISSING}\`"
+            echo "- dependency cache source: \`$(findmnt -n -o SOURCE /mnt/aimeton-dependency-cache 2>/dev/null || echo MISSING)\`"
+            echo '- scope: `machine-specific infrastructure evidence; not a PR gate`'
+          } >> "$GITHUB_STEP_SUMMARY"
