@@ -100,3 +100,12 @@ def test_owner_command_router_has_exact_b2_live_route() -> None:
         '"owner_spend_authorized": "true", "max_budget_rub": "10000"})'
     )
     assert expected in router
+
+
+def test_b2_live_interleaves_models_across_context_tiers() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "execution_order = tuple(" in script
+    assert "for tier_id in TIER_ORDER" in script
+    assert "for model in ALL_MODELS" in script
+    assert "for model, tier_id in execution_order:" in script
+    assert "for model in ALL_MODELS:\n            for tier_id in TIER_ORDER:" not in script
