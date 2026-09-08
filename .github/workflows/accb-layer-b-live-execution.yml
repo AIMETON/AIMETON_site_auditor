@@ -88,7 +88,7 @@ jobs:
           test -f "$ARCH/ACCB-DEV-004.gold-ledger.json"
           test -f "$ARCH/candidate_trace.schema.json"
           test -f "$ARCH/score_accb_trace.py"
-          test -f "$GITHUB_WORKSPACE/docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.2.json"
+          test -f "$GITHUB_WORKSPACE/docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.3.json"
           echo "ACCB_ARCHITECTURE_ROOT=$ARCH" >> "$GITHUB_ENV"
 
       - name: Execute frozen tokenizer-free 15-cell Layer B tranche
@@ -128,6 +128,8 @@ jobs:
                   f"- fresh 15-cell guard: `{(p.get('fresh_census') or {}).get('whole_tranche_conservative_guard_rub')} RUB`",
                   f"- accounted spend guard: `{p.get('accounted_spend_rub_guard')} RUB`",
                   f"- completed/scored/integration: `{p.get('completed_cells')}/{p.get('scored_cells')}/{p.get('terminal_integration_cells')}`",
+                  f"- primary cross-model input axis: `{p.get('primary_cross_model_input_axis')}`",
+                  f"- provider-token role: `{p.get('provider_input_tokens_role')}`",
                   f"- provider-input measured/degraded: `{p.get('measured_provider_input_cells')}/{p.get('measurement_degraded_cells')}`",
                   f"- unscorable outputs: `{p.get('unscorable_model_output_cells')}`",
                   f"- harness failures: `{p.get('harness_failure_cells')}`",
@@ -137,8 +139,8 @@ jobs:
                   "- fallbacks: `false`",
                   "- raw prompt/completion/reasoning retained: `false`",
                   "",
-                  "| model | anchor | request bytes | L_provider | measurement | status | ACI | ACI_min | cost guard RUB |",
-                  "|---|---:|---:|---:|---|---|---:|---:|---:|",
+                  "| model | payload bytes | payload SHA256 | provider tokens (diagnostic) | measurement | status | ACI | ACI_min | cost guard RUB |",
+                  "|---|---:|---|---:|---|---|---:|---:|---:|",
               ]
               for row in p.get("cells") or []:
                   status = str(row.get("status") or "")
@@ -146,10 +148,10 @@ jobs:
                   if critical:
                       status += " / CF:" + str(len(critical))
                   lines.append(
-                      "| {model} | {anchor} | {bytes} | {provider} | {measurement} | {status} | {aci} | {aci_min} | {cost} |".format(
+                      "| {model} | {bytes} | {payload_sha} | {provider} | {measurement} | {status} | {aci} | {aci_min} | {cost} |".format(
                           model=row.get("model"),
-                          anchor=row.get("nominal_anchor"),
                           bytes=row.get("request_text_bytes"),
+                          payload_sha=row.get("payload_sha256"),
                           provider=row.get("L_model_input_provider"),
                           measurement=row.get("measurement_status"),
                           status=status.replace("|", "/"),
@@ -210,6 +212,8 @@ jobs:
           assert p["frozen_architecture_sha"] == "b47b937873ef980601b5c741af9b327fb18365bc"
           assert p["execution_admission_sha"] == "67c8ea3e84405884136119d7252fe7424ccf1631"
           assert p["tokenizer_required_at_execution"] is False
+          assert p["primary_cross_model_input_axis"] == "request_text_bytes"
+          assert p["payload_identity_field"] == "payload_sha256"
           assert p["planned_cells"] == 15
           assert p["completed_cells"] == 15
           assert p["one_scored_call_per_cell"] is True
