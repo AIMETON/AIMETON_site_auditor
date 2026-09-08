@@ -216,7 +216,8 @@ def request(
     connect_timeout_seconds: int = 30,
     total_timeout_seconds: int = 240,
 ) -> CurlResult:
-    validate_proxy_and_key(proxy)
+    if proxy:
+        validate_proxy_and_key(proxy)
     request_headers = dict(headers or {})
     expected_upload = len(body or b"")
     write_out = "AIMETON_CURL_METRICS|%{http_code}|%{size_upload}|%{time_connect}|%{time_appconnect}|%{time_starttransfer}|%{time_total}"
@@ -240,8 +241,12 @@ def request(
             "--no-progress-meter",
             "--request",
             method,
-            "--proxy",
-            proxy,
+        ]
+        if proxy:
+            command.extend(["--proxy", proxy])
+        else:
+            command.extend(["--noproxy", "*"])
+        command.extend([
             "--connect-timeout",
             str(connect_timeout_seconds),
             "--max-time",
@@ -256,7 +261,7 @@ def request(
             str(response_path),
             "--write-out",
             write_out,
-        ]
+        ])
         if body is not None:
             body_path = root / "request.bin"
             body_path.write_bytes(body)
@@ -298,7 +303,10 @@ def request(
 
 
 def authenticated_get(*, url: str, proxy: str, api_key: str, total_timeout_seconds: int = 90) -> CurlResult:
-    validate_proxy_and_key(proxy, api_key)
+    if proxy:
+        validate_proxy_and_key(proxy, api_key)
+    elif not api_key.strip():
+        raise RuntimeError("openrouter_api_key_missing")
     return request(
         method="GET",
         url=url,
@@ -313,7 +321,10 @@ def authenticated_get(*, url: str, proxy: str, api_key: str, total_timeout_secon
 
 
 def post_response(*, proxy: str, api_key: str, body: bytes, total_timeout_seconds: int) -> CurlResult:
-    validate_proxy_and_key(proxy, api_key)
+    if proxy:
+        validate_proxy_and_key(proxy, api_key)
+    elif not api_key.strip():
+        raise RuntimeError("openrouter_api_key_missing")
     return request(
         method="POST",
         url=OPENROUTER_RESPONSES_URL,

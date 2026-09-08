@@ -39,3 +39,11 @@ def test_large_body_preflight_enforces_current_socks_transport() -> None:
     assert '"proxy_transport": "socks5h"' in text
     assert 'assert receipt["proxy_transport"] == "socks5h"' in text
     assert 'assert receipt["proxy_transport"] == "http"' not in text
+
+
+def test_openrouter_client_has_explicit_no_proxy_direct_transport() -> None:
+    client = Path("scripts/openrouter_proxy_client.py").read_text(encoding="utf-8")
+    assert 'if proxy:' in client
+    assert 'command.extend(["--proxy", proxy])' in client
+    assert 'command.extend(["--noproxy", "*"])' in client
+    assert 'elif not api_key.strip():' in client
