@@ -279,7 +279,10 @@ def run(proxy_url: str, transport_mode: str) -> dict[str, Any]:
         "provider_api_secrets_used": False,
         "http_methods": ["GET"],
         "openrouter_proxy_value_retained": False,
-        "tokenizer_preflight_required": False,\n        "primary_input_length_measurement": "provider-reported usage after successful scored response",\n        "pre_call_length_telemetry": ["nominal_anchor", "payload_sha256", "request_text_bytes", "request_text_characters"],\n        "scientific_boundary": "Fresh route/capability/pricing admission only; no cognition score.",
+        "tokenizer_preflight_required": False,
+        "primary_input_length_measurement": "provider-reported usage after successful scored response",
+        "pre_call_length_telemetry": ["nominal_anchor", "payload_sha256", "request_text_bytes", "request_text_characters"],
+        "scientific_boundary": "Fresh route/capability/pricing admission only; no cognition score.",
     }
     if not result["budget_admitted"]:
         raise HybridCensusError(
