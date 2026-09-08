@@ -28,6 +28,7 @@ ALL_MODELS = ROUTERAI_MODELS + (SOL_MODEL,)
 
 B2_ARCHITECTURE_SHA = "d390b2f56c0b2dae4be0cc4810dcb86403f2dc26"
 OUTPUT_POLICY_SHA = "4c2ee2afbc85c6ae5fcabffac86bd33304273338"
+REASONING_POLICY_SHA = "b44127abe77315b6ee50c6167e07d88f0116f726"
 OWNER_CEILING_RUB = 10_000.0
 EXPECTED_COMMON_OUTPUT_CEILING = 128_000
 SNAPSHOT_ROOT = Path("docs/research/accb_b2_snapshot") / B2_ARCHITECTURE_SHA
@@ -558,6 +559,7 @@ def main() -> int:
         "site_auditor_sha": site_sha,
         "b2_architecture_sha": B2_ARCHITECTURE_SHA,
         "output_policy_sha": OUTPUT_POLICY_SHA,
+        "reasoning_policy_sha": REASONING_POLICY_SHA,
         "scenario_id": generator.SCENARIO_ID,
         "scenario_version": generator.SCENARIO_VERSION,
         "primary_cross_model_input_axis": "request_text_bytes",
