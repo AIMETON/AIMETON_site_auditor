@@ -65,3 +65,15 @@ def test_tokenizer_preflight_binds_snapshot_verifier_module() -> None:
     script = Path("scripts/accb_layer_b_tokenizer_preflight.py").read_text(encoding="utf-8")
     assert "import accb_layer_b_dry_run as dry" in script
     assert "dry.verify_snapshot(architecture_root)" in script
+
+
+def test_kimi_remote_tokenizer_code_is_exact_revision_pinned_and_explicit() -> None:
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert '"moonshotai/kimi-k3": {' in script
+    assert '"trust_remote_code": True' in script
+    assert 'info = api.model_info(repo_id, revision="main")' in script
+    assert 'revision = str(info.sha or "").strip()' in script
+    assert 'revision=revision' in script
+    assert 'trust_remote_code=trust_remote_code' in script
+    assert '"revision": revision' in script
+    assert '"trust_remote_code": trust_remote_code' in script
