@@ -590,6 +590,8 @@ def main() -> int:
                     row["measurement_status"] = "HARNESS_FAILURE"
                     row["error_type"] = type(exc).__name__
                     row["error_message"] = str(exc)[:500]
+                    row["error_message_sha256"] = sha256_text(str(exc))
+                    row["failure_stage"] = "provider_or_scoring_harness"
                     row["ACI"] = None
                     row["ACI_min"] = None
                     row["critical_failures"] = []
