@@ -15,6 +15,7 @@ def test_command_router_is_the_sanitized_single_ingress_contract() -> None:
     assert "group: aimeton-command-router-${{ github.event.issue.number }}" in workflow
     assert "cancel-in-progress: true" in workflow
     assert "python3 scripts/aimeton_command_router.py" in workflow
+    assert "runs-on: ubuntu-24.04" in workflow
 
     assert "unsupported_or_invalid_command" in router
     assert "ignored: unsupported_or_invalid_command" in router
