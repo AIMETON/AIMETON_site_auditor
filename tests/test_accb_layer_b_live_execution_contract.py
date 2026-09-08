@@ -116,3 +116,34 @@ def test_harness_failures_are_preserved_in_sanitized_evidence() -> None:
     assert '"failure_evidence"' in workflow
     assert 'row.get("error_type")' in workflow
     assert 'row.get("error_message_sha256")' in workflow
+
+
+RECOVERY_SCRIPT = Path("scripts/accb_layer_b_deepseek_medium_recovery.py")
+RECOVERY_WORKFLOW = Path(".github/workflows/accb-layer-b-deepseek-medium-recovery.yml")
+RECOVERY_PREFLIGHT = Path(".github/workflows/accb-layer-b-deepseek-medium-recovery-preflight.yml")
+
+
+def test_deepseek_medium_recovery_is_physically_single_cell_and_exact_payload() -> None:
+    script = RECOVERY_SCRIPT.read_text(encoding="utf-8")
+    assert 'MODEL = "deepseek/deepseek-v4-pro-0813"' in script
+    assert "ANCHOR = 131072" in script
+    assert "EXPECTED_BYTES = 575367" in script
+    assert 'EXPECTED_PAYLOAD_SHA256 = "eb3bf2c81c12320ce992fd8aba0028e891673f7054d3bd2286ad58a486f811cc"' in script
+    assert '"planned_recovery_cells": 1' in script
+    assert '"provider_generation_attempts_total": 1' in script
+    assert '"silent_retries": 0' in script
+    assert '"fallbacks": False' in script
+    assert "for model in ALL_MODELS" not in script
+    assert "for anchor in ANCHORS" not in script
+
+
+def test_deepseek_medium_recovery_has_separate_zero_spend_preflight() -> None:
+    preflight = RECOVERY_PREFLIGHT.read_text(encoding="utf-8")
+    live = RECOVERY_WORKFLOW.read_text(encoding="utf-8")
+    assert "ROUTERAI_API_KEY" not in preflight
+    assert "OPENROUTER_API_KEY" not in preflight
+    assert "provider generations: \`0\`" in preflight
+    assert "max_budget_rub" in live
+    assert 'default: "200"' in live
+    assert "ROUTERAI_API_KEY" in live
+    assert "OPENROUTER_API_KEY" not in live
