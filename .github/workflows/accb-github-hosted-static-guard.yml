@@ -15,7 +15,7 @@ on:
       - "scripts/accb_layer_b_tokenizer_preflight.py"
       - "scripts/accb_layer_b_common_payload_preflight.py"
       - "scripts/accb_layer_b_live_execution.py"
-      - "docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.1.json"
+      - "docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.2.json"
       - "tests/test_accb_layer_b_hybrid_census.py"
       - "tests/test_accb_layer_b_tokenizer_preflight_contract.py"
       - "tests/test_accb_layer_b_common_payload_preflight.py"
