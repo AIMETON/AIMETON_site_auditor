@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   baseline:
-    runs-on: [self-hosted, Linux, X64, stage, auditor]
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
       TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -65,26 +65,7 @@ jobs:
           cleanup_auth
           trap - EXIT
 
-      - name: Prove external runner tool cache in job context
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          test "$RUNNER_NAME" = 'aimeton-site-auditor-stage'
-          test "$(hostname)" = 'aimeton-main-server'
-          cache_mount=/mnt/aimeton-dependency-cache
-          expected="${cache_mount}/toolchains/runners/${RUNNER_NAME}"
-          test "${RUNNER_TOOL_CACHE:-}" = "$expected"
-          test -d "$expected"
-          mountpoint -q "$cache_mount"
-          root_source="$(findmnt -n -o SOURCE /)"
-          cache_source="$(findmnt -n -o SOURCE "$cache_mount")"
-          tool_source="$(findmnt -n -o SOURCE -T "$expected")"
-          test -n "$cache_source"
-          test "$cache_source" != "$root_source"
-          test "$tool_source" = "$cache_source"
-          echo "runner_tool_cache_job_proof=verified runner=$RUNNER_NAME cache=$RUNNER_TOOL_CACHE source=$cache_source"
-
-      - name: Verify self-hosted baseline contract
+      - name: Verify portable baseline contract
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -92,10 +73,9 @@ jobs:
           from pathlib import Path
           workflow = Path('.github/workflows/baseline-ci.yml').read_text(encoding='utf-8')
           marketplace_prefix = 'us' + 'es:'
-          assert 'runs-on: [self-hosted, Linux, X64, stage, auditor]' in workflow
+          assert 'runs-on: ubuntu-24.04' in workflow
           assert 'x-access-token:${GH_TOKEN}' in workflow
           assert 'git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"' in workflow
-          assert 'runner_tool_cache_job_proof=verified' in workflow
           assert not any(line.lstrip().startswith(marketplace_prefix) for line in workflow.splitlines())
           PY
 
@@ -165,12 +145,9 @@ jobs:
             echo "- machine: \`$(hostname)\`"
             echo "- exact SHA: \`$TARGET_SHA\`"
             echo '- GitHub Marketplace actions: `disabled`'
-            echo "- runner tool cache: \`${RUNNER_TOOL_CACHE:-MISSING}\`"
-            echo "- dependency cache source: \`$(findmnt -n -o SOURCE /mnt/aimeton-dependency-cache 2>/dev/null || echo MISSING)\`"
+            echo "- runner image: \`${ImageOS:-github-hosted}\`"
             echo "- exact-SHA private fetch: \`x-access-token + credential cleanup\`"
-            echo '- job-level proof purpose: `evidence only; not cleanup authority by itself`'
-            echo '- legacy `_work/_tool` cleanup: `not performed by this workflow`'
-            echo '- runner `_update` cleanup: `out of scope / protected`'
+            echo '- machine-specific runner proof: `separate dispatch-only workflow`'
             echo
             echo '### pytest tail'
             echo '```text'

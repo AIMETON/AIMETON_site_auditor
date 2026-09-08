@@ -31,10 +31,15 @@ def test_exact_sha_command_routes_to_dedicated_dispatch_workflow() -> None:
     assert expected in router
 
 
-def test_baseline_workflows_remain_self_hosted_and_marketplace_free() -> None:
-    for path in (AUTOMATIC, DISPATCH):
-        content = path.read_text(encoding="utf-8")
-        assert "runs-on: [self-hosted, Linux, X64, stage, auditor]" in content
+def test_baseline_runner_authorities_are_split_and_marketplace_free() -> None:
+    automatic = AUTOMATIC.read_text(encoding="utf-8")
+    dispatch = DISPATCH.read_text(encoding="utf-8")
+
+    assert "runs-on: ubuntu-24.04" in automatic
+    assert "runs-on: [self-hosted, Linux, X64, stage, auditor]" not in automatic
+    assert "runs-on: [self-hosted, Linux, X64, stage, auditor]" in dispatch
+
+    for content in (automatic, dispatch):
         assert "actions/checkout@" not in content
         assert "actions/setup-python@" not in content
         assert "actions/upload-artifact@" not in content
