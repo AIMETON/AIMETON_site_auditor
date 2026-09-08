@@ -9,10 +9,14 @@ on:
       - "tests/test_command_router_policy.py"
       - ".github/workflows/accb-layer-b-hybrid-census.yml"
       - ".github/workflows/accb-layer-b-tokenizer-preflight.yml"
+      - ".github/workflows/accb-layer-b-common-payload-preflight.yml"
       - "scripts/accb_layer_b_hybrid_census.py"
       - "scripts/accb_layer_b_tokenizer_preflight.py"
+      - "scripts/accb_layer_b_common_payload_preflight.py"
+      - "docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.1.json"
       - "tests/test_accb_layer_b_hybrid_census.py"
       - "tests/test_accb_layer_b_tokenizer_preflight_contract.py"
+      - "tests/test_accb_layer_b_common_payload_preflight.py"
 permissions:
   contents: read
 jobs:
@@ -42,4 +46,5 @@ jobs:
             tests/test_accb_openrouter_edge_probe_contract.py \
             tests/test_command_router_policy.py \
             tests/test_accb_layer_b_hybrid_census.py \
-            tests/test_accb_layer_b_tokenizer_preflight_contract.py
+            tests/test_accb_layer_b_tokenizer_preflight_contract.py \
+            tests/test_accb_layer_b_common_payload_preflight.py
