@@ -18,7 +18,7 @@ concurrency:
 jobs:
   validate-pr:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
-    runs-on: [self-hosted, Linux, X64, stage, auditor]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       TARGET_SHA: ${{ github.event.pull_request.head.sha }}
@@ -50,7 +50,7 @@ jobs:
 
   publish-merge-evidence:
     if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
-    runs-on: [self-hosted, Linux, X64, stage, auditor]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
@@ -118,7 +118,7 @@ jobs:
 
   guard-issue-closure:
     if: github.event_name == 'issues' && github.event.action == 'closed' && github.event.issue.state_reason == 'completed'
-    runs-on: [self-hosted, Linux, X64, stage, auditor]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       TARGET_SHA: ${{ github.sha }}
