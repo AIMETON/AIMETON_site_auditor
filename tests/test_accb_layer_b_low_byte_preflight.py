@@ -17,7 +17,7 @@ ARCH = Path(
 )
 
 
-def test_low_byte_extension_materializes_exact_targets_without_provider_calls() -> None:
+# Canonical evidence ledger: Site Auditor issue #798.\ndef test_low_byte_extension_materializes_exact_targets_without_provider_calls() -> None:
     report = low.build_report(ARCH)
     assert report["status"] == "ACCB_LAYER_B_LOW_BYTE_PREFLIGHT_READY"
     assert report["planned_cells"] == 10
