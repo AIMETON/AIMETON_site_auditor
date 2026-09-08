@@ -1,6 +1,12 @@
 name: ACCB B2 Information Load No-Paid Materialization
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/accb_b2_information_load_preflight.py"
+      - "docs/research/accb_b2_snapshot/**"
+      - ".github/workflows/accb-b2-information-load-preflight.yml"
   workflow_dispatch:
     inputs:
       expected_sha:
@@ -20,8 +26,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      EXPECTED_SHA: ${{ inputs.expected_sha }}
-      EVIDENCE_ISSUE: ${{ inputs.evidence_issue }}
+      EXPECTED_SHA: ${{ inputs.expected_sha || github.sha }}
+      EVIDENCE_ISSUE: ${{ inputs.evidence_issue || '798' }}
       GH_TOKEN: ${{ github.token }}
 
     steps:
