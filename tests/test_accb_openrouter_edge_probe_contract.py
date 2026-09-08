@@ -26,8 +26,10 @@ def test_accb_edge_probe_is_dispatch_only_exact_size_and_zero_spend() -> None:
     assert 'assert receipt["key_usage_unchanged"] is True' in text
     assert 'assert receipt.get("edge_response_observed") is True' in text
     assert '400 <= int(receipt["http_status"]) < 500' in text
+    assert 'proxy_mode == "direct"' in text
     assert 'proxy_mode == "http"' in text
     assert 'proxy_mode == "socks"' in text
+    assert "runs-on: ubuntu-24.04" in text
     assert "owner_spend_authorized" not in text
     assert "max_budget_rub" not in text
 

@@ -21,6 +21,7 @@ ROUTES: dict[str, tuple[int, str, dict[str, str]]] = {
     "preflight-accb-layer-b-tokenizers": (798, "accb-layer-b-tokenizer-preflight.yml", {"expected_sha": "{sha}", "evidence_issue": "798"}),
     "probe-accb-openrouter-edge-large-body": (820, "accb-openrouter-edge-large-body-probe.yml", {"expected_sha": "{sha}", "evidence_issue": "820", "proxy_mode": "socks"}),
     "probe-accb-openrouter-edge-http": (820, "accb-openrouter-edge-large-body-probe.yml", {"expected_sha": "{sha}", "evidence_issue": "820", "proxy_mode": "http"}),
+    "probe-accb-openrouter-edge-github": (820, "accb-openrouter-edge-large-body-probe.yml", {"expected_sha": "{sha}", "evidence_issue": "820", "proxy_mode": "direct"}),
     "accept-admin-trace-stage": (293, "accept-admin-trace-stage.yml", {"expected_sha": "{sha}"}),
     "accept-aimeton-self-audit-stage": (293, "accept-aimeton-self-audit-stage.yml", {"expected_sha": "{sha}"}),
     "audit-competitor-services-realty-stage": (293, "audit-competitor-services-realty-stage.yml", {"expected_sha": "{sha}"}),

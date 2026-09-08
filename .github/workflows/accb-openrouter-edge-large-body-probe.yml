@@ -4,14 +4,14 @@ on:
     inputs:
       expected_sha: { required: true, type: string }
       evidence_issue: { required: true, default: "820", type: string }
-      proxy_mode: { required: true, default: "socks", type: string }
+      proxy_mode: { required: true, default: "direct", type: string }
 permissions:
   contents: read
   issues: write
 jobs:
   edge-probe:
     environment: stage
-    runs-on: [self-hosted, Linux, X64, stage, auditor]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
@@ -94,7 +94,9 @@ jobs:
 
           key = os.environ.get("OPENROUTER_API_KEY", "").strip()
           proxy_mode = os.environ.get("PROXY_MODE", "").strip().lower()
-          if proxy_mode == "http":
+          if proxy_mode == "direct":
+              proxy = ""
+          elif proxy_mode == "http":
               proxy = os.environ.get("OPENROUTER_PROXY_URL", "").strip()
               if not proxy.startswith(("http://", "https://")):
                   raise RuntimeError("openrouter_http_proxy_invalid")
@@ -112,9 +114,16 @@ jobs:
               )
           else:
               raise RuntimeError("unsupported_proxy_mode")
-          client.validate_proxy_and_key(proxy, key)
+          if proxy_mode == "direct":
+              if not key:
+                  raise RuntimeError("openrouter_api_key_missing")
+          else:
+              client.validate_proxy_and_key(proxy, key)
           receipt["proxy_mode"] = proxy_mode
-          receipt["proxy_transport"] = "socks5h" if proxy.startswith("socks5h://") else "http"
+          receipt["proxy_transport"] = (
+              "direct" if proxy_mode == "direct"
+              else ("socks5h" if proxy.startswith("socks5h://") else "http")
+          )
           receipt["key_before"] = sanitized_key_state(proxy, key)
           if receipt["key_before"].get("http_status") != 200:
               raise RuntimeError("openrouter_key_preflight_not_200")
@@ -288,7 +297,7 @@ jobs:
           assert receipt["paid_spend_authorized_rub"] == 0
           assert receipt["automatic_retries"] == 0
           assert receipt["allow_fallbacks"] is False
-          assert receipt["proxy_mode"] in {"socks", "http"}
+          assert receipt["proxy_mode"] in {"direct", "socks", "http"}
           assert receipt["request_body_bytes"] == 89470
           assert receipt["transport_metrics"].get("upload_complete") is True
           assert receipt["key_usage_unchanged"] is True
