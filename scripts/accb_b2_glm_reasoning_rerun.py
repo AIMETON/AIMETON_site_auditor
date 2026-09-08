@@ -628,7 +628,7 @@ def main() -> int:
         "one_provider_generation_per_cell": True,
         "silent_retries": 0,
         "fallbacks": False,
-        "compute_policy": "selected_endpoint_advertised_maximum",
+        "compute_policy": "selected_endpoint_advertised_maximum_with_glm_reasoning_reserve",
         "common_output_ceiling_tokens": None,
         "legacy_global_8192_output_cap_allowed": False,
         "forced_low_reasoning_effort": False,
