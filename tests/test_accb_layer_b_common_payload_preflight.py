@@ -11,14 +11,14 @@ if str(SCRIPTS) not in sys.path:
 
 import accb_layer_b_common_payload_preflight as common
 
-SCHEDULE = Path("docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.3.json")
+SCHEDULE = Path("docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.4.json")
 WORKFLOW = Path(".github/workflows/accb-layer-b-common-payload-preflight.yml")
 
 
 def test_common_payload_schedule_is_model_neutral_and_tokenizer_free() -> None:
     p = json.loads(SCHEDULE.read_text(encoding="utf-8"))
     assert p["status"] == "FROZEN_EXECUTION_PAYLOAD_SCHEDULE"
-    assert p["execution_admission_sha"] == "67c8ea3e84405884136119d7252fe7424ccf1631"
+    assert p["execution_admission_sha"] == "363f69971ed82ce3e4fc5ea9716652e57e83118e"
     assert p["tokenizer_required_at_execution"] is False
     assert p["provider_generation_requests_authorized_by_schedule"] == 0
     assert p["paid_spend_authorized_rub"] == 0
