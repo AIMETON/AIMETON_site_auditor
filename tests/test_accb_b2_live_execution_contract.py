@@ -48,7 +48,7 @@ def test_b2_live_removes_legacy_compute_confounds() -> None:
     assert '"reasoning_effort_sent": None' in script
     assert "'reasoning': {'effort': 'low'}" not in script
     assert "! grep -F 'MAX_OUTPUT_TOKENS = 8192'" in workflow
-    assert "! grep -F '"effort": "low"'" in workflow
+    assert "! grep -F '\"effort\": \"low\"'" in workflow
 
 
 def test_b2_live_repeats_fresh_capability_and_budget_admission() -> None:
