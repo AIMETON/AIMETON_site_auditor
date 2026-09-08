@@ -205,10 +205,12 @@ def routerai_rates(route: dict[str, Any], prompt_tokens: int) -> tuple[float, fl
     return prompt, completion
 
 
-def estimate_route(route: dict[str, Any], *, usd: bool = False) -> dict[str, Any]:
+def estimate_route(route: dict[str, Any], common_output_ceiling: int, *, usd: bool = False) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     total = 0.0
-    max_out = int(route["max_completion_tokens"])
+    max_out = int(common_output_ceiling)
+    if max_out <= 8192 or max_out > int(route["max_completion_tokens"]):
+        raise CensusError("common output ceiling is invalid for selected route")
     for request_bytes in B2_TARGET_BYTES:
         prompt_guard = math.ceil(request_bytes * INPUT_TOKENS_PER_BYTE_GUARD)
         if usd:
@@ -236,11 +238,17 @@ def run() -> dict[str, Any]:
         author, slug = model.split("/",1)
         body = get_json(f"{ROUTERAI_BASE}/models/{author}/{slug}/endpoints")
         route = routerai_candidate(model, body)
-        route["estimate"] = estimate_route(route)
         routes.append(route)
 
     sol = openrouter_sol_candidate(get_json(OPENROUTER_SOL_ENDPOINTS))
-    sol["estimate"] = estimate_route(sol, usd=True)
+    all_routes = routes + [sol]
+    common_output_ceiling = min(int(x["max_completion_tokens"]) for x in all_routes)
+    if common_output_ceiling <= 8192:
+        raise CensusError("common output ceiling is not materially above legacy 8192")
+
+    for route in routes:
+        route["estimate"] = estimate_route(route, common_output_ceiling)
+    sol["estimate"] = estimate_route(sol, common_output_ceiling, usd=True)
 
     whole = sum(float(x["estimate"]["model_total_rub_guard"]) for x in routes)
     whole += float(sol["estimate"]["model_total_rub_guard"])
@@ -253,7 +261,9 @@ def run() -> dict[str, Any]:
         "provider_generation_requests": 0,
         "paid_spend_authorized_rub": 0,
         "legacy_global_8192_output_cap_allowed": False,
-        "selection_policy": "maximize explicit max_completion_tokens, then context_length, then lower base price",
+        "selection_policy": "select high-capacity endpoints, then use one common high ceiling across the five-model matrix",
+        "common_output_ceiling_tokens": common_output_ceiling,
+        "common_output_ceiling_rule": "minimum advertised max_completion_tokens across selected endpoints",
         "minimum_context_tokens": MIN_CONTEXT_TOKENS,
         "planning_input_tokens_per_byte_guard": INPUT_TOKENS_PER_BYTE_GUARD,
         "planning_input_guard_role": "budget estimate only; not tokenizer evidence or scientific x-axis",
