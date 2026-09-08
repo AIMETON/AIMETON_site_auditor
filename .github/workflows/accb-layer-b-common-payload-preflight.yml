@@ -1,0 +1,145 @@
+name: ACCB Layer B Common Payload No-Paid Preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha: { required: true, type: string }
+      evidence_issue: { required: true, default: "798", type: string }
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      EVIDENCE_ISSUE: ${{ inputs.evidence_issue }}
+      FROZEN_ARCHITECTURE_SHA: b47b937873ef980601b5c741af9b327fb18365bc
+    steps:
+      - name: Materialize exact Site Auditor source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          cd "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if [[ ! -d .git ]]; then git init; fi
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git fetch --no-tags --depth=1 origin "$EXPECTED_SHA"
+          git checkout --detach --force FETCH_HEAD
+          git reset --hard "$EXPECTED_SHA"
+          git clean -ffdx
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Bind vendored exact frozen architecture snapshot
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ARCH="$GITHUB_WORKSPACE/docs/research/accb_layer_b_snapshot/$FROZEN_ARCHITECTURE_SHA"
+          test -f "$ARCH/SNAPSHOT_MANIFEST.json"
+          test -f "$ARCH/ACCB-DEV-004.scenario.json"
+          test -f "$ARCH/ACCB-DEV-004.gold-ledger.json"
+          test -f "$ARCH/candidate_trace.schema.json"
+          test -f "$ARCH/score_accb_trace.py"
+          echo "ACCB_ARCHITECTURE_ROOT=$ARCH" >> "$GITHUB_ENV"
+
+      - name: Materialize common model-neutral payloads without tokenizer
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          OUT="$RUNNER_TEMP/accb-layer-b-common-payload-$GITHUB_RUN_ID.json"
+          python3 scripts/accb_layer_b_common_payload_preflight.py \
+            --architecture-root "$ACCB_ARCHITECTURE_ROOT" \
+            --output "$OUT"
+          echo "ACCB_COMMON_PAYLOAD_RECEIPT=$OUT" >> "$GITHUB_ENV"
+
+      - name: Validate zero-spend common payload receipt
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - "$ACCB_COMMON_PAYLOAD_RECEIPT" <<'PY'
+          import json,sys
+          p=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert p["status"] == "ACCB_LAYER_B_COMMON_PAYLOAD_READY"
+          assert p["execution_admission_sha"] == "67c8ea3e84405884136119d7252fe7424ccf1631"
+          assert p["tokenizer_required_at_execution"] is False
+          assert p["same_payload_per_anchor_for_all_models"] is True
+          assert p["provider_generation_requests"] == 0
+          assert p["paid_spend_authorized_rub"] == 0
+          assert p["provider_api_secrets_used"] is False
+          assert [x["nominal_anchor"] for x in p["anchors"]] == [32768,131072,524288]
+          assert max(x["request_text_bytes"] for x in p["anchors"]) < 2500000
+          assert all(x["L_payload_local_estimate"] is None for x in p["anchors"])
+          assert all(x["L_model_input_provider"] is None for x in p["anchors"])
+          PY
+
+      - name: Publish sanitized common payload receipt
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import urllib.request
+
+          path=pathlib.Path(os.environ.get("ACCB_COMMON_PAYLOAD_RECEIPT",""))
+          if path.is_file():
+              p=json.loads(path.read_text(encoding="utf-8"))
+              compact={
+                  "status":p.get("status"),
+                  "frozen_architecture_sha":p.get("frozen_architecture_sha"),
+                  "execution_admission_sha":p.get("execution_admission_sha"),
+                  "same_payload_per_anchor_for_all_models":p.get("same_payload_per_anchor_for_all_models"),
+                  "tokenizer_required_at_execution":p.get("tokenizer_required_at_execution"),
+                  "primary_input_length_measurement":p.get("primary_input_length_measurement"),
+                  "provider_generation_requests":p.get("provider_generation_requests"),
+                  "paid_spend_authorized_rub":p.get("paid_spend_authorized_rub"),
+                  "provider_api_secrets_used":p.get("provider_api_secrets_used"),
+                  "anchors":[{
+                      "nominal_anchor":x.get("nominal_anchor"),
+                      "logical_context_tokens":x.get("logical_context_tokens"),
+                      "payload_sha256":x.get("payload_sha256"),
+                      "request_text_bytes":x.get("request_text_bytes"),
+                      "request_text_characters":x.get("request_text_characters"),
+                      "context_sha256":x.get("context_sha256"),
+                      "target_critical_fact_positions":x.get("target_critical_fact_positions"),
+                      "L_payload_local_estimate":x.get("L_payload_local_estimate"),
+                      "provider_input_measurement_status":x.get("provider_input_measurement_status"),
+                  } for x in p.get("anchors") or []],
+              }
+          else:
+              compact={"status":"COMMON_PAYLOAD_PREFLIGHT_DID_NOT_EMIT_RECEIPT"}
+          body="\n".join([
+              "## ACCB Layer B common payload no-paid preflight",
+              "",
+              f"- exact Site Auditor SHA: `{os.environ['EXPECTED_SHA']}`",
+              f"- runner: `{os.environ.get('RUNNER_NAME')}`",
+              "- tokenizer required at execution: `false`",
+              "- provider generations: `0`",
+              "- authorized spend: `0 RUB`",
+              "",
+              "```json",
+              json.dumps(compact,ensure_ascii=False,indent=2,sort_keys=True),
+              "```",
+          ])
+          req=urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/issues/{os.environ['EVIDENCE_ISSUE']}/comments",
+              data=json.dumps({"body":body},ensure_ascii=False).encode("utf-8"),
+              method="POST",
+              headers={
+                  "Authorization":f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept":"application/vnd.github+json",
+                  "Content-Type":"application/json",
+              },
+          )
+          with urllib.request.urlopen(req,timeout=30) as response:
+              if response.status not in (200,201):
+                  raise SystemExit(response.status)
+          PY
