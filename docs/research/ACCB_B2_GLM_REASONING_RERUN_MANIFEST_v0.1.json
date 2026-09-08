@@ -1,0 +1,23 @@
+{
+  "schema_version": "0.1",
+  "source_run_id": 34216143208,
+  "source_site_auditor_sha": "390e279549f2c9ec4a6fd8700e7dce9274252c88",
+  "source_evidence_comment_id": 5586594799,
+  "provider_max_policy_sha": "f66e0aac76848879c212365b9b040f5ad5b7d605",
+  "selection_rule": "Repeat all five GLM-5.2 B2 cells under one explicit reasoning policy because the source run used provider-default thinking allocation; the two largest source cells exhausted all output budget in reasoning with zero final answer.",
+  "reasoning_policy": {
+    "effort": "high",
+    "thinking_budget_tokens": 32768,
+    "final_answer_reserve_policy": "max_tokens = selected_endpoint_max_completion_tokens - thinking_budget_tokens"
+  },
+  "cells": [
+    {"model": "z-ai/glm-5.2", "tier_id": "b2-32k", "reason": "rerun scored source cell under explicit normalized GLM reasoning policy"},
+    {"model": "z-ai/glm-5.2", "tier_id": "b2-64k", "reason": "rerun scored source cell under explicit normalized GLM reasoning policy"},
+    {"model": "z-ai/glm-5.2", "tier_id": "b2-140k", "reason": "rerun scored source cell under explicit normalized GLM reasoning policy"},
+    {"model": "z-ai/glm-5.2", "tier_id": "b2-562k", "reason": "source cell exhausted 128000 output tokens entirely in reasoning; rerun with explicit reasoning cap and final-answer reserve"},
+    {"model": "z-ai/glm-5.2", "tier_id": "b2-2191k", "reason": "source cell exhausted 128000 output tokens entirely in reasoning; rerun with explicit reasoning cap and final-answer reserve"}
+  ],
+  "retries": 0,
+  "fallbacks": false,
+  "compute_policy": "selected_endpoint_advertised_maximum_with_glm_reasoning_reserve"
+}
