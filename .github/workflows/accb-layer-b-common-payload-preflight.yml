@@ -66,7 +66,7 @@ jobs:
           import json,sys
           p=json.load(open(sys.argv[1],encoding="utf-8"))
           assert p["status"] == "ACCB_LAYER_B_COMMON_PAYLOAD_READY"
-          assert p["execution_admission_sha"] == "67c8ea3e84405884136119d7252fe7424ccf1631"
+          assert p["execution_admission_sha"] == "363f69971ed82ce3e4fc5ea9716652e57e83118e"
           assert p["tokenizer_required_at_execution"] is False
           assert p["same_payload_per_anchor_for_all_models"] is True
           assert p["provider_generation_requests"] == 0
