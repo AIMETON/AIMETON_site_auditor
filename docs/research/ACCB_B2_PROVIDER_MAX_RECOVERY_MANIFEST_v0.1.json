@@ -1,10 +1,10 @@
 {
   "schema_version": "0.1",
-  "source_run_id": 34196764456,
-  "source_site_auditor_sha": "16fa5b73d8deb8ad3ab6a795a50018117e02c097",
-  "source_evidence_comment_id": 5583590858,
+  "source_run_id": 34216143208,
+  "source_site_auditor_sha": "390e279549f2c9ec4a6fd8700e7dce9274252c88",
+  "source_evidence_comment_id": 5586594799,
   "provider_max_policy_sha": "f66e0aac76848879c212365b9b040f5ad5b7d605",
-  "selection_rule": "Only cells without valid cognition evidence due to AIMETON common-output-cap exhaustion or pre-result harness/provider transport failure are repeated; all scored cells from the source run are excluded.",
+  "selection_rule": "Only cells without valid cognition evidence due to AIMETON common-output-cap exhaustion are repeated; all 23 scored cells from the source run are excluded.",
   "cells": [
     {
       "model": "z-ai/glm-5.2",
@@ -15,19 +15,9 @@
       "model": "z-ai/glm-5.2",
       "tier_id": "b2-2191k",
       "reason": "source run OUTPUT_BUDGET_EXHAUSTED at common 128000-token ceiling; 128000 output / 128000 reasoning / 0 final"
-    },
-    {
-      "model": "moonshotai/kimi-k3",
-      "tier_id": "b2-140k",
-      "reason": "source run HARNESS_FAILURE IncompleteRead before provider usage/final cognition evidence"
-    },
-    {
-      "model": "moonshotai/kimi-k3",
-      "tier_id": "b2-562k",
-      "reason": "source run HARNESS_FAILURE IncompleteRead before provider usage/final cognition evidence"
     }
   ],
-  "excluded_scored_cells": 21,
+  "excluded_scored_cells": 23,
   "retries": 0,
   "fallbacks": false,
   "compute_policy": "selected_endpoint_advertised_maximum"
