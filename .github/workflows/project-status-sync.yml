@@ -46,7 +46,7 @@ concurrency:
 
 jobs:
   sync:
-    runs-on: [self-hosted, Linux, X64, stage, auditor]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
       GH_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
