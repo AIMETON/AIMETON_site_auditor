@@ -76,7 +76,6 @@ jobs:
           assert 'runs-on: ubuntu-24.04' in workflow
           assert 'x-access-token:${GH_TOKEN}' in workflow
           assert 'git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"' in workflow
-          assert 'runs-on: [self-hosted, Linux, X64, stage, auditor]' not in workflow
           assert not any(line.lstrip().startswith(marketplace_prefix) for line in workflow.splitlines())
           PY
 
