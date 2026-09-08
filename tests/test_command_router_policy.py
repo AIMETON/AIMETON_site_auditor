@@ -24,14 +24,6 @@ def test_command_router_is_the_sanitized_single_ingress_contract() -> None:
     for command, issue_number, workflow_id in (
         ("deploy-stage", 337, "deploy-stage.yml"),
         ("validate-baseline-self-hosted", 767, "baseline-self-hosted-dispatch.yml"),
-        ("diagnose-accb-layer-b-tokenizers", 798, "accb-layer-b-tokenizer-preflight.yml"),
-        ("census-accb-layer-b-hybrid", 798, "accb-layer-b-hybrid-census.yml"),
-        ("preflight-accb-layer-b-common-payload", 798, "accb-layer-b-common-payload-preflight.yml"),
-        ("preflight-accb-deepseek-medium-recovery", 798, "accb-layer-b-deepseek-medium-recovery-preflight.yml"),
-        ("recover-accb-deepseek-medium", 798, "accb-layer-b-deepseek-medium-recovery.yml"),
-        ("probe-accb-openrouter-edge-large-body", 820, "accb-openrouter-edge-large-body-probe.yml"),
-        ("probe-accb-openrouter-edge-http", 820, "accb-openrouter-edge-large-body-probe.yml"),
-        ("probe-accb-openrouter-edge-github", 820, "accb-openrouter-edge-large-body-probe.yml"),
         ("accept-admin-trace-stage", 293, "accept-admin-trace-stage.yml"),
         ("accept-aimeton-self-audit-stage", 293, "accept-aimeton-self-audit-stage.yml"),
         ("accept-checkpoint-stage", 88, "accept-checkpoint-stage.yml"),
@@ -55,6 +47,8 @@ def test_command_router_is_the_sanitized_single_ingress_contract() -> None:
         ("accept-auth-stage", 164, "stage-auth-acceptance.yml"),
     ):
         assert f'"{command}": ({issue_number}, "{workflow_id}"' in router
+
+    assert "accb" not in router.lower()
 
     for ledger_field in (
         "- command:",
