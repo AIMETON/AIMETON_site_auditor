@@ -20,6 +20,7 @@ ROUTES: dict[str, tuple[int, str, dict[str, str]]] = {
     "run-accb-openrouter-sol-triad": (820, "accb-openrouter-sol-32k-provider-triad.yml", {"expected_sha": "{sha}", "evidence_issue": "820", "owner_spend_authorized": "true", "max_budget_rub": "300"}),
     "diagnose-accb-layer-b-tokenizers": (798, "accb-layer-b-tokenizer-preflight.yml", {"expected_sha": "{sha}", "evidence_issue": "798"}),
     "census-accb-layer-b-hybrid": (798, "accb-layer-b-hybrid-census.yml", {"expected_sha": "{sha}", "evidence_issue": "798", "sol_transport_mode": "direct"}),
+    "preflight-accb-layer-b-common-payload": (798, "accb-layer-b-common-payload-preflight.yml", {"expected_sha": "{sha}", "evidence_issue": "798"}),
     "probe-accb-openrouter-edge-large-body": (820, "accb-openrouter-edge-large-body-probe.yml", {"expected_sha": "{sha}", "evidence_issue": "820", "proxy_mode": "socks"}),
     "probe-accb-openrouter-edge-http": (820, "accb-openrouter-edge-large-body-probe.yml", {"expected_sha": "{sha}", "evidence_issue": "820", "proxy_mode": "http"}),
     "probe-accb-openrouter-edge-github": (820, "accb-openrouter-edge-large-body-probe.yml", {"expected_sha": "{sha}", "evidence_issue": "820", "proxy_mode": "direct"}),
