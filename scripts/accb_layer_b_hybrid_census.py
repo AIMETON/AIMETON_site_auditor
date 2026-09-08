@@ -25,7 +25,7 @@ OPENROUTER_ENDPOINTS_URL = (
     "https://openrouter.ai/api/v1/models/openai/gpt-5.6-sol/endpoints"
 )
 OPENROUTER_PROVIDER_PIN = "openai"
-EXECUTION_ADMISSION_SHA = "6db671e8afd1fb4a38adb172c7cf288cf2b53b63"
+EXECUTION_ADMISSION_SHA = "67c8ea3e84405884136119d7252fe7424ccf1631"
 FROZEN_ARCHITECTURE_SHA = "b47b937873ef980601b5c741af9b327fb18365bc"
 OWNER_FIRST_STAGE_CEILING_RUB = 10_000.0
 OPENROUTER_USD_TO_RUB_GUARD_RATE = 500.0
@@ -279,6 +279,9 @@ def run(proxy_url: str, transport_mode: str) -> dict[str, Any]:
         "provider_api_secrets_used": False,
         "http_methods": ["GET"],
         "openrouter_proxy_value_retained": False,
+        "tokenizer_preflight_required": False,
+        "primary_input_length_measurement": "provider-reported usage after successful scored response",
+        "pre_call_length_telemetry": ["nominal_anchor", "payload_sha256", "request_text_bytes", "request_text_characters"],
         "scientific_boundary": "Fresh route/capability/pricing admission only; no cognition score.",
     }
     if not result["budget_admitted"]:

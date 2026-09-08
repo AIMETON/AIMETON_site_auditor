@@ -6,7 +6,7 @@ SCRIPT = Path("scripts/accb_layer_b_tokenizer_preflight.py")
 PRODUCT_REQUIREMENTS = Path("requirements.txt")
 
 
-def test_tokenizer_preflight_is_dispatch_only_and_zero_provider_spend() -> None:
+def test_tokenizer_diagnostic_is_dispatch_only_zero_spend_and_not_admission_required() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     trigger = text.split("permissions:", 1)[0]
     assert "workflow_dispatch:" in trigger
@@ -28,6 +28,8 @@ def test_tokenizer_preflight_is_dispatch_only_and_zero_provider_spend() -> None:
     assert "candidate_trace.schema.json" in text
     assert "score_accb_trace.py" in text
     assert "runs-on: ubuntu-24.04" in text
+    assert "ACCB Layer B Optional Tokenizer Diagnostic" in text
+    assert '"admission_required":False' in text
 
 
 def test_tokenizer_dependencies_do_not_enter_product_runtime() -> None:
