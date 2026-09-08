@@ -10,7 +10,7 @@ permissions:
 jobs:
   preflight:
     environment: stage
-    runs-on: [self-hosted, Linux, X64, stage, auditor]
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       GH_TOKEN: ${{ github.token }}
