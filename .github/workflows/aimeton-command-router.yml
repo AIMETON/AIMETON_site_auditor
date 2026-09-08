@@ -18,7 +18,7 @@ jobs:
     if: >-
       github.event.comment.user.login == 'Dimar4713' &&
       startsWith(github.event.comment.body, '/')
-    runs-on: [self-hosted, Linux, X64, stage, auditor]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       GH_TOKEN: ${{ github.token }}
