@@ -55,3 +55,37 @@ def test_common_payload_materialization_matches_frozen_schedule() -> None:
     assert [x["request_text_bytes"] for x in report["anchors"]] == [143867, 575300, 2297658]
     assert all(x["L_payload_local_estimate"] is None for x in report["anchors"])
     assert all(x["L_model_input_provider"] is None for x in report["anchors"])
+
+
+def test_corrected_output_contract_exposes_exact_scenario_identity_and_payload_hashes() -> None:
+    import hashlib
+
+    architecture_root = Path(
+        "docs/research/accb_layer_b_snapshot/"
+        "b47b937873ef980601b5c741af9b327fb18365bc"
+    )
+    frozen = common.payload.load_frozen_artifacts(architecture_root)
+    schedule = json.loads(SCHEDULE.read_text(encoding="utf-8"))
+    observed = []
+    for spec in schedule["anchors"]:
+        system_text, user_text, _, _, _ = common.payload.build_payload(
+            frozen.scenario,
+            frozen.trace_schema,
+            nominal_anchor=int(spec["nominal_anchor"]),
+            logical_context_tokens=int(spec["logical_context_tokens"]),
+        )
+        request_text = common.payload.local_count_text(system_text, user_text)
+        assert 'SCENARIO_ID="ACCB-DEV-004"' in request_text
+        observed.append(
+            (
+                int(spec["nominal_anchor"]),
+                len(request_text.encode("utf-8")),
+                hashlib.sha256(request_text.encode("utf-8")).hexdigest(),
+            )
+        )
+
+    assert observed == [
+        (32768, 0, "DISCOVER"),
+        (131072, 0, "DISCOVER"),
+        (524288, 0, "DISCOVER"),
+    ]
