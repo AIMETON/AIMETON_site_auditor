@@ -27,6 +27,7 @@ def test_tokenizer_preflight_is_dispatch_only_and_zero_provider_spend() -> None:
     assert "ACCB-DEV-004.gold-ledger.json" in text
     assert "candidate_trace.schema.json" in text
     assert "score_accb_trace.py" in text
+    assert "runs-on: ubuntu-24.04" in text
 
 
 def test_tokenizer_dependencies_do_not_enter_product_runtime() -> None:
