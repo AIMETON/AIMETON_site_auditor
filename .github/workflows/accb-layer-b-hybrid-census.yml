@@ -94,6 +94,9 @@ jobs:
                   "provider_generations_performed":p.get("provider_generations_performed"),
                   "paid_spend_authorized_by_this_census_rub":p.get("paid_spend_authorized_by_this_census_rub"),
                   "provider_api_secrets_used":p.get("provider_api_secrets_used"),
+                  "tokenizer_preflight_required":p.get("tokenizer_preflight_required"),
+                  "primary_input_length_measurement":p.get("primary_input_length_measurement"),
+                  "pre_call_length_telemetry":p.get("pre_call_length_telemetry"),
                   "error_type":p.get("error_type"),
                   "safe_message":p.get("safe_message"),
               }
@@ -136,6 +139,9 @@ jobs:
           import json,sys
           p=json.load(open(sys.argv[1],encoding="utf-8"))
           assert p["status"] == "ACCB_LAYER_B_HYBRID_CENSUS_COMPLETE"
+          assert p["execution_admission_sha"] == "67c8ea3e84405884136119d7252fe7424ccf1631"
+          assert p["tokenizer_preflight_required"] is False
+          assert p["primary_input_length_measurement"].startswith("provider-reported usage")
           assert p["planned_cells"] == 15
           assert len(p["routerai_models"]) == 4
           assert p["provider_generations_performed"] == 0
