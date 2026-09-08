@@ -94,7 +94,7 @@ def test_layer_b_live_workflow_enforces_complete_15_cell_receipt() -> None:
     assert 'assert all(row["provider_generation_attempts"] == 1 for row in p["cells"])' in text
     assert 'assert p["status"] == "ACCB_LAYER_B_EXECUTION_COMPLETE"' in text
     assert 'assert p["completion_criterion_met"] is True' in text
-    assert "request bytes" in text
+    assert "payload bytes" in text
     assert "measurement" in text
 
 
