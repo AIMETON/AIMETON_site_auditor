@@ -11,7 +11,7 @@ permissions:
 jobs:
   census:
     environment: stage
-    runs-on: [self-hosted, Linux, X64, stage, auditor]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}

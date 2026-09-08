@@ -26,6 +26,7 @@ def test_hybrid_census_is_get_only_and_zero_generation() -> None:
     assert "10000" in text
     assert "OPENROUTER_PROXY_URL" in text
     assert "OPENROUTER_SOCKS_URL" not in text
+    assert "runs-on: ubuntu-24.04" in text
 
 
 def test_openrouter_guard_uses_conservative_maximum_rates() -> None:
