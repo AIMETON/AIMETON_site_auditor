@@ -10,7 +10,7 @@ from typing import Any
 import accb_layer_b_dry_run as dry
 import accb_layer_b_payload as payload
 
-SCHEDULE_PATH = Path("docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.1.json")
+SCHEDULE_PATH = Path("docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.2.json")
 
 
 class CommonPayloadError(RuntimeError):

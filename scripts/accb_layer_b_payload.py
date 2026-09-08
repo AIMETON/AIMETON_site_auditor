@@ -123,9 +123,11 @@ def _candidate_contract(scenario: dict[str, Any], trace_schema: dict[str, Any]) 
         [
             "OUTPUT CONTRACT",
             "Return exactly one JSON object matching CANDIDATE_TRACE_SCHEMA.",
+            "Set scenario_id exactly to SCENARIO_ID.",
             "Use only the supplied CLAIM_IDS for claim_id fields.",
             "ACTION_VOCABULARY is an unordered set of allowed action identifiers; infer the correct order from the temporal evidence.",
             "Do not include Markdown, explanation, or chain-of-thought.",
+            "SCENARIO_ID=" + json.dumps(str(scenario["scenario_id"]), ensure_ascii=False),
             "CLAIM_IDS=" + json.dumps(claim_ids, ensure_ascii=False, separators=(",", ":")),
             "ACTION_VOCABULARY=" + json.dumps(action_vocab, ensure_ascii=False, separators=(",", ":")),
             "CANDIDATE_TRACE_SCHEMA="

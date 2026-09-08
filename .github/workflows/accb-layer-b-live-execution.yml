@@ -88,7 +88,7 @@ jobs:
           test -f "$ARCH/ACCB-DEV-004.gold-ledger.json"
           test -f "$ARCH/candidate_trace.schema.json"
           test -f "$ARCH/score_accb_trace.py"
-          test -f "$GITHUB_WORKSPACE/docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.1.json"
+          test -f "$GITHUB_WORKSPACE/docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.2.json"
           echo "ACCB_ARCHITECTURE_ROOT=$ARCH" >> "$GITHUB_ENV"
 
       - name: Execute frozen tokenizer-free 15-cell Layer B tranche
