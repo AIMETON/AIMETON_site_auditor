@@ -10,7 +10,7 @@ from typing import Any
 import accb_layer_b_dry_run as dry
 import accb_layer_b_payload as payload
 
-SCHEDULE_PATH = Path("docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.3.json")
+SCHEDULE_PATH = Path("docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.4.json")
 
 
 class CommonPayloadError(RuntimeError):
@@ -30,7 +30,7 @@ def build_report(architecture_root: Path, schedule_path: Path = SCHEDULE_PATH) -
         raise CommonPayloadError("payload schedule is not frozen")
     if schedule.get("tokenizer_required_at_execution") is not False:
         raise CommonPayloadError("runtime tokenizer dependency is not admitted")
-    if schedule.get("execution_admission_sha") != "67c8ea3e84405884136119d7252fe7424ccf1631":
+    if schedule.get("execution_admission_sha") != "363f69971ed82ce3e4fc5ea9716652e57e83118e":
         raise CommonPayloadError("unexpected execution admission SHA")
 
     snapshot = dry.verify_snapshot(architecture_root)
