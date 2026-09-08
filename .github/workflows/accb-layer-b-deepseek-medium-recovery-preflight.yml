@@ -1,0 +1,87 @@
+name: ACCB Layer B DeepSeek Medium Recovery No-Paid Preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        required: true
+        type: string
+      evidence_issue:
+        required: true
+        default: "798"
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      EVIDENCE_ISSUE: ${{ inputs.evidence_issue }}
+    steps:
+      - name: Materialize exact source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          cd "$GITHUB_WORKSPACE"
+          git init -q
+          git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          git fetch --no-tags --depth=1 origin "$EXPECTED_SHA"
+          git checkout --detach --force FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Verify exactly one admitted recovery cell without provider secrets
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import sys
+          sys.path.insert(0,"scripts")
+          import accb_layer_b_deepseek_medium_recovery as recovery
+          import accb_layer_b_live_execution as live
+          assert recovery.MODEL == "deepseek/deepseek-v4-pro-0813"
+          assert recovery.ANCHOR == 131072
+          assert recovery.EXPECTED_BYTES == 575367
+          assert recovery.EXPECTED_PAYLOAD_SHA256 == "eb3bf2c81c12320ce992fd8aba0028e891673f7054d3bd2286ad58a486f811cc"
+          p=live.materialize_common_payloads(Path("docs/research/accb_layer_b_snapshot/b47b937873ef980601b5c741af9b327fb18365bc"))[recovery.ANCHOR]
+          assert p["request_text_bytes"] == recovery.EXPECTED_BYTES
+          assert p["payload_sha256"] == recovery.EXPECTED_PAYLOAD_SHA256
+          assert 'SCENARIO_ID="ACCB-DEV-004"' in p["request_text"]
+          print("ACCB_DEEPSEEK_MEDIUM_RECOVERY_PREFLIGHT_READY")
+          PY
+
+      - name: Publish zero-spend preflight evidence
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          import json,os,urllib.request
+          body="\n".join([
+            "## ACCB DeepSeek medium recovery no-paid preflight",
+            "",
+            f"- exact Site Auditor SHA: `{os.environ['EXPECTED_SHA']}`",
+            "- model: `deepseek/deepseek-v4-pro-0813`",
+            "- payload bytes: `575367`",
+            "- payload SHA256: `eb3bf2c81c12320ce992fd8aba0028e891673f7054d3bd2286ad58a486f811cc`",
+            "- source failed run: `34182582503`",
+            "- planned recovery cells: `1`",
+            "- provider generations: `0`",
+            "- provider API secrets used: `false`",
+            "- spend authorized by this preflight: `0 RUB`",
+            "- status: **READY**",
+          ])
+          req=urllib.request.Request(
+            f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/issues/{os.environ['EVIDENCE_ISSUE']}/comments",
+            data=json.dumps({"body":body}).encode("utf-8"),method="POST",
+            headers={"Authorization":f"Bearer {os.environ['GH_TOKEN']}","Accept":"application/vnd.github+json","Content-Type":"application/json"},
+          )
+          with urllib.request.urlopen(req,timeout=30) as response:
+            assert response.status in (200,201)
+          PY
