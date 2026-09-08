@@ -208,10 +208,13 @@ def routerai_safe_response(response: dict[str, Any], common_ceiling: int) -> dic
     usage = response.get("usage")
     prompt_tokens = _usage_int(usage, "prompt_tokens")
     completion_tokens = _usage_int(usage, "completion_tokens")
-    reasoning_tokens = (
-        _nested_usage_int(usage, ("completion_tokens_details",), ("reasoning_tokens",))
-        or _nested_usage_int(usage, ("output_tokens_details",), ("reasoning_tokens",))
+    reasoning_tokens = _nested_usage_int(
+        usage, ("completion_tokens_details",), ("reasoning_tokens",)
     )
+    if reasoning_tokens is None:
+        reasoning_tokens = _nested_usage_int(
+            usage, ("output_tokens_details",), ("reasoning_tokens",)
+        )
     final_answer_tokens = None
     if completion_tokens is not None and reasoning_tokens is not None:
         final_answer_tokens = max(0, completion_tokens - reasoning_tokens)
@@ -665,6 +668,10 @@ def main() -> int:
                     if call.get("status") != "PROVIDER_SUCCESS":
                         row["candidate_trace_sha256"] = None
                         result["cells"].append(row)
+                        if accounted_spend > max_budget_rub:
+                            raise ExecutionError(
+                                f"accounted/guarded spend {accounted_spend:.6f} exceeded owner ceiling {max_budget_rub:.6f}"
+                            )
                         continue
 
                     try:
@@ -679,6 +686,10 @@ def main() -> int:
                         row["error_type"] = type(exc).__name__
                         row["error_message_sha256"] = sha256_text(str(exc))
                         result["cells"].append(row)
+                        if accounted_spend > max_budget_rub:
+                            raise ExecutionError(
+                                f"accounted/guarded spend {accounted_spend:.6f} exceeded owner ceiling {max_budget_rub:.6f}"
+                            )
                         continue
 
                     canonical_candidate = json.dumps(candidate, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
