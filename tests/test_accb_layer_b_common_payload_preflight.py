@@ -11,7 +11,7 @@ if str(SCRIPTS) not in sys.path:
 
 import accb_layer_b_common_payload_preflight as common
 
-SCHEDULE = Path("docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.2.json")
+SCHEDULE = Path("docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.3.json")
 WORKFLOW = Path(".github/workflows/accb-layer-b-common-payload-preflight.yml")
 
 
@@ -22,6 +22,8 @@ def test_common_payload_schedule_is_model_neutral_and_tokenizer_free() -> None:
     assert p["tokenizer_required_at_execution"] is False
     assert p["provider_generation_requests_authorized_by_schedule"] == 0
     assert p["paid_spend_authorized_rub"] == 0
+    assert p["primary_cross_model_input_axis"] == "request_text_bytes"
+    assert p["provider_input_tokens_role"].startswith("secondary model-specific")
     assert [x["nominal_anchor"] for x in p["anchors"]] == [32768, 131072, 524288]
     assert [x["logical_context_tokens"] for x in p["anchors"]] == [9835, 39893, 160004]
     assert max(x["expected_request_text_bytes"] for x in p["anchors"]) < 2_500_000
@@ -52,6 +54,8 @@ def test_common_payload_materialization_matches_frozen_schedule() -> None:
     assert report["tokenizer_required_at_execution"] is False
     assert report["provider_generation_requests"] == 0
     assert report["paid_spend_authorized_rub"] == 0
+    assert report["primary_cross_model_input_axis"] == "request_text_bytes"
+    assert report["payload_identity_field"] == "expected_payload_sha256"
     assert [x["request_text_bytes"] for x in report["anchors"]] == [143934, 575367, 2297725]
     assert all(x["L_payload_local_estimate"] is None for x in report["anchors"])
     assert all(x["L_model_input_provider"] is None for x in report["anchors"])
