@@ -42,7 +42,7 @@ jobs:
       ACCB_MAX_BUDGET_RUB: ${{ inputs.max_budget_rub }}
       OWNER_SPEND_AUTHORIZED: ${{ inputs.owner_spend_authorized }}
       FROZEN_ARCHITECTURE_SHA: b47b937873ef980601b5c741af9b327fb18365bc
-      EXECUTION_ADMISSION_SHA: 67c8ea3e84405884136119d7252fe7424ccf1631
+      EXECUTION_ADMISSION_SHA: 363f69971ed82ce3e4fc5ea9716652e57e83118e
       ROUTERAI_API_KEY: ${{ secrets.ROUTERAI_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
@@ -57,7 +57,7 @@ jobs:
           import os
           assert float(os.environ["ACCB_MAX_BUDGET_RUB"]) == 10000.0
           assert os.environ["FROZEN_ARCHITECTURE_SHA"] == "b47b937873ef980601b5c741af9b327fb18365bc"
-          assert os.environ["EXECUTION_ADMISSION_SHA"] == "67c8ea3e84405884136119d7252fe7424ccf1631"
+          assert os.environ["EXECUTION_ADMISSION_SHA"] == "363f69971ed82ce3e4fc5ea9716652e57e83118e"
           assert os.environ.get("ROUTERAI_API_KEY", "").strip()
           assert os.environ.get("OPENROUTER_API_KEY", "").strip()
           PY
@@ -88,7 +88,7 @@ jobs:
           test -f "$ARCH/ACCB-DEV-004.gold-ledger.json"
           test -f "$ARCH/candidate_trace.schema.json"
           test -f "$ARCH/score_accb_trace.py"
-          test -f "$GITHUB_WORKSPACE/docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.3.json"
+          test -f "$GITHUB_WORKSPACE/docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.4.json"
           echo "ACCB_ARCHITECTURE_ROOT=$ARCH" >> "$GITHUB_ENV"
 
       - name: Execute frozen tokenizer-free 15-cell Layer B tranche
@@ -119,7 +119,7 @@ jobs:
           if path.is_file():
               p = json.loads(path.read_text(encoding="utf-8"))
               lines = [
-                  "## ACCB Layer B governed live execution v0.2",
+                  "## ACCB Layer B governed live execution v0.3",
                   "",
                   f"- exact Site Auditor SHA: `{p.get('site_auditor_sha')}`",
                   f"- frozen Architecture SHA: `{p.get('frozen_architecture_sha')}`",
@@ -210,7 +210,7 @@ jobs:
 
           p = json.load(open(sys.argv[1], encoding="utf-8"))
           assert p["frozen_architecture_sha"] == "b47b937873ef980601b5c741af9b327fb18365bc"
-          assert p["execution_admission_sha"] == "67c8ea3e84405884136119d7252fe7424ccf1631"
+          assert p["execution_admission_sha"] == "363f69971ed82ce3e4fc5ea9716652e57e83118e"
           assert p["tokenizer_required_at_execution"] is False
           assert p["primary_cross_model_input_axis"] == "request_text_bytes"
           assert p["payload_identity_field"] == "payload_sha256"

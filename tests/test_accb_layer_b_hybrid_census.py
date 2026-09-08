@@ -84,11 +84,12 @@ def test_openrouter_guard_rejects_insufficient_capacity() -> None:
         raise AssertionError("insufficient-capacity Sol endpoint was admitted")
 
 
-def test_hybrid_census_uses_execution_admission_v02_and_no_tokenizer_gate() -> None:
-    assert hybrid.EXECUTION_ADMISSION_SHA == "67c8ea3e84405884136119d7252fe7424ccf1631"
+def test_hybrid_census_uses_execution_admission_v03_and_byte_primary_axis() -> None:
+    assert hybrid.EXECUTION_ADMISSION_SHA == "363f69971ed82ce3e4fc5ea9716652e57e83118e"
     result_keys = Path("scripts/accb_layer_b_hybrid_census.py").read_text(encoding="utf-8")
     assert '"tokenizer_preflight_required": False' in result_keys
-    assert '"primary_input_length_measurement": "provider-reported usage after successful scored response"' in result_keys
+    assert '"primary_cross_model_input_axis": "request_text_bytes"' in result_keys
+    assert '"provider_input_tokens_role": "secondary model-specific tokenizer/provider-framing telemetry"' in result_keys
     assert "payload_sha256" in result_keys
     assert "request_text_bytes" in result_keys
     assert "request_text_characters" in result_keys
