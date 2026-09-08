@@ -142,7 +142,7 @@ def test_deepseek_medium_recovery_has_separate_zero_spend_preflight() -> None:
     live = RECOVERY_WORKFLOW.read_text(encoding="utf-8")
     assert "ROUTERAI_API_KEY" not in preflight
     assert "OPENROUTER_API_KEY" not in preflight
-    assert "provider generations: \`0\`" in preflight
+    assert "provider generations: `0`" in preflight
     assert "max_budget_rub" in live
     assert 'default: "200"' in live
     assert "ROUTERAI_API_KEY" in live
