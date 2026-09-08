@@ -10,7 +10,7 @@ from typing import Any
 import accb_layer_b_dry_run as dry
 import accb_layer_b_payload as payload
 
-SCHEDULE_PATH = Path("docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.2.json")
+SCHEDULE_PATH = Path("docs/research/ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.3.json")
 
 
 class CommonPayloadError(RuntimeError):
@@ -88,6 +88,9 @@ def build_report(architecture_root: Path, schedule_path: Path = SCHEDULE_PATH) -
         "payload_schedule": str(schedule_path),
         "same_payload_per_anchor_for_all_models": True,
         "tokenizer_required_at_execution": False,
+        "primary_cross_model_input_axis": schedule["primary_cross_model_input_axis"],
+        "payload_identity_field": schedule["payload_identity_field"],
+        "provider_input_tokens_role": schedule["provider_input_tokens_role"],
         "primary_input_length_measurement": schedule["primary_input_length_measurement"],
         "provider_generation_requests": 0,
         "paid_spend_authorized_rub": 0,

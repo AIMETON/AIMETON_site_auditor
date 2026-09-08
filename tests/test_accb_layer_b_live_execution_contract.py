@@ -53,6 +53,17 @@ def test_layer_b_live_harness_repeats_fresh_admission_before_paid_calls() -> Non
     assert 'EXECUTION_ADMISSION_SHA = "67c8ea3e84405884136119d7252fe7424ccf1631"' in text
 
 
+def test_cross_model_axis_is_identical_payload_bytes_and_provider_tokens_are_secondary() -> None:
+    text = SCRIPT.read_text(encoding="utf-8")
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    assert '"primary_cross_model_input_axis": "request_text_bytes"' in text
+    assert '"payload_identity_field": "payload_sha256"' in text
+    assert "secondary model-specific tokenizer/provider-framing telemetry" in text
+    assert "payload bytes" in workflow
+    assert "payload SHA256" in workflow
+    assert "provider tokens (diagnostic)" in workflow
+
+
 def test_missing_provider_input_usage_is_measurement_degraded_not_cognition_failure() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
     assert "MEASUREMENT_DEGRADED_NO_PROVIDER_INPUT_COUNT" in text
@@ -60,7 +71,6 @@ def test_missing_provider_input_usage_is_measurement_degraded_not_cognition_fail
     assert "INTEGRATION_FAILURE_NO_AUTHORITATIVE_INPUT_COUNT" not in text
     assert 'row["ACI"] = score.get("ACI")' in text
     assert 'row["L_model_input_provider"] = prompt_tokens' in text
-    assert '"primary_input_length_measurement": "provider-reported usage after successful scored response"' in text
 
 
 def test_layer_b_live_harness_preserves_scientific_execution_contract() -> None:
@@ -84,7 +94,7 @@ def test_layer_b_live_workflow_enforces_complete_15_cell_receipt() -> None:
     assert 'assert all(row["provider_generation_attempts"] == 1 for row in p["cells"])' in text
     assert 'assert p["status"] == "ACCB_LAYER_B_EXECUTION_COMPLETE"' in text
     assert 'assert p["completion_criterion_met"] is True' in text
-    assert "request bytes" in text
+    assert "payload bytes" in text
     assert "measurement" in text
 
 
