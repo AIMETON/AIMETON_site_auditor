@@ -76,6 +76,12 @@ def test_local_fit_measures_exact_payload_not_nominal_or_char_count() -> None:
     assert manifest["L_payload_local"] == fitted.local_input_tokens
     assert manifest["provider_input_tokens"] is None
     assert manifest["provider_input_tokens_status"] == "PENDING_SCORED_PROVIDER_RESPONSE"
+    assert manifest["context_local_tokens"] > 0
+    assert set(manifest["critical_event_local_token_positions"]) == {"B1", "B2", "B3", "B4", "B5"}
+    targets = manifest["target_critical_fact_positions"]
+    observed = manifest["critical_event_local_token_positions"]
+    for event_id, target in zip(("B1", "B2", "B3", "B4", "B5"), targets):
+        assert abs(observed[event_id] - target) < 0.02
 
 
 def test_fit_preserves_nominal_anchor_seed_when_logical_budget_changes() -> None:
