@@ -1,0 +1,48 @@
+{
+  "schema_version": "0.3",
+  "status": "FROZEN_EXECUTION_PAYLOAD_SCHEDULE",
+  "frozen_architecture_sha": "b47b937873ef980601b5c741af9b327fb18365bc",
+  "execution_admission_sha": "67c8ea3e84405884136119d7252fe7424ccf1631",
+  "source_optional_tokenizer_diagnostic": {
+    "evidence_issue": 798,
+    "evidence_comment_id": 5577774791,
+    "site_auditor_sha": "eda992b66fa3af44820b98b0629b61b9fb501d1f",
+    "status": "ACCB_LAYER_B_TOKENIZER_PREFLIGHT_COMPLETE",
+    "role": "non-gating sizing evidence only"
+  },
+  "selection_rule": "For each payload tier, freeze one model-neutral payload and send the exact same request text bytes/hash to every model. Cross-model comparison is indexed by request_text_bytes; provider-reported input tokens are retained only as model-specific secondary telemetry.",
+  "tokenizer_required_at_execution": false,
+  "provider_generation_requests_authorized_by_schedule": 0,
+  "paid_spend_authorized_rub": 0,
+  "primary_input_length_measurement": "request_text_bytes for cross-model comparison",
+  "anchors": [
+    {
+      "nominal_anchor": 32768,
+      "logical_context_tokens": 9835,
+      "expected_request_text_bytes": 143934,
+      "expected_payload_sha256": "e508100bf400d4248a97a7c4aa8a64d7e22db14d2325f98508ae60ab1218c32e",
+      "expected_context_sha256": "903599d72edde277c972ce2abd29b149448ebc5f6e056a617df052a6dbe4d68c"
+    },
+    {
+      "nominal_anchor": 131072,
+      "logical_context_tokens": 39893,
+      "expected_request_text_bytes": 575367,
+      "expected_payload_sha256": "eb3bf2c81c12320ce992fd8aba0028e891673f7054d3bd2286ad58a486f811cc",
+      "expected_context_sha256": "cbe5d53a74f5d982a203d2c49b053213ec32d055813d502f42ef1bcce0eb229d"
+    },
+    {
+      "nominal_anchor": 524288,
+      "logical_context_tokens": 160004,
+      "expected_request_text_bytes": 2297725,
+      "expected_payload_sha256": "048bc9e5d99f29498bac8b15314ac08eb0c18bcc326a7cf78a8c710053e82e38",
+      "expected_context_sha256": "5dcade1f32d1f204e290bd94de692940e3d8a2138061afbc4ff98ffa565b5bcc"
+    }
+  ],
+  "supersedes": "ACCB_LAYER_B_COMMON_PAYLOAD_SCHEDULE_v0.2.json",
+  "correction_reason": "v0.1 omitted the exact scenario_id output-contract constant required by the frozen scorer; run 34178624163 is harness-invalid for cognition evidence.",
+  "invalidated_live_run_id": 34178624163,
+  "reporting_amendment": "Cross-model cognitive-integrity comparisons use identical request_text_bytes with payload_sha256 identity as the primary x-axis. Provider-reported input tokens are secondary model-specific tokenizer/provider-framing telemetry.",
+  "primary_cross_model_input_axis": "request_text_bytes",
+  "payload_identity_field": "expected_payload_sha256",
+  "provider_input_tokens_role": "secondary model-specific tokenizer/provider-framing telemetry"
+}
