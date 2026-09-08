@@ -66,6 +66,8 @@ jobs:
           routes=list(p["routerai_routes"])+[p["openrouter_sol"]]
           assert len(routes) == 5
           assert all(int(r["max_completion_tokens"]) > 8192 for r in routes)
+          assert int(p["common_output_ceiling_tokens"]) > 8192
+          assert int(p["common_output_ceiling_tokens"]) == min(int(r["max_completion_tokens"]) for r in routes)
           PY
 
       - name: Publish sanitized capability and cost evidence
@@ -85,17 +87,18 @@ jobs:
             "- provider API secrets used: `false`",
             "- provider generations: `0`",
             "- legacy global 8192 output cap allowed: `false`",
+            f"- common output ceiling: `{p['common_output_ceiling_tokens']} tokens`",
             f"- 25-cell conservative planning guard: `{p['whole_25_cell_cost_rub_guard']} RUB`",
             f"- planning input guard: `{p['planning_input_tokens_per_byte_guard']} token/byte` (budget only, not tokenizer evidence)",
             "",
-            "| model | provider/tag | transport | context | max output admitted | model guard RUB |",
-            "|---|---|---|---:|---:|---:|",
+            "| model | provider/tag | transport | context | endpoint max | common admitted | model guard RUB |",
+            "|---|---|---|---:|---:|---:|---:|",
           ]
           for r in routes:
             provider=r.get("tag") or r.get("provider_name")
             lines.append(
               f"| {r['model']} | {provider} | {r['transport']} | {r['context_length']} | "
-              f"{r['max_completion_tokens']} | {r['estimate']['model_total_rub_guard']} |"
+              f"{r['max_completion_tokens']} | {p['common_output_ceiling_tokens']} | {r['estimate']['model_total_rub_guard']} |"
             )
           req=urllib.request.Request(
             f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/issues/{os.environ['EVIDENCE_ISSUE']}/comments",
