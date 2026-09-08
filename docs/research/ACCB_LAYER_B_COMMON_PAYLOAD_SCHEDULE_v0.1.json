@@ -1,0 +1,41 @@
+{
+  "schema_version": "0.1",
+  "status": "FROZEN_EXECUTION_PAYLOAD_SCHEDULE",
+  "frozen_architecture_sha": "b47b937873ef980601b5c741af9b327fb18365bc",
+  "execution_admission_sha": "67c8ea3e84405884136119d7252fe7424ccf1631",
+  "source_optional_tokenizer_diagnostic": {
+    "evidence_issue": 798,
+    "evidence_comment_id": 5577774791,
+    "site_auditor_sha": "eda992b66fa3af44820b98b0629b61b9fb501d1f",
+    "status": "ACCB_LAYER_B_TOKENIZER_PREFLIGHT_COMPLETE",
+    "role": "non-gating sizing evidence only"
+  },
+  "selection_rule": "For each nominal anchor, freeze one model-neutral payload using the smallest logical_context_tokens observed among the five optional tokenizer fits. This keeps the same exact payload bytes for every model at an anchor and avoids runtime tokenizer dependence. Provider-reported input usage is the empirical x-axis.",
+  "tokenizer_required_at_execution": false,
+  "provider_generation_requests_authorized_by_schedule": 0,
+  "paid_spend_authorized_rub": 0,
+  "primary_input_length_measurement": "provider-reported usage after successful scored response",
+  "anchors": [
+    {
+      "nominal_anchor": 32768,
+      "logical_context_tokens": 9835,
+      "expected_request_text_bytes": 143867,
+      "expected_payload_sha256": "bb39dcc7f648b108ca8802eb6c09b8ff0309b4c329d864e4957f77fbb4d2ad06",
+      "expected_context_sha256": "903599d72edde277c972ce2abd29b149448ebc5f6e056a617df052a6dbe4d68c"
+    },
+    {
+      "nominal_anchor": 131072,
+      "logical_context_tokens": 39893,
+      "expected_request_text_bytes": 575300,
+      "expected_payload_sha256": "bfb2f7b98613a16abb4dde17e6ae921408c63d4c218d19d19e9dc43ec888c5c3",
+      "expected_context_sha256": "cbe5d53a74f5d982a203d2c49b053213ec32d055813d502f42ef1bcce0eb229d"
+    },
+    {
+      "nominal_anchor": 524288,
+      "logical_context_tokens": 160004,
+      "expected_request_text_bytes": 2297658,
+      "expected_payload_sha256": "257c3c4702baed48e7d92c27ea07c9947d38e8e98bbc86bd8e09448215a1863e",
+      "expected_context_sha256": "5dcade1f32d1f204e290bd94de692940e3d8a2138061afbc4ff98ffa565b5bcc"
+    }
+  ]
+}
