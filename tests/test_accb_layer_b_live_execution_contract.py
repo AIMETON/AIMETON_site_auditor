@@ -50,7 +50,7 @@ def test_layer_b_live_harness_repeats_fresh_admission_before_paid_calls() -> Non
     assert 'max_budget_rub != OWNER_CEILING_RUB' in text
     assert '"planned_cells": 15' in text
     assert '"provider_generation_attempts": 1' in text
-    assert 'EXECUTION_ADMISSION_SHA = "67c8ea3e84405884136119d7252fe7424ccf1631"' in text
+    assert 'EXECUTION_ADMISSION_SHA = "363f69971ed82ce3e4fc5ea9716652e57e83118e"' in text
 
 
 def test_cross_model_axis_is_identical_payload_bytes_and_provider_tokens_are_secondary() -> None:
