@@ -48,10 +48,10 @@ def test_routerai_selection_rejects_legacy_8192_and_prefers_larger_output_capaci
 
 def test_cost_guard_uses_selected_endpoint_maximum_output_capacity():
     route = census.routerai_candidate("vendor/model", _router_body())
-    estimate = census.estimate_route(route)
+    estimate = census.estimate_route(route, 128000)
     assert len(estimate["tiers"]) == 5
     assert all(
-        row["max_output_tokens_admitted"] == route["max_completion_tokens"]
+        row["max_output_tokens_admitted"] == 128000
         for row in estimate["tiers"]
     )
     assert estimate["model_total_rub_guard"] > 0
@@ -63,3 +63,10 @@ def test_census_source_has_no_provider_secret_dependency_or_generation_post():
     assert "OPENROUTER_API_KEY" not in text
     assert 'method="POST"' not in text
     assert "MAX_OUTPUT_TOKENS = 8192" not in text
+
+
+def test_common_high_ceiling_rejects_legacy_low_value():
+    route = census.routerai_candidate("vendor/model", _router_body())
+    import pytest
+    with pytest.raises(census.CensusError):
+        census.estimate_route(route, 8192)
