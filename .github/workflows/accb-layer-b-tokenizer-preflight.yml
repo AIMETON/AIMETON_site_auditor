@@ -142,7 +142,8 @@ jobs:
                       } for x in model.get("anchors") or []],
                   })
               compact={
-                  "status":p.get("status"),\n              "admission_required":False,
+                  "status":p.get("status"),
+                  "admission_required":False,
                   "architecture_source_sha":p.get("architecture_source_sha"),
                   "execution_admission_sha":p.get("execution_admission_sha"),
                   "payload_version":p.get("payload_version"),
