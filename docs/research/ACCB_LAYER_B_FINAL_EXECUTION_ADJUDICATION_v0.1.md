@@ -2,6 +2,8 @@
 
 Status: **ACCB_LAYER_B_DIAGNOSTIC_COMPLETE_WITH_ONE_INTEGRATION_EXCLUSION**
 
+Canonical evidence ledger: Site Auditor issue `#798`.
+
 ## Canonical identities
 
 - Experiment: `ACCB-LAYER-B-DIAGNOSTIC-v0.3`
