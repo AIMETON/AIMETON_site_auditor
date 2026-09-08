@@ -7,6 +7,12 @@ on:
       - "scripts/aimeton_command_router.py"
       - "tests/test_accb_openrouter_edge_probe_contract.py"
       - "tests/test_command_router_policy.py"
+      - ".github/workflows/accb-layer-b-hybrid-census.yml"
+      - ".github/workflows/accb-layer-b-tokenizer-preflight.yml"
+      - "scripts/accb_layer_b_hybrid_census.py"
+      - "scripts/accb_layer_b_tokenizer_preflight.py"
+      - "tests/test_accb_layer_b_hybrid_census.py"
+      - "tests/test_accb_layer_b_tokenizer_preflight_contract.py"
 permissions:
   contents: read
 jobs:
@@ -34,4 +40,6 @@ jobs:
           python3 -m pip install --disable-pip-version-check "pytest==8.4.2"
           python3 -m pytest -q \
             tests/test_accb_openrouter_edge_probe_contract.py \
-            tests/test_command_router_policy.py
+            tests/test_command_router_policy.py \
+            tests/test_accb_layer_b_hybrid_census.py \
+            tests/test_accb_layer_b_tokenizer_preflight_contract.py
