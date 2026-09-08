@@ -92,8 +92,21 @@ def load_recovery_manifest(path: Path) -> list[dict[str, str]]:
         raise ExecutionError("recovery manifest must be a JSON object")
     if value.get("schema_version") != "0.1":
         raise ExecutionError("recovery manifest schema_version drift")
-    if value.get("source_run_id") != 34196764456:
-        raise ExecutionError("recovery manifest source_run_id drift")
+    source_run_id = value.get("source_run_id")
+    if not isinstance(source_run_id, int) or isinstance(source_run_id, bool) or source_run_id <= 0:
+        raise ExecutionError("recovery manifest source_run_id invalid")
+    source_sha = str(value.get("source_site_auditor_sha") or "")
+    if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
+        raise ExecutionError("recovery manifest source_site_auditor_sha invalid")
+    source_evidence_comment_id = value.get("source_evidence_comment_id")
+    if (
+        not isinstance(source_evidence_comment_id, int)
+        or isinstance(source_evidence_comment_id, bool)
+        or source_evidence_comment_id <= 0
+    ):
+        raise ExecutionError("recovery manifest source_evidence_comment_id invalid")
+    if value.get("provider_max_policy_sha") != PROVIDER_MAX_POLICY_SHA:
+        raise ExecutionError("recovery manifest provider_max_policy_sha drift")
     cells = value.get("cells")
     if not isinstance(cells, list) or not cells:
         raise ExecutionError("recovery manifest cells missing")
