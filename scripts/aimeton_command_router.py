@@ -24,6 +24,7 @@ ROUTES: dict[str, tuple[int, str, dict[str, str]]] = {
     "execute-accb-layer-b": (798, "accb-layer-b-live-execution.yml", {"expected_sha": "{sha}", "evidence_issue": "798", "owner_spend_authorized": "true", "max_budget_rub": "10000"}),
     "execute-accb-b2": (798, "accb-b2-live-execution.yml", {"expected_sha": "{sha}", "evidence_issue": "798", "owner_spend_authorized": "true", "max_budget_rub": "10000"}),
     "recover-accb-b2-provider-max": (798, "accb-b2-provider-max-selective-recovery.yml", {"expected_sha": "{sha}", "manifest_path": "docs/research/ACCB_B2_PROVIDER_MAX_RECOVERY_MANIFEST_v0.1.json", "evidence_issue": "798", "owner_spend_authorized": "true"}),
+    "rerun-accb-b2-glm-reasoning": (798, "accb-b2-glm-reasoning-normalized-rerun.yml", {"expected_sha": "{sha}", "manifest_path": "docs/research/ACCB_B2_GLM_REASONING_RERUN_MANIFEST_v0.1.json", "evidence_issue": "798", "owner_spend_authorized": "true"}),
     "preflight-accb-deepseek-medium-recovery": (798, "accb-layer-b-deepseek-medium-recovery-preflight.yml", {"expected_sha": "{sha}", "evidence_issue": "798"}),
     "recover-accb-deepseek-medium": (798, "accb-layer-b-deepseek-medium-recovery.yml", {"expected_sha": "{sha}", "evidence_issue": "798", "owner_spend_authorized": "true", "max_budget_rub": "200"}),
     "probe-accb-openrouter-edge-large-body": (820, "accb-openrouter-edge-large-body-probe.yml", {"expected_sha": "{sha}", "evidence_issue": "820", "proxy_mode": "socks"}),
