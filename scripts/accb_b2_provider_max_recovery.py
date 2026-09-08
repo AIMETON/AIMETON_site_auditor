@@ -29,7 +29,7 @@ ALL_MODELS = ROUTERAI_MODELS + (SOL_MODEL,)
 B2_ARCHITECTURE_SHA = "d390b2f56c0b2dae4be0cc4810dcb86403f2dc26"
 OUTPUT_POLICY_SHA = "4c2ee2afbc85c6ae5fcabffac86bd33304273338"
 REASONING_POLICY_SHA = "b44127abe77315b6ee50c6167e07d88f0116f726"
-OWNER_CEILING_RUB = 10_000.0
+PROVIDER_MAX_POLICY_SHA = "f66e0aac76848879c212365b9b040f5ad5b7d605"
 SNAPSHOT_ROOT = Path("docs/research/accb_b2_snapshot") / B2_ARCHITECTURE_SHA
 GENERATOR_PATH = SNAPSHOT_ROOT / "generate_accb_b2_information_load.py"
 SCORER_PATH = SNAPSHOT_ROOT / "score_accb_b2_trace.py"
@@ -527,7 +527,7 @@ def routerai_cost_rub(route: dict[str, Any], prompt_tokens: int, completion_toke
     return prompt_tokens * prompt_rate + completion_tokens * completion_rate
 
 
-def conservative_cell_guard(fresh: dict[str, Any], model: str, request_bytes: int) -> float:
+def provider_max_cell_guard(fresh: dict[str, Any], model: str, request_bytes: int) -> float:
     route = next(
         (r for r in list(fresh.get("routerai_routes") or []) + [fresh.get("openrouter_sol")]
          if isinstance(r, dict) and r.get("model") == model),
@@ -535,16 +535,19 @@ def conservative_cell_guard(fresh: dict[str, Any], model: str, request_bytes: in
     )
     if not isinstance(route, dict):
         raise ExecutionError(f"missing fresh route for guard: {model}")
-    estimate = route.get("estimate")
+    endpoint_max = int(route.get("max_completion_tokens") or 0)
+    if endpoint_max <= 0:
+        raise ExecutionError(f"missing endpoint maximum for guard: {model}")
+    estimate = census.estimate_route(route, endpoint_max, usd=(model == SOL_MODEL))
     rows = estimate.get("tiers") if isinstance(estimate, dict) else None
     if not isinstance(rows, list):
-        raise ExecutionError(f"missing fresh estimate rows: {model}")
+        raise ExecutionError(f"missing provider-max estimate rows: {model}")
     row = next((r for r in rows if int(r.get("request_text_bytes", -1)) == request_bytes), None)
     if not isinstance(row, dict):
-        raise ExecutionError(f"missing fresh cell guard: {model}/{request_bytes}")
+        raise ExecutionError(f"missing provider-max cell guard: {model}/{request_bytes}")
     value = float(row["estimated_cost_rub_guard"])
     if value <= 0:
-        raise ExecutionError("non-positive fresh cell guard")
+        raise ExecutionError("non-positive provider-max cell guard")
     return value
 
 
@@ -573,7 +576,7 @@ def main() -> int:
     fresh = census.run()
     if fresh.get("status") != "ACCB_B2_ENDPOINT_CAPABILITY_CENSUS_COMPLETE":
         raise ExecutionError("fresh B2 endpoint census failed")
-    fresh_guard = float(fresh.get("whole_25_cell_cost_rub_guard") or 0)
+    fresh_common_guard = float(fresh.get("whole_25_cell_cost_rub_guard") or 0)
     routes = route_map(fresh)
     sol_route = fresh.get("openrouter_sol")
     if not isinstance(sol_route, dict):
@@ -587,6 +590,7 @@ def main() -> int:
         "b2_architecture_sha": B2_ARCHITECTURE_SHA,
         "output_policy_sha": OUTPUT_POLICY_SHA,
         "reasoning_policy_sha": REASONING_POLICY_SHA,
+        "provider_max_policy_sha": PROVIDER_MAX_POLICY_SHA,
         "scenario_id": generator.SCENARIO_ID,
         "scenario_version": generator.SCENARIO_VERSION,
         "primary_cross_model_input_axis": "request_text_bytes",
@@ -607,7 +611,7 @@ def main() -> int:
         "raw_provider_reasoning_retained": False,
         "fresh_census": {
             "status": fresh.get("status"),
-            "whole_25_cell_provider_max_guard_rub": fresh_guard,
+            "whole_25_cell_common_128k_guard_rub_diagnostic_only": fresh_common_guard,
             "selection_policy": fresh.get("selection_policy"),
         },
         "cells": [],
@@ -623,7 +627,7 @@ def main() -> int:
                 tier = tiers[tier_id]
                 request_text = str(tier["request_text"])
                 request_bytes = int(tier["request_text_bytes"])
-                cell_guard = conservative_cell_guard(fresh, model, request_bytes)
+                cell_guard = provider_max_cell_guard(fresh, model, request_bytes)
                 endpoint_route = routes[model] if model in ROUTERAI_MODELS else sol_route
                 endpoint_ceiling = int(endpoint_route.get("max_completion_tokens") or 0)
                 if endpoint_ceiling <= 0:
@@ -667,6 +671,8 @@ def main() -> int:
                     else:
                         call = openrouter_sol_call(openrouter_key, request_text, endpoint_ceiling)
 
+                    if call.get("status") == "OUTPUT_BUDGET_EXHAUSTED":
+                        call["status"] = "MODEL_ENDPOINT_COMPUTE_LIMIT_REACHED"
                     row.update({
                         key: value for key, value in call.items()
                         if key != "output_text"
@@ -744,13 +750,13 @@ def main() -> int:
     result["model_output_contract_failure_cells"] = sum(
         row.get("status") == "MODEL_OUTPUT_CONTRACT_FAILURE" for row in cells
     )
-    result["output_budget_exhausted_cells"] = sum(
-        row.get("status") == "OUTPUT_BUDGET_EXHAUSTED" for row in cells
+    result["model_endpoint_compute_limit_cells"] = sum(
+        row.get("status") == "MODEL_ENDPOINT_COMPUTE_LIMIT_REACHED" for row in cells
     )
     result["terminal_integration_cells"] = sum(
         str(row.get("status") or "").startswith("INTEGRATION_FAILURE")
         or row.get("status") == "TRANSPORT_FAILURE"
-        or row.get("status") == "OUTPUT_BUDGET_EXHAUSTED"
+        or row.get("status") == "MODEL_ENDPOINT_COMPUTE_LIMIT_REACHED"
         for row in cells
     )
     result["harness_failure_cells"] = sum(row.get("status") == "HARNESS_FAILURE" for row in cells)
@@ -762,7 +768,7 @@ def main() -> int:
             row.get("status") in {
                 "SCORED",
                 "MODEL_OUTPUT_CONTRACT_FAILURE",
-                "OUTPUT_BUDGET_EXHAUSTED",
+                "MODEL_ENDPOINT_COMPUTE_LIMIT_REACHED",
                 "INTEGRATION_FAILURE_HTTP",
                 "INTEGRATION_FAILURE_INVALID_JSON",
                 "INTEGRATION_FAILURE_NON_OBJECT",
@@ -789,7 +795,7 @@ def main() -> int:
         "scored_cells": result["scored_cells"],
         "terminal_integration_cells": result["terminal_integration_cells"],
         "model_output_contract_failure_cells": result["model_output_contract_failure_cells"],
-        "output_budget_exhausted_cells": result["output_budget_exhausted_cells"],
+        "model_endpoint_compute_limit_cells": result["model_endpoint_compute_limit_cells"],
         "accounted_spend_rub": result["accounted_spend_rub"],
     }, ensure_ascii=False, sort_keys=True))
     return 0 if result["completion_criterion_met"] else 2
