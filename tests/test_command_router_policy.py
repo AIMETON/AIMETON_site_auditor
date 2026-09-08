@@ -25,6 +25,7 @@ def test_command_router_is_the_sanitized_single_ingress_contract() -> None:
         ("deploy-stage", 337, "deploy-stage.yml"),
         ("validate-baseline-self-hosted", 767, "baseline-self-hosted-dispatch.yml"),
         ("preflight-accb-layer-b-tokenizers", 798, "accb-layer-b-tokenizer-preflight.yml"),
+        ("census-accb-layer-b-hybrid", 798, "accb-layer-b-hybrid-census.yml"),
         ("probe-accb-openrouter-edge-large-body", 820, "accb-openrouter-edge-large-body-probe.yml"),
         ("probe-accb-openrouter-edge-http", 820, "accb-openrouter-edge-large-body-probe.yml"),
         ("probe-accb-openrouter-edge-github", 820, "accb-openrouter-edge-large-body-probe.yml"),
