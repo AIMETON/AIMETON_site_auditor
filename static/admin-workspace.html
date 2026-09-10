@@ -51,8 +51,19 @@
 
     <section class="panel" aria-labelledby="search-strategy-title">
       <div class="panel-title"><h2 id="search-strategy-title">Стратегии поисковых движков</h2><button id="refresh-search-strategies" class="secondary" type="button">Обновить</button></div>
-      <p class="message">Три движка уже существуют: self-hosted SearXNG, Yandex Search и Tavily. Здесь задаётся не наличие движков, а способ их совместного использования, глобальные cost guards и профили тарифов.</p>
+      <p class="message">Три движка уже существуют: self-hosted SearXNG, Yandex Search и Tavily. Здесь задаётся способ их совместного использования, глобальные cost guards и профили тарифов.</p>
       <form id="search-strategy-form" class="auth-form">
+        <h3>Режим поиска</h3>
+        <label>Быстрый режим для активного профиля<select id="search-mode-preset">
+          <option value="custom">Пользовательский — не менять стратегию</option>
+          <option value="fast">Быстрый — первый подходящий движок</option>
+          <option value="balanced">Баланс — каскад до целевого охвата</option>
+          <option value="quality">Качество — консенсус нескольких движков</option>
+          <option value="coverage">Максимальный охват — все разрешённые движки</option>
+        </select></label>
+        <p id="search-mode-description" class="message">Режим применяется к активному тарифному профилю и использует существующий SearchGateway. Cost/budget guards не обходятся.</p>
+        <button id="apply-search-mode" type="button" class="secondary">Применить режим к активному профилю</button>
+
         <h3>Глобальная политика</h3>
         <label>Активный тариф до появления billing<select id="search-active-tariff"></select></label>
         <label>Глобальная стратегия по умолчанию<select id="search-default-strategy"></select></label>
@@ -120,7 +131,7 @@
   </main>
   <script src="/static/admin-workspace.js" defer></script>
   <script src="/static/admin-temporary-access.js" defer></script>
-  <script src="/static/admin-search-strategies.js?v=20260809d" defer></script>
+  <script src="/static/admin-search-strategies.js?v=20260910a" defer></script>
   <script src="/static/admin-hunter-settings.js?v=20260809b" defer></script>
   <script src="/static/admin-hunter-trace.js?v=20260809c" defer></script>
 </body>
