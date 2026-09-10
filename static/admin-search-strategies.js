@@ -12,6 +12,32 @@
   const emergencyStrategy = document.querySelector('#search-emergency-strategy');
   const providersSelect = document.querySelector('#search-enabled-providers');
   const canonicalProviderOrder = document.querySelector('#search-canonical-provider-order');
+  const searchModePreset = document.querySelector('#search-mode-preset');
+  const searchModeDescription = document.querySelector('#search-mode-description');
+  const applySearchMode = document.querySelector('#apply-search-mode');
+
+  const SEARCH_MODES = {
+    fast: {
+      strategy: 'fallback_first_nonempty',
+      label: 'Быстрый',
+      description: 'Останавливается на первом непустом ответе. Минимальная стоимость и задержка, но ниже recall: слабая выдача первого provider может не дать дойти до остальных.',
+    },
+    balanced: {
+      strategy: 'cascade_until_target',
+      label: 'Баланс',
+      description: 'Последовательно объединяет результаты до target_results. Рекомендуемый базовый режим для рабочего поиска: выше recall без обязательного полного fan-out.',
+    },
+    quality: {
+      strategy: 'consensus_union',
+      label: 'Качество',
+      description: 'Собирает выдачу нескольких разрешённых providers и поднимает домены, подтверждённые несколькими источниками. Требует fan-out и может стоить дороже.',
+    },
+    coverage: {
+      strategy: 'exhaustive_coverage',
+      label: 'Максимальный охват',
+      description: 'Использует все разрешённые providers в пределах max_providers, quota и budget guards. Максимальный recall, максимальная потенциальная стоимость.',
+    },
+  };
 
   let state = null;
   let catalog = [];
@@ -85,6 +111,52 @@
     return article;
   }
 
+  function activeTariffCard() {
+    return tariffsNode.querySelector(`[data-tariff="${activeTariff.value}"]`);
+  }
+
+  function modeForStrategy(strategy) {
+    return Object.entries(SEARCH_MODES).find(([, mode]) => mode.strategy === strategy)?.[0] || 'custom';
+  }
+
+  function updateModeDescription() {
+    const mode = SEARCH_MODES[searchModePreset?.value];
+    if (!searchModeDescription) return;
+    searchModeDescription.textContent = mode
+      ? `${mode.label}: ${mode.description} Сохранение настроек выполняется кнопкой «Сохранить стратегии и тарифы».`
+      : 'Пользовательский режим: стратегия активного профиля задаётся вручную ниже. Cost/budget guards не обходятся.';
+  }
+
+  function syncSearchModeFromActiveProfile() {
+    if (!searchModePreset || !state) return;
+    const card = activeTariffCard();
+    const strategy = card?.querySelector('[data-field="strategy"]')?.value || state.global_settings.default_strategy;
+    searchModePreset.value = modeForStrategy(strategy);
+    updateModeDescription();
+  }
+
+  function applySelectedSearchMode() {
+    const mode = SEARCH_MODES[searchModePreset?.value];
+    if (!mode) {
+      setMessage('Пользовательский режим выбран: стратегия активного профиля не изменена.');
+      return;
+    }
+    const card = activeTariffCard();
+    const strategySelect = card?.querySelector('[data-field="strategy"]');
+    if (!strategySelect) {
+      setMessage('Не удалось определить активный тарифный профиль.', 'error');
+      return;
+    }
+    strategySelect.value = mode.strategy;
+    if (strategySelect.value !== mode.strategy) {
+      setMessage(`Стратегия ${mode.strategy} недоступна в текущем каталоге.`, 'error');
+      return;
+    }
+    document.querySelector('#search-strategy-reason').value = `Режим поиска: ${mode.label}`;
+    setMessage(`Режим «${mode.label}» применён к профилю ${activeTariff.value}. Для вступления в силу сохраните настройки.`, 'success');
+    updateModeDescription();
+  }
+
   function renderCatalog() {
     catalogNode.replaceChildren();
     catalog.forEach(item => {
@@ -116,6 +188,7 @@
     [...providersSelect.options].forEach(option => { option.selected = global.enabled_providers.includes(option.value); });
 
     tariffsNode.replaceChildren(...profiles.map(tariffCard));
+    syncSearchModeFromActiveProfile();
     updated.textContent = record.updated_at
       ? `Последнее изменение: ${record.updated_at} · admin user ${record.updated_by ?? '—'} · ${record.reason || ''}`
       : 'Используются безопасные базовые тарифные профили; цены к ним не привязаны.';
@@ -214,6 +287,14 @@
     }
   });
 
+  activeTariff?.addEventListener('change', syncSearchModeFromActiveProfile);
+  searchModePreset?.addEventListener('change', updateModeDescription);
+  applySearchMode?.addEventListener('click', applySelectedSearchMode);
+  tariffsNode.addEventListener('change', event => {
+    if (event.target?.matches('[data-field="strategy"]') && event.target.closest('[data-tariff]')?.dataset.tariff === activeTariff.value) {
+      syncSearchModeFromActiveProfile();
+    }
+  });
   refresh?.addEventListener('click', load);
   load();
 })();
