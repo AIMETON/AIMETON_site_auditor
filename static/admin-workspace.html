@@ -50,9 +50,20 @@
     </section>
 
     <section class="panel" aria-labelledby="search-strategy-title">
-      <div class="panel-title"><h2 id="search-strategy-title">Стратегии поисковых движков</h2><button id="refresh-search-strategies" class="secondary" type="button">Обновить</button></div>
-      <p class="message">Три движка уже существуют: self-hosted SearXNG, Yandex Search и Tavily. Здесь задаётся не наличие движков, а способ их совместного использования, глобальные cost guards и профили тарифов.</p>
+      <div class="panel-title"><h2 id="search-strategy-title">Режим поиска</h2><button id="refresh-search-strategies" class="secondary" type="button">Обновить</button></div>
+      <p class="message">Быстрый выбор режима меняет стратегию активного Hunter-профиля. Для поиска рынка рекомендуется «Качество», для полного сбора — «Максимальный охват». Расширенные параметры остаются ниже.</p>
       <form id="search-strategy-form" class="auth-form">
+        <h3>Быстрая настройка качества поиска</h3>
+        <label>Режим поиска<select id="search-quality-mode">
+          <option value="economy">Экономный — первый непустой источник</option>
+          <option value="balanced">Сбалансированный — адаптивный качество/стоимость</option>
+          <option value="quality">Качество — консенсус нескольких движков</option>
+          <option value="maximum">Максимальный охват — все разрешённые движки</option>
+          <option value="custom">Пользовательский — расширенные настройки ниже</option>
+        </select></label>
+        <p id="search-quality-mode-help" class="message"></p>
+        <button id="apply-search-quality-mode" type="button">Применить режим к активному профилю</button>
+
         <h3>Глобальная политика</h3>
         <label>Активный тариф до появления billing<select id="search-active-tariff"></select></label>
         <label>Глобальная стратегия по умолчанию<select id="search-default-strategy"></select></label>
@@ -72,8 +83,8 @@
         <h3>Каталог стратегий</h3>
         <div id="search-strategy-catalog" class="mission-list"></div>
 
-        <label>Причина изменения<input id="search-strategy-reason" minlength="1" maxlength="500" value="Настройка стратегии поисковых движков и тарифных профилей" required></label>
-        <button type="submit">Сохранить стратегии и тарифы</button>
+        <label>Причина изменения<input id="search-strategy-reason" minlength="1" maxlength="500" value="Настройка режима поиска и тарифных профилей" required></label>
+        <button type="submit">Сохранить настройки поиска</button>
         <p id="search-strategy-message" class="message" aria-live="polite"></p>
         <p id="search-strategy-updated" class="message"></p>
       </form>
@@ -120,7 +131,7 @@
   </main>
   <script src="/static/admin-workspace.js" defer></script>
   <script src="/static/admin-temporary-access.js" defer></script>
-  <script src="/static/admin-search-strategies.js?v=20260809d" defer></script>
+  <script src="/static/admin-search-strategies.js?v=20260910a" defer></script>
   <script src="/static/admin-hunter-settings.js?v=20260809b" defer></script>
   <script src="/static/admin-hunter-trace.js?v=20260809c" defer></script>
 </body>
