@@ -12,6 +12,36 @@
   const emergencyStrategy = document.querySelector('#search-emergency-strategy');
   const providersSelect = document.querySelector('#search-enabled-providers');
   const canonicalProviderOrder = document.querySelector('#search-canonical-provider-order');
+  const qualityMode = document.querySelector('#search-quality-mode');
+  const qualityModeHelp = document.querySelector('#search-quality-mode-help');
+  const applyQualityMode = document.querySelector('#apply-search-quality-mode');
+
+  const QUALITY_MODES = {
+    economy: {
+      strategy: 'fallback_first_nonempty',
+      target_results: 25,
+      max_providers_per_query: 3,
+      description: 'Минимум вызовов: поиск останавливается на первом непустом источнике. Быстро, но benchmark показал заметную потерю полноты.',
+    },
+    balanced: {
+      strategy: 'adaptive_cost_quality',
+      target_results: 40,
+      max_providers_per_query: 3,
+      description: 'Адаптивный режим: учитывает успешность, yield, latency и стоимость и каскадирует источники до целевого результата.',
+    },
+    quality: {
+      strategy: 'consensus_union',
+      target_results: 50,
+      max_providers_per_query: 3,
+      description: 'Режим качества: объединяет несколько независимых движков и повышает результаты, подтверждённые несколькими providers.',
+    },
+    maximum: {
+      strategy: 'exhaustive_coverage',
+      target_results: 75,
+      max_providers_per_query: 3,
+      description: 'Максимальный охват: использует все разрешённые providers в пределах budget, quota и circuit guards.',
+    },
+  };
 
   let state = null;
   let catalog = [];
@@ -49,6 +79,26 @@
 
   function parseProviderOrder(value) {
     return String(value || '').split(',').map(item => item.trim()).filter(Boolean);
+  }
+
+  function modeForProfile(profile) {
+    const match = Object.entries(QUALITY_MODES).find(([, preset]) =>
+      preset.strategy === profile.strategy &&
+      preset.target_results === profile.target_results &&
+      preset.max_providers_per_query === profile.max_providers_per_query
+    );
+    return match ? match[0] : 'custom';
+  }
+
+  function refreshQualityModeFromActiveProfile() {
+    if (!state || !qualityMode) return;
+    const profile = state.tariffs[activeTariff.value];
+    if (!profile) return;
+    qualityMode.value = modeForProfile(profile);
+    const preset = QUALITY_MODES[qualityMode.value];
+    qualityModeHelp.textContent = preset
+      ? preset.description
+      : `Пользовательская стратегия: ${profile.strategy || state.global_settings.default_strategy}. Значения редактируются в профиле ниже.`;
   }
 
   function tariffCard(profile) {
@@ -116,6 +166,7 @@
     [...providersSelect.options].forEach(option => { option.selected = global.enabled_providers.includes(option.value); });
 
     tariffsNode.replaceChildren(...profiles.map(tariffCard));
+    refreshQualityModeFromActiveProfile();
     updated.textContent = record.updated_at
       ? `Последнее изменение: ${record.updated_at} · admin user ${record.updated_by ?? '—'} · ${record.reason || ''}`
       : 'Используются безопасные базовые тарифные профили; цены к ним не привязаны.';
@@ -152,6 +203,21 @@
       };
     });
     return tariffs;
+  }
+
+  function applyPresetToActiveProfile() {
+    const preset = QUALITY_MODES[qualityMode.value];
+    if (!preset) {
+      refreshQualityModeFromActiveProfile();
+      return;
+    }
+    const card = tariffsNode.querySelector(`[data-tariff="${activeTariff.value}"]`);
+    if (!card) return;
+    card.querySelector('[data-field="strategy"]').value = preset.strategy;
+    card.querySelector('[data-field="target_results"]').value = preset.target_results;
+    card.querySelector('[data-field="max_providers_per_query"]').value = preset.max_providers_per_query;
+    qualityModeHelp.textContent = `${preset.description} Нажмите «Сохранить настройки поиска», чтобы применить к новым миссиям.`;
+    setMessage(`Режим подготовлен для профиля ${activeTariff.value}. Сохраните настройки.`, 'success');
   }
 
   async function load() {
@@ -205,7 +271,7 @@
         throw new Error(reason || `HTTP ${response.status}`);
       }
       render(data);
-      setMessage('Стратегии сохранены. Новые Hunter-миссии используют активный тарифный профиль.', 'success');
+      setMessage('Настройки поиска сохранены. Новые Hunter-миссии используют выбранный режим активного тарифного профиля.', 'success');
       document.querySelector('#refresh-hunter-settings')?.click();
     } catch (error) {
       setMessage(`Стратегии не сохранены: ${error.message}`, 'error');
@@ -214,6 +280,12 @@
     }
   });
 
+  activeTariff?.addEventListener('change', refreshQualityModeFromActiveProfile);
+  qualityMode?.addEventListener('change', () => {
+    const preset = QUALITY_MODES[qualityMode.value];
+    qualityModeHelp.textContent = preset ? preset.description : 'Пользовательский режим: используйте расширенные настройки ниже.';
+  });
+  applyQualityMode?.addEventListener('click', applyPresetToActiveProfile);
   refresh?.addEventListener('click', load);
   load();
 })();

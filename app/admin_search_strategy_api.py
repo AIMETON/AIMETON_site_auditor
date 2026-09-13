@@ -127,13 +127,32 @@ def _execution_policy_observation(record: SearchStrategySettingsRecord) -> dict:
     }
 
 
+def _safe_execution_policy_observation(record: SearchStrategySettingsRecord) -> dict:
+    """Keep settings/catalog available if optional runtime diagnostics are degraded.
+
+    The admin settings endpoint is an operational control-plane surface. A failure
+    in zero-cost observation must not make the editable persisted configuration
+    unreadable. The typed degraded projection intentionally exposes no exception
+    text, secrets, provider payloads, or runtime paths.
+    """
+
+    try:
+        return _execution_policy_observation(record)
+    except Exception:
+        return {
+            "observation_state": "degraded",
+            "observation_reason": "runtime_observation_unavailable",
+            "routing_changed_by_observation": False,
+        }
+
+
 @router.get("")
 def read_search_strategy_settings(_admin: User = Depends(require_admin)) -> dict:
     record = get_search_strategy_settings_repository().get()
     return {
         "record": record.model_dump(mode="json"),
         "catalog": [item.model_dump(mode="json") for item in strategy_catalog()],
-        "execution_policy_observation": _execution_policy_observation(record),
+        "execution_policy_observation": _safe_execution_policy_observation(record),
     }
 
 

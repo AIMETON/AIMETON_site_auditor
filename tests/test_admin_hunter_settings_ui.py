@@ -9,7 +9,13 @@ def test_admin_workspace_exposes_search_strategy_and_active_tariff_controls() ->
     strategy_script = (ROOT / "static" / "admin-search-strategies.js").read_text(encoding="utf-8")
     hunter_script = (ROOT / "static" / "admin-hunter-settings.js").read_text(encoding="utf-8")
 
-    assert 'id="search-strategy-title">Стратегии поисковых движков<' in html
+    assert 'id="search-strategy-title">Режим поиска<' in html
+    assert 'id="search-quality-mode"' in html
+    assert 'value="economy">Экономный' in html
+    assert 'value="balanced">Сбалансированный' in html
+    assert 'value="quality">Качество' in html
+    assert 'value="maximum">Максимальный охват' in html
+    assert 'id="apply-search-quality-mode"' in html
     assert 'id="search-active-tariff"' in html
     assert 'id="search-default-strategy"' in html
     assert 'id="search-enabled-providers"' in html
@@ -27,6 +33,10 @@ def test_admin_workspace_exposes_search_strategy_and_active_tariff_controls() ->
     assert 'Наследовать глобальную стратегию' in strategy_script
     assert 'только global/debug' in strategy_script
     assert 'tariffSafeOnly: true' in strategy_script
+    assert "strategy: 'adaptive_cost_quality'" in strategy_script
+    assert "strategy: 'consensus_union'" in strategy_script
+    assert "strategy: 'exhaustive_coverage'" in strategy_script
+    assert 'applyPresetToActiveProfile' in strategy_script
 
     assert 'id="hunter-settings-title">Параметры активного Hunter-профиля<' in html
     assert 'id="hunter-settings-form"' in html
