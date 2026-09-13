@@ -123,3 +123,17 @@ def test_disabled_tariff_cannot_become_active(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="active_tariff_disabled"):
         settings.validate_relationships()
+
+
+def test_bootstrap_default_is_persisted_once_and_does_not_overwrite_admin(tmp_path: Path) -> None:
+    repository = SearchStrategySettingsRepository(tmp_path / "runtime.sqlite3")
+    initial = repository.ensure_bootstrap_default()
+    assert initial.updated_at is not None
+    assert initial.updated_by is None
+    assert initial.reason == "system_bootstrap_default"
+
+    settings = initial.settings.model_copy(deep=True)
+    settings.global_settings.active_tariff = "pro"
+    saved = repository.save(settings, actor_id=7, reason="Administrator selected Pro")
+    repeated = repository.ensure_bootstrap_default()
+    assert repeated == saved

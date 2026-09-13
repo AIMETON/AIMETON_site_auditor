@@ -279,6 +279,28 @@ class SearchStrategySettingsRepository:
         except Exception:
             return SearchStrategySettingsRecord()
 
+    def ensure_bootstrap_default(self) -> SearchStrategySettingsRecord:
+        """Persist the product default once without overwriting an admin decision.
+
+        A clean runtime database must have a canonical persisted policy before
+        Hunter serves requests. INSERT OR IGNORE keeps concurrent starts atomic.
+        Invalid existing state remains fail-closed and is never replaced here.
+        """
+        with self._lock, self._connect() as db:
+            row = db.execute("SELECT value FROM runtime_meta WHERE key = ?", (SETTINGS_KEY,)).fetchone()
+            if row is None:
+                record = SearchStrategySettingsRecord(
+                    settings=SearchStrategySettings(),
+                    updated_at=datetime.now(UTC).isoformat(),
+                    updated_by=None,
+                    reason="system_bootstrap_default",
+                )
+                db.execute(
+                    "INSERT OR IGNORE INTO runtime_meta(key, value) VALUES(?, ?)",
+                    (SETTINGS_KEY, record.model_dump_json()),
+                )
+        return self.get()
+
     def save(self, settings: SearchStrategySettings, *, actor_id: int, reason: str) -> SearchStrategySettingsRecord:
         settings.validate_relationships()
         normalized_reason = " ".join(reason.split())

@@ -2,6 +2,14 @@
 
 _Last updated: 2026-07-30_
 
+## Hunter HTTP 500 corrective candidate — 2026-09-13T18:27:27Z
+
+Stage reproduced HTTP 500 for Auto client search with industry `стоматология`.
+PR #906 now initializes a missing persisted standard search policy at startup and
+contains per-direction/per-candidate failures. Exact exception type remains
+provisional until corrected stage validation. Incident evidence:
+[`HUNTER-HTTP-500-2026-09-13`](docs/incidents/HUNTER-HTTP-500-2026-09-13.md).
+
 ## Large-document preflight candidate — 2026-09-13T14:01:41Z
 
 PR #906 adds relevance screening before full extraction for acquired documents
