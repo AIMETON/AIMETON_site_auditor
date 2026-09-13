@@ -91,11 +91,15 @@
   <section class="panel service-panel" data-service-panel="site-audit" hidden>
     <h2>AI-аудит сайта</h2>
     <p class="service-panel__intro">Введите URL. После запуска появится mission_id и живой репортаж этапов анализа.</p>
+    <label><input id="deepResearch" type="checkbox"> Углублённое исследование — разрешаю расход LLM без общего лимита бюджета</label>
+    <p>Обработать все найденные документы и факты. Может занять больше времени и увеличить стоимость. Можно остановить.</p>
     <form id="form">
       <input id="url" type="url" placeholder="https://example.com" required>
       <button id="analyzeBtn">Провести AI-аудит</button>
     </form>
     <p id="status"></p>
+    <p id="researchUsage" aria-live="polite"></p>
+    <button id="stopResearch" type="button" hidden>Остановить и сохранить результат</button>
   </section>
 
   <section id="businessAuditWorkspace" class="business-audit-workspace" aria-live="polite" hidden></section>
@@ -148,6 +152,8 @@
     <h2>Уточнить профиль компании и продолжить исследование</h2>
     <div id="messages"></div>
     <label><input type="checkbox" id="refineSearch"> Найти дополнительные данные и обновить профиль</label>
+    <label><input type="checkbox" id="chatDeepResearch"> Углублённый скаутинг — разрешаю расход LLM без общего лимита бюджета на этот поиск</label>
+    <button id="stopChatResearch" type="button" hidden>Остановить и сохранить результат</button>
     <form id="chatForm">
       <input id="question" placeholder="Какие данные уточнить: продукты, руководство, филиалы, реквизиты?" required>
       <button id="chatBtn">Отправить</button>

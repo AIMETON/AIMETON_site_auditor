@@ -1,5 +1,5 @@
 from typing import Literal
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 from app.search_gateway.models import SearchDiagnostics
 
@@ -188,7 +188,18 @@ class SiteAnalysis(BaseModel):
     )
 
 
-class AnalyzeRequest(BaseModel):
+class ResearchOptions(BaseModel):
+    deep_research: bool = False
+    unlimited_llm_budget: bool = False
+
+    @model_validator(mode="after")
+    def explicit_uncapped_consent(self):
+        if self.deep_research != self.unlimited_llm_budget:
+            raise ValueError("deep_research_requires_explicit_unlimited_llm_budget_consent")
+        return self
+
+
+class AnalyzeRequest(ResearchOptions):
     url: str = Field(min_length=1, max_length=2048)
 
 
@@ -320,7 +331,7 @@ class ChatMessage(BaseModel):
     content: str
 
 
-class ChatRequest(BaseModel):
+class ChatRequest(ResearchOptions):
     refine_search: bool = False
     analysis: SiteAnalysis
     messages: list[ChatMessage]

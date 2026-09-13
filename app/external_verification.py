@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 from app.document_pipeline import get_document_pipeline
 from app.document_pipeline.models import FetchPolicy
 from app.models import IntelligenceSource
+from app.research_control import current_research, deep_research_enabled
+from app.search_gateway.gateway import canonical_url
 from app.sef.models import DiscoveryHint, Source, SourceKind
 
 
@@ -166,10 +168,10 @@ async def verify_external_sources(
     *,
     company_name: str,
     anchors: Any,
-    max_documents: int = 24,
+    max_documents: int | None = 24,
     preserve_blocks: bool = False,
     include_official: bool = False,
-    timeout_seconds: float = 60,
+    timeout_seconds: float | None = 60,
 ) -> list[IntelligenceSource]:
     """Fetch and verify high-value discovery hints before exposing them as evidence.
 
@@ -198,6 +200,16 @@ async def verify_external_sources(
         ),
     )[:max_documents]
 
+    robots = None
+    if deep_research_enabled() and official_domain:
+        from app.evidence_crawler.factory import get_evidence_crawler
+        from app.evidence_crawler.models import BootstrapCrawlPolicy
+        official_url = next((item.url for item in sources if _host(item.url) == official_domain), f"https://{official_domain}/")
+        robots = await get_evidence_crawler()._load_robots(
+            f"{urlparse(official_url).scheme}://{official_domain}/", BootstrapCrawlPolicy(),
+        )
+    pending = list(candidates)
+    seen_urls = {canonical_url(str(item.url)) for item in sources}
     pipeline = get_document_pipeline()
     verified: list[IntelligenceSource] = []
     mission_id = _identifier("mission_external_verify", company_name)
@@ -207,6 +219,9 @@ async def verify_external_sources(
         url = str(source_item.url)
         host = _host(url)
         if not host:
+            return
+        if robots is not None and host == official_domain and not robots.allows(url):
+            source_item.verification_note = "Обход официальной страницы не разрешён robots policy."
             return
         source_item.lifecycle_state = "source_candidate"
         source_item.verification_note = "Первичный документ запрошен; поисковый сниппет не используется как evidence."
@@ -260,6 +275,22 @@ async def verify_external_sources(
             )
             return
 
+        if deep_research_enabled() and official_domain and _host(str(fetched.document.url)) == official_domain:
+            for link in getattr(fetched, "links", []):
+                link_url = canonical_url(str(link.url))
+                if (_host(link_url) != official_domain or link_url in seen_urls
+                        or re.search(r"\.(?:png|jpe?g|gif|webp|svg|css|js|zip|mp4|mp3)$", urlparse(link_url).path, re.I)):
+                    continue
+                seen_urls.add(link_url)
+                discovered = IntelligenceSource(
+                    id=_identifier("D", link_url), title=link.text or link_url, url=link_url,
+                    accessed_at=datetime.now(timezone.utc).isoformat(), query_kind="official",
+                    source_class="official", classification_state="classified",
+                    verification_note="Ссылка из загруженного официального документа; ожидает проверки.",
+                )
+                sources.append(discovered)
+                pending.append(discovered)
+
         block = _best_quote_block(fetched, company_name=company_name, anchors=anchors)
         quote = block.text.strip()[:800]
         promoted = pipeline.promote_quote(
@@ -307,6 +338,8 @@ async def verify_external_sources(
 
     async def bounded(source_item):
         async with semaphore:
+            if current_research() and current_research().stop_requested:
+                return
             try:
                 await verify_one(source_item)
             except Exception as exc:
@@ -316,10 +349,26 @@ async def verify_external_sources(
                 )
 
     try:
-        await asyncio.wait_for(
-            asyncio.gather(*(bounded(item) for item in candidates)),
-            timeout=timeout_seconds,
-        )
+        if deep_research_enabled():
+            index = 0
+            while index < len(pending):
+                if current_research().stop_requested:
+                    break
+                batch = pending[index:index + 4]
+                index += len(batch)
+                await asyncio.gather(*(bounded(item) for item in batch))
+                current_research().documents_attempted += len(batch)
+                current_research().frontier_size = len(pending) - index
+                current_research().checkpoint("acquisition", {
+                    "sources": [item.model_dump(mode="json") for item in sources],
+                    "evidence": [item.model_dump(mode="json") for item in verified],
+                    "documents_attempted": index, "frontier_size": len(pending),
+                })
+        else:
+            await asyncio.wait_for(
+                asyncio.gather(*(bounded(item) for item in candidates)),
+                timeout=timeout_seconds,
+            )
     except TimeoutError:
         for item in candidates:
             if item.lifecycle_state != "evidence":

@@ -2,6 +2,15 @@
 
 _Last updated: 2026-07-30_
 
+## Opt-in deep research candidate — 2026-09-13T13:30:00Z
+
+PR #906 now includes explicit per-run LLM budget consent in audit and chat,
+uncapped aggregate extraction/acquisition, usage counters and owner-scoped stop
+with partial results. Standard mode remains the default. Contract and limitations:
+[`AUDIT-DEEP-RESEARCH-V0.1`](docs/architecture/AUDIT-DEEP-RESEARCH-V0.1.md).
+Candidate only: deployment, paid-provider smoke and automatic restart continuation
+are not confirmed.
+
 ## Audit profile recovery candidate — 2026-09-13T08:12:12Z
 
 Implementation candidate on base `a9d08d74c2fa955d5299c2b7e698a387bb352d92`:

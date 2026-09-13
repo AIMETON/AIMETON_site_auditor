@@ -175,3 +175,12 @@ This is a candidate contribution to EI-P0-06/07/08, not completion of the FNS,
 GIR BO, graph or cross-device consultation roadmap. Next: CI and exact-SHA stage
 acceptance with a frozen company dossier and measured query/evidence/profile delta.
 Existing dates and prior milestone statuses are unchanged.
+
+## 2026-09-13T13:30:00Z — optional uncapped LLM research
+
+Owner-requested extension in PR #906 adds per-run explicit consent, deeper
+acquisition and extraction, usage reporting and cooperative stop. See
+[Deep Research contract](../architecture/AUDIT-DEEP-RESEARCH-V0.1.md).
+Next: exact-head CI and stage acceptance including partial-result stop and
+profile refinement. Provider quotas and cross-device/restart work remain separate;
+existing dates and milestone status are unchanged.

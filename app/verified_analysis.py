@@ -19,7 +19,9 @@ from app.external_verification import verify_external_sources
 from app.heuristics import heuristic_analysis
 from app.identity_anchor_guard import guard_identity_anchors
 from app.routerai_runtime import run_bounded_routerai_analysis as analyze_with_routerai
-from app.models import EvidenceSource, SiteAnalysis
+from app.models import EvidenceSource, IntelligenceSource, SiteAnalysis
+from app.research_control import deep_research_enabled, current_research
+from datetime import datetime, timezone
 
 
 def _host(url: str) -> str:
@@ -40,6 +42,11 @@ async def _run_verified_enriched_site_analysis(
     DaData may corroborate/normalize INN/OGRN as a non-authoritative registry
     mirror before adaptive exact -> relaxed external discovery.
     """
+    deep = deep_research_enabled()
+    if current_research() and current_research().stop_requested:
+        result = heuristic_analysis(url, title, text)
+        result.research_status = {**current_research().snapshot(), "stage": "stopped_partial"}
+        return result
     company_hint = title.split("—")[0].split("|")[0].strip() or _host(url)
     anchors = guard_identity_anchors(extract_identity_anchors(text, url), text)
     anchors, dadata_result, dadata_facts, dadata_notes = await enrich_identity_with_dadata(
@@ -52,7 +59,7 @@ async def _run_verified_enriched_site_analysis(
             company_hint,
             url,
             region=anchors.primary_region,
-            max_sources=100,
+            max_sources=None if deep else 100,
             anchors=anchors,
             query_overrides=research_queries,
         )
@@ -60,18 +67,24 @@ async def _run_verified_enriched_site_analysis(
         external_sources = []
         notes = [f"Внешний поиск недоступен ({type(exc).__name__}); профиль неполный."]
         diagnostics = SearchDiagnostics(state="unavailable")
+    if deep and not any(item.url == url for item in external_sources):
+        external_sources.insert(0, IntelligenceSource(
+            id="OFFICIAL", title=title or url, url=url,
+            accessed_at=datetime.now(timezone.utc).isoformat(), source_class="official",
+            query_kind="official", classification_state="classified",
+        ))
     verified = await verify_external_sources(
         external_sources,
         company_name=company_hint,
         anchors=anchors,
-        max_documents=24,
+        max_documents=None if deep else 24,
         preserve_blocks=True,
         include_official=True,
     )
 
     # Requisites may only occur on a discovered first-party subpage. Use
     # that fetched content to form one bounded registry follow-up wave.
-    if not anchors.inn and not anchors.ogrn:
+    if not anchors.inn and not anchors.ogrn and not (current_research() and current_research().stop_requested):
         official_text = "\n".join(
             item.evidence_quote or "" for item in verified if item.source_class == "official"
         )
@@ -88,12 +101,12 @@ async def _run_verified_enriched_site_analysis(
             planned_queries = planned_queries + follow_plan
             try:
                 more, more_notes, more_diagnostics = await collect_external_sources_adaptive(
-                    company_hint, url, max_sources=12, anchors=anchors, query_overrides=follow_plan,
+                    company_hint, url, max_sources=None if deep else 12, anchors=anchors, query_overrides=follow_plan,
                 )
                 for item in more:
                     item.id = "R-" + item.id
                 more_verified = await verify_external_sources(
-                    more, company_name=company_hint, anchors=anchors, max_documents=8,
+                    more, company_name=company_hint, anchors=anchors, max_documents=None if deep else 8,
                     preserve_blocks=True, timeout_seconds=25,
                 )
                 external_sources.extend(more)
@@ -219,6 +232,10 @@ async def _run_verified_enriched_site_analysis(
             analysis.readiness.evidence_quality,
             min(1.0, 0.25 + 0.08 * len({s.document_url or s.url for s in verified})),
         )
+    if current_research():
+        analysis.research_status.update(current_research().snapshot())
+        if current_research().stop_requested:
+            analysis.research_status["stage"] = "stopped_partial"
     return analysis
 
 

@@ -33,6 +33,7 @@ from app.hunter_settings import get_hunter_settings_repository
 from app.hunter_sources import get_hunter_sources
 from app.llm import chat_with_routerai
 from app.audit_dialogue import run_audit_dialogue
+from app.research_control import authorize_research, bind_research
 from app.mcp_security import McpSecurityMiddleware
 from app.mcp_server import admin_mcp, admin_mcp_http_app, mcp, mcp_http_app
 from app.mission_orchestrator import (
@@ -253,8 +254,9 @@ def osint_tools():
 
 
 @app.post("/api/analyze")
-async def analyze(req: AnalyzeRequest):
+async def analyze(req: AnalyzeRequest, request: Request):
     """Find an AI sales opportunity and enrich it with a source-traceable company and canonical KM profile."""
+    control = authorize_research(req, request)
     orchestrator = get_mission_orchestrator()
     mission = orchestrator.create_mission(
         default_site_mission_request(str(req.url)),
@@ -264,11 +266,10 @@ async def analyze(req: AnalyzeRequest):
     try:
         page = await fetch_site(str(req.url))
         final_url = page["final_url"]
-        result = await run_enriched_site_analysis(
-            page["final_url"],
-            page["title"],
-            page["text"],
-        )
+        with bind_research(control):
+            result = await run_enriched_site_analysis(
+                page["final_url"], page["title"], page["text"],
+            )
         record_legacy_site_turn(
             orchestrator,
             mission.contract.mission_id,
@@ -505,8 +506,10 @@ async def hunt(req: HuntRequest, request: Request):
 
 
 @app.post("/api/chat")
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, request: Request):
+    control = authorize_research(req, request)
     try:
-        return await run_audit_dialogue(req)
+        with bind_research(control):
+            return await run_audit_dialogue(req)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

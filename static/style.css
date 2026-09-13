@@ -33,6 +33,7 @@ input {
   border: 1px solid #bcc8d8; border-radius: 12px; font-size: 16px;
 }
 input:focus { outline: none; border-color: #5b61e6; box-shadow: 0 0 0 3px #5b61e615; }
+input[type="checkbox"] { flex: none; width: auto; padding: 0; accent-color: #5b61e6; }
 button {
   border: 0; border-radius: 12px; padding: 14px 22px;
   background: #171c2b; color: white; font-weight: 700; cursor: pointer; white-space: nowrap;

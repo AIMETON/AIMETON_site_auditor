@@ -8,7 +8,7 @@ from threading import RLock
 from typing import Any, Literal
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict
 
 from app.analysis_runtime_projection import AnalysisProjection, AnalysisRuntimeProjectionStore
@@ -20,7 +20,8 @@ from app.mission_orchestrator import (
     get_mission_orchestrator,
     record_legacy_site_turn,
 )
-from app.models import AnalyzeRequest
+from app.models import AnalyzeRequest, ChatRequest
+from app.research_control import CONTROLS, authorize_research, bind_research, deep_research_enabled
 from app.public_llm_status import (
     project_public_llm_input_metrics,
     project_public_llm_outcome,
@@ -515,6 +516,11 @@ def get_analysis_status_payload(analysis_id: str) -> dict[str, Any]:
             raise AnalysisNotFoundError("analysis_not_found")
         return _status_from_projection(projection)
 
+    if analysis_id in CONTROLS:
+        payload["research"] = CONTROLS[analysis_id].snapshot()
+    with _LOCK:
+        if _ANALYSES.get(analysis_id, {}).get("dialogue_reply"):
+            payload["dialogue_reply"] = _ANALYSES[analysis_id]["dialogue_reply"]
     payload["progress"] = _trace_runtime_snapshot(
         str(payload["mission_id"]),
         analysis_id,
@@ -650,6 +656,8 @@ async def _run_enriched_bounded(
     text: str,
     analysis_id: str,
 ):
+    if deep_research_enabled():
+        return await run_enriched_site_analysis(source_url, title, text)
     deadline_seconds = _analysis_deadline_seconds()
     try:
         return await asyncio.wait_for(
@@ -727,7 +735,7 @@ async def _run_analysis(
             ),
             name=f"aimeton-analysis-heartbeat:{analysis_id}",
         )
-        with bind_trace_identity(mission_id, analysis_id):
+        with bind_trace_identity(mission_id, analysis_id), bind_research(CONTROLS.get(analysis_id)):
             result = await _run_enriched_bounded(
                 source_url=page["final_url"],
                 title=page["title"],
@@ -766,7 +774,9 @@ async def _run_analysis(
             event_code="mission.completed",
             state="completed",
             icon_key="check-circle",
-            message="Анализ завершён. Результат готов.",
+            message=("Исследование остановлено; частичный результат сохранён."
+                     if CONTROLS.get(analysis_id) and CONTROLS[analysis_id].stop_requested
+                     else "Анализ завершён. Результат готов."),
         )
     except (FetchError, httpx.HTTPError, ValueError):
         record_legacy_site_turn(
@@ -837,11 +847,14 @@ def schedule_analysis_runtime(
     response_model=AnalysisStartResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
-async def start_analysis(req: AnalyzeRequest, background_tasks: BackgroundTasks):
+async def start_analysis(req: AnalyzeRequest, background_tasks: BackgroundTasks, request: Request = None):
+    control = authorize_research(req, request)
     started = create_analysis_runtime(
         str(req.url),
         entry_point=EntryPoint.LEGACY_ADAPTER,
     )
+    if control:
+        CONTROLS[started.analysis_id] = control
     background_tasks.add_task(
         _run_analysis,
         source_url=str(req.url),
@@ -865,3 +878,54 @@ def get_analysis_events(analysis_id: str):
         return get_analysis_events_payload(analysis_id)
     except AnalysisNotFoundError as exc:
         raise HTTPException(status_code=404, detail="analysis_not_found") from exc
+
+
+@router.post("/{analysis_id}/stop")
+async def stop_deep_research(analysis_id: str, request: Request):
+    from app.auth_api import get_auth_provider, _resolve_session, _auth_error, _require_csrf
+    resolution = _resolve_session(get_auth_provider(), request.cookies.get("aimeton_session", ""))
+    if resolution.failure is not None:
+        raise _auth_error(resolution.failure)
+    _require_csrf(request.cookies.get("aimeton_csrf"), request.headers.get("X-CSRF-Token"))
+    control = CONTROLS.get(analysis_id)
+    if control is None or control.owner_id != resolution.user.id:
+        raise HTTPException(status_code=404, detail="research_not_found")
+    with _LOCK:
+        terminal_state = _ANALYSES.get(analysis_id, {}).get("state")
+    if terminal_state in _TERMINAL_ANALYSIS_STATES:
+        return {"state": terminal_state, "research": control.snapshot()}
+    control.stop_requested = True
+    control.checkpoint("stop", control.snapshot())
+    _append_event(analysis_id, phase="stop_requested", event_code="service.degraded", state="running",
+                  icon_key="clock", message="Останавливаем исследование и сохраняем полученные данные.",
+                  next_action="Дождаться текущих запросов; новые запросы не запускаются.")
+    return {"state": "stop_requested", "research": control.snapshot()}
+
+
+async def _run_dialogue_research(req: ChatRequest, started: AnalysisStartResponse):
+    from app.audit_dialogue import run_audit_dialogue
+    analysis_id = started.analysis_id
+    _append_event(analysis_id, phase="dialogue_research", event_code="mission.received", state="running",
+                  icon_key="search", message="Углубляем профиль по вашему уточнению.")
+    try:
+        with bind_research(CONTROLS.get(analysis_id)), bind_trace_identity(started.mission_id, analysis_id):
+            response = await run_audit_dialogue(req)
+        with _LOCK:
+            _ANALYSES[analysis_id]["result"] = response["analysis"].model_dump(mode="json")
+            _ANALYSES[analysis_id]["dialogue_reply"] = response["reply"]
+        _append_event(analysis_id, phase="completed", event_code="mission.completed", state="completed",
+                      icon_key="check-circle", message="Уточнённый профиль сохранён.")
+    except Exception as exc:
+        _append_event(analysis_id, phase="failed", event_code="mission.failed", state="failed",
+                      icon_key="alert-triangle", message="Исследование прервано.", detail=type(exc).__name__)
+
+
+@router.post("/refine/start", response_model=AnalysisStartResponse, status_code=202)
+async def start_deep_refinement(req: ChatRequest, background_tasks: BackgroundTasks, request: Request = None):
+    if not req.deep_research or not req.refine_search:
+        raise HTTPException(status_code=422, detail="deep_refinement_requires_search_and_budget_consent")
+    control = authorize_research(req, request)
+    started = create_analysis_runtime(req.analysis.url, entry_point=EntryPoint.LEGACY_ADAPTER)
+    CONTROLS[started.analysis_id] = control
+    background_tasks.add_task(_run_dialogue_research, req, started)
+    return started

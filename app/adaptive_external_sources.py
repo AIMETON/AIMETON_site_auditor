@@ -13,6 +13,8 @@ from app.external_sources import (
 )
 from app.hunter_search_policy_authority import resolve_hunter_search_policy
 from app.trace_context import current_trace_identity
+from app.research_control import current_research, deep_research_enabled
+from app.search_gateway.models import SearchResponse
 from app.models import IntelligenceSource, SourceKind
 from app.search_gateway import (
     SearchDiagnostics,
@@ -90,7 +92,7 @@ async def collect_external_sources_adaptive(
     company_name: str,
     official_url: str | None,
     region: str | None = None,
-    max_sources: int = 60,
+    max_sources: int | None = 60,
     anchors: IdentityAnchors | None = None,
     query_overrides: list[tuple[SourceKind, str]] | None = None,
 ) -> tuple[list[IntelligenceSource], list[str], SearchDiagnostics]:
@@ -98,7 +100,7 @@ async def collect_external_sources_adaptive(
     anchors = anchors or IdentityAnchors()
     notes: list[str] = []
     plan = query_overrides if query_overrides is not None else query_plan(company_name, region, anchors)
-    per_query = max(2, min(5, max_sources // max(1, len(plan)) + 1))
+    per_query = 100 if deep_research_enabled() else max(2, min(5, (max_sources or 60) // max(1, len(plan)) + 1))
     semaphore = asyncio.Semaphore(6)
     trace_identity = current_trace_identity()
     mission_id = trace_identity.mission_id if trace_identity else f"company-{uuid4()}"
@@ -108,9 +110,11 @@ async def collect_external_sources_adaptive(
 
     async def execute(kind: SourceKind, query: str, variant: str):
         async with semaphore:
+            if current_research() and current_research().stop_requested:
+                return SearchResponse(results=[], diagnostics=SearchDiagnostics(state="unavailable"))
             response = await gateway.search(
                 SearchRequest(
-                    query=query,
+                    query=query[:400],
                     limit=per_query,
                     mission_id=mission_id,
                     correlation_id=f"{correlation_id}-{kind}-{variant}",
@@ -199,7 +203,7 @@ async def collect_external_sources_adaptive(
                 ),
             )
         )
-        if len(sources) >= max_sources:
+        if max_sources is not None and len(sources) >= max_sources:
             break
 
     return sources, notes, SearchDiagnostics.aggregate(diagnostics)

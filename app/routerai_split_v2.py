@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
+from app.research_control import deep_research_enabled, current_research, ResearchStopped
 from app.models import BusinessMachineCell, CompanyFact, EconomicSignal, SiteAnalysis
 from app.routerai_evidence_ledger import persist_merged_evidence_ledger
 from app.routerai_profile_extraction import extract_profile_parallel
@@ -199,9 +200,11 @@ async def analyze_with_routerai_split_v2(
 
     profile = _full_reasoning_profile(merged)
     try:
+        if current_research() and current_research().stop_requested:
+            raise ResearchStopped("research_stopped_by_user")
         return await asyncio.wait_for(
             _reason_and_assemble(url, title, text, external_sources, profile, accessed_at),
-            timeout=30.0,
+            timeout=None if deep_research_enabled() else 30.0,
         )
     except Exception as exc:
         # Extraction has already completed and been persisted. A reasoning
