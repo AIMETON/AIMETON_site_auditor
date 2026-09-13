@@ -163,3 +163,15 @@ Surpass through:
 ## Done condition
 
 The roadmap is not complete when the UI displays more fields. It is complete only when the same real benchmark target produces materially stronger **verified evidence**, not merely richer generated prose.
+
+
+## 2026-09-13T08:12:12Z — audit integration candidate
+
+Local delivery under #173 connects URL audit to the existing Hunter-governed
+search, primary-document verification and DaData mirror, preserving late input
+and supporting explicit dialogue refinements. See
+[Audit Research Profile Loop v0.1](../architecture/AUDIT-RESEARCH-PROFILE-LOOP-V0.1.md).
+This is a candidate contribution to EI-P0-06/07/08, not completion of the FNS,
+GIR BO, graph or cross-device consultation roadmap. Next: CI and exact-SHA stage
+acceptance with a frozen company dossier and measured query/evidence/profile delta.
+Existing dates and prior milestone statuses are unchanged.

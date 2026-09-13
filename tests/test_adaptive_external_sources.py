@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
@@ -77,7 +78,7 @@ async def test_exact_success_does_not_issue_relaxed_fallback(monkeypatch) -> Non
             return _success(f"https://example.org/{len(calls)}")
 
     monkeypatch.setattr(adaptive, "get_search_gateway", lambda: FakeGateway())
-    monkeypatch.setattr(adaptive, "search_policy_from_env", lambda: SearchPolicy())
+    monkeypatch.setattr(adaptive, "resolve_hunter_search_policy", lambda: SimpleNamespace(policy=SearchPolicy()))
 
     sources, notes, diagnostics = await adaptive.collect_external_sources_adaptive(
         "Тестовая компания",
@@ -87,7 +88,7 @@ async def test_exact_success_does_not_issue_relaxed_fallback(monkeypatch) -> Non
         anchors=IdentityAnchors(domain="example.org", cities=("Красноярск",)),
     )
 
-    assert len(calls) == 17
+    assert len(calls) == 20
     assert sources
     assert all("query_variant=exact" in source.verification_note for source in sources)
     assert not any("relaxed fallback" in note for note in notes)
@@ -106,7 +107,7 @@ async def test_empty_exact_query_runs_one_relaxed_fallback(monkeypatch) -> None:
             return _success(f"https://relaxed.example/{len(calls)}")
 
     monkeypatch.setattr(adaptive, "get_search_gateway", lambda: FakeGateway())
-    monkeypatch.setattr(adaptive, "search_policy_from_env", lambda: SearchPolicy())
+    monkeypatch.setattr(adaptive, "resolve_hunter_search_policy", lambda: SimpleNamespace(policy=SearchPolicy()))
 
     sources, notes, diagnostics = await adaptive.collect_external_sources_adaptive(
         "Тестовая компания",

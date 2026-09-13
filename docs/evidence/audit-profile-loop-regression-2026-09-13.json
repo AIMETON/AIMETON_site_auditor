@@ -1,0 +1,22 @@
+{
+  "checked_at": "2026-09-13T08:12:12.169905+00:00",
+  "base_sha": "a9d08d74c2fa955d5299c2b7e698a387bb352d92",
+  "fixture": "synthetic deterministic HTML; no provider or LLM calls",
+  "scope": "scraper acquisition completeness only, not semantic fact recall",
+  "before": {
+    "chars": 45000,
+    "markers": {
+      "BEGIN_FACT": true,
+      "MIDDLE_FACT": true,
+      "TAIL_FACT": false
+    }
+  },
+  "after": {
+    "chars": 50032,
+    "markers": {
+      "BEGIN_FACT": true,
+      "MIDDLE_FACT": true,
+      "TAIL_FACT": true
+    }
+  }
+}

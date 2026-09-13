@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 from urllib.parse import urlparse
+from uuid import uuid4
+
+from app.trace_context import bind_trace_identity, current_trace_identity
+
+from app.search_gateway import SearchDiagnostics
 
 from app.adaptive_external_sources import collect_external_sources_adaptive
 from app.dadata_report_bridge import enrich_identity_with_dadata
@@ -8,11 +13,12 @@ from app.external_sources import (
     extract_identity_anchors,
     source_type,
     to_llm_sources,
+    query_plan,
 )
 from app.external_verification import verify_external_sources
 from app.heuristics import heuristic_analysis
 from app.identity_anchor_guard import guard_identity_anchors
-from app.llm import analyze_with_routerai
+from app.routerai_runtime import run_bounded_routerai_analysis as analyze_with_routerai
 from app.models import EvidenceSource, SiteAnalysis
 
 
@@ -20,10 +26,12 @@ def _host(url: str) -> str:
     return (urlparse(url).hostname or "").lower()
 
 
-async def run_verified_enriched_site_analysis(
+async def _run_verified_enriched_site_analysis(
     url: str,
     title: str,
     text: str,
+    *,
+    research_queries: list[tuple[str, str]] | None = None,
 ) -> SiteAnalysis:
     """Analyze crawled first-party evidence plus verified external primary documents.
 
@@ -38,26 +46,69 @@ async def run_verified_enriched_site_analysis(
         anchors
     )
 
-    external_sources, notes, diagnostics = await collect_external_sources_adaptive(
-        company_hint,
-        url,
-        region=anchors.primary_region,
-        max_sources=100,
-        anchors=anchors,
-    )
+    planned_queries = research_queries if research_queries is not None else query_plan(company_hint, anchors=anchors)
+    try:
+        external_sources, notes, diagnostics = await collect_external_sources_adaptive(
+            company_hint,
+            url,
+            region=anchors.primary_region,
+            max_sources=100,
+            anchors=anchors,
+            query_overrides=research_queries,
+        )
+    except Exception as exc:
+        external_sources = []
+        notes = [f"Внешний поиск недоступен ({type(exc).__name__}); профиль неполный."]
+        diagnostics = SearchDiagnostics(state="unavailable")
     verified = await verify_external_sources(
         external_sources,
         company_name=company_hint,
         anchors=anchors,
         max_documents=24,
+        preserve_blocks=True,
+        include_official=True,
     )
+
+    # Requisites may only occur on a discovered first-party subpage. Use
+    # that fetched content to form one bounded registry follow-up wave.
+    if not anchors.inn and not anchors.ogrn:
+        official_text = "\n".join(
+            item.evidence_quote or "" for item in verified if item.source_class == "official"
+        )
+        discovered = guard_identity_anchors(extract_identity_anchors(official_text, url), official_text)
+        if discovered.inn or discovered.ogrn:
+            anchors, dadata_result, dadata_facts, follow_notes = await enrich_identity_with_dadata(discovered)
+            dadata_notes.extend(follow_notes)
+            identifier = anchors.inn or anchors.ogrn
+            follow_plan = [
+                ("registry", f'"{identifier}" site:egrul.nalog.ru'),
+                ("finance", f'"{identifier}" site:bo.nalog.ru'),
+                ("registry", f'"{identifier}" реквизиты филиалы'),
+            ]
+            planned_queries = planned_queries + follow_plan
+            try:
+                more, more_notes, more_diagnostics = await collect_external_sources_adaptive(
+                    company_hint, url, max_sources=12, anchors=anchors, query_overrides=follow_plan,
+                )
+                for item in more:
+                    item.id = "R-" + item.id
+                more_verified = await verify_external_sources(
+                    more, company_name=company_hint, anchors=anchors, max_documents=8,
+                    preserve_blocks=True, timeout_seconds=25,
+                )
+                external_sources.extend(more)
+                verified.extend(more_verified)
+                notes.extend(more_notes)
+                diagnostics = SearchDiagnostics.aggregate([diagnostics, more_diagnostics])
+            except Exception as exc:
+                notes.append(f"Уточняющая проверка реквизитов не завершена ({type(exc).__name__}).")
 
     try:
         analysis = await analyze_with_routerai(
             url,
             title,
             text,
-            to_llm_sources(external_sources),
+            to_llm_sources(verified),
         )
     except Exception as exc:
         analysis = heuristic_analysis(url, title, text)
@@ -148,9 +199,32 @@ async def run_verified_enriched_site_analysis(
             else "unavailable"
         )
 
+    analysis.readiness.provider_states["search"] = diagnostics.state
+    analysis.research_queries = [query for _, query in planned_queries]
+    analysis.research_status = {
+        "extraction_input_coverage_complete": False,
+        **analysis.research_status,
+        "stage": "intermediate_report",
+        "search_state": diagnostics.state,
+        "discovery_hints": discovery_count,
+        "source_candidates": candidate_count,
+        "evidence_records": evidence_count,
+        "verified_documents": len({s.document_url or s.url for s in verified}),
+        "unverified_documents": discovery_count + candidate_count,
+        "official_input_chars": len(text),
+        "registry_authority_verified": False,
+    }
     if evidence_count:
         analysis.readiness.evidence_quality = max(
             analysis.readiness.evidence_quality,
-            min(1.0, 0.25 + 0.08 * evidence_count),
+            min(1.0, 0.25 + 0.08 * len({s.document_url or s.url for s in verified})),
         )
     return analysis
+
+
+async def run_verified_enriched_site_analysis(url: str, title: str, text: str, **kwargs) -> SiteAnalysis:
+    if current_trace_identity() is not None:
+        return await _run_verified_enriched_site_analysis(url, title, text, **kwargs)
+    identity = uuid4().hex
+    with bind_trace_identity(f"audit-{identity}", f"analysis-{identity}"):
+        return await _run_verified_enriched_site_analysis(url, title, text, **kwargs)

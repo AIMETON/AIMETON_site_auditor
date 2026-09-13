@@ -99,7 +99,7 @@ def extract_visible_text(html: str) -> tuple[str, str]:
         if len(text) >= 3:
             chunks.append(text)
     deduped = list(dict.fromkeys(chunks))
-    return title, "\n".join(deduped)[:45_000]
+    return title, "\n".join(deduped)
 
 
 def _ensure_rendered_size(html: str) -> None:

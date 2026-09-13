@@ -165,6 +165,10 @@ class PreliminaryResultReadiness(BaseModel):
 
 
 class SiteAnalysis(BaseModel):
+    research_queries: list[str] = Field(default_factory=list)
+    research_status: dict[str, str | int | bool] = Field(default_factory=dict)
+    profile_revision: int = Field(default=0, ge=0)
+    user_clarifications: list[str] = Field(default_factory=list)
     mission_id: str | None = None
     analysis_id: str | None = None
     url: str
@@ -317,5 +321,6 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    refine_search: bool = False
     analysis: SiteAnalysis
     messages: list[ChatMessage]

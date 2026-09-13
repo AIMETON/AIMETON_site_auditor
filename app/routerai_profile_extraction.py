@@ -124,7 +124,8 @@ _ALL_ROUTED_KINDS = (
 )
 _SLICE_SOURCE_KEYS = (
     "id", "title", "query_kind", "result_kind", "source_class",
-    "evidence_level", "snippet",
+    "evidence_level", "snippet", "lifecycle_state", "url",
+    "document_url", "evidence_locator", "evidence_digest",
 )
 
 

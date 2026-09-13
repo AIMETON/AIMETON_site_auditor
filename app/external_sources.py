@@ -205,6 +205,9 @@ def query_plan(
 
     return [
         ("official", official_query),
+        ("official", f'site:{domain} о компании команда руководство история' if domain else f'{base} о компании команда'),
+        ("official", f'site:{domain} продукция услуги каталог проекты филиалы' if domain else f'{base} продукция услуги филиалы'),
+        ("official", f'site:{domain} контакты реквизиты ИНН ОГРН' if domain else f'{base} реквизиты'),
         ("contact", f'{base} телефон email адрес контакты{contact_anchor}'),
         ("registry", f'{registry_base} ИНН ОГРН выписка ЕГРЮЛ{suffix}'),
         ("finance", f'{registry_base} выручка прибыль активы налоги бухгалтерская отчетность'),
@@ -322,39 +325,6 @@ def to_llm_sources(sources: list[IntelligenceSource]) -> list[dict]:
 
 
 async def run_enriched_site_analysis(url: str, title: str, text: str) -> SiteAnalysis:
-    company_hint = title.split("—")[0].split("|")[0].strip() or _host(url)
-    anchors = extract_identity_anchors(text, url)
-    external_sources, notes, _diagnostics = await collect_external_sources(
-        company_hint,
-        url,
-        region=anchors.primary_region,
-        max_sources=60,
-        anchors=anchors,
-    )
-    try:
-        analysis = await analyze_with_routerai(url, title, text, to_llm_sources(external_sources))
-    except Exception as exc:
-        analysis = heuristic_analysis(url, title, text)
-        analysis.readiness.provider_states["routerai"] = (
-            "not_configured"
-            if isinstance(exc, RuntimeError)
-            and "ROUTERAI_API_KEY" in str(exc)
-            else "failed"
-        )
-        analysis.risks_and_assumptions.append(f"Использован резервный локальный анализ: {type(exc).__name__}.")
-    anchor_parts = [
-        f"domain={anchors.domain}" if anchors.domain else None,
-        f"region={anchors.primary_region}" if anchors.primary_region else None,
-        f"inn={anchors.inn}" if anchors.inn else None,
-        f"ogrn={anchors.ogrn}" if anchors.ogrn else None,
-    ]
-    analysis.risks_and_assumptions.append(
-        "Внешний поиск привязан к identity anchors: "
-        + ", ".join(part for part in anchor_parts if part)
-        + "."
-    )
-    analysis.risks_and_assumptions.append(
-        f"Внешний поиск дал discovery_hint={len(external_sources)}; поисковые сниппеты не включены в evidence до проверки первичных документов."
-    )
-    analysis.risks_and_assumptions.extend(notes)
-    return analysis
+    # Lazy import keeps the shared source models independent of orchestration.
+    from app.verified_analysis import run_verified_enriched_site_analysis
+    return await run_verified_enriched_site_analysis(url, title, text)

@@ -32,6 +32,7 @@ from app.hunter_handbook import handbook
 from app.hunter_settings import get_hunter_settings_repository
 from app.hunter_sources import get_hunter_sources
 from app.llm import chat_with_routerai
+from app.audit_dialogue import run_audit_dialogue
 from app.mcp_security import McpSecurityMiddleware
 from app.mcp_server import admin_mcp, admin_mcp_http_app, mcp, mcp_http_app
 from app.mission_orchestrator import (
@@ -505,5 +506,7 @@ async def hunt(req: HuntRequest, request: Request):
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
-    reply = await chat_with_routerai(req.analysis, [m.model_dump() for m in req.messages])
-    return {"reply": reply}
+    try:
+        return await run_audit_dialogue(req)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

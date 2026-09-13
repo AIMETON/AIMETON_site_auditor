@@ -188,22 +188,13 @@ def _select_diverse_targets(
 
 
 def _aggregate_evidence(pages: list[dict[str, str]]) -> str:
-    chunks: list[str] = []
-    total = 0
+    # Fetch/crawl budgets bound acquisition. Never silently prefix-cut pages
+    # that were already acquired; extraction owns explicit overflow reporting.
+    chunks = []
     for page in pages:
-        text = " ".join((page.get("text") or "").split())
-        if not text:
-            continue
-        title = " ".join((page.get("title") or "").split())
-        final_url = page.get("final_url") or ""
-        body = text[:MAX_EVIDENCE_PAGE_CHARS]
-        chunk = f"SOURCE: {final_url}\nTITLE: {title}\n{body}"
-        remaining = MAX_EVIDENCE_CHARS - total
-        if remaining <= 0:
-            break
-        chunk = chunk[:remaining]
-        chunks.append(chunk)
-        total += len(chunk)
+        text = page.get("text") or ""
+        if text.strip():
+            chunks.append(f"SOURCE: {page.get('final_url', '')}\nTITLE: {page.get('title', '')}\n{text}")
     return "\n\n--- INTERNAL PAGE ---\n\n".join(chunks)
 
 

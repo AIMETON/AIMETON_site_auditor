@@ -2,6 +2,18 @@
 
 _Last updated: 2026-07-30_
 
+## Audit profile recovery candidate — 2026-09-13T08:12:12Z
+
+Implementation candidate on base `a9d08d74c2fa955d5299c2b7e698a387bb352d92`:
+shared verified audit/Hunter search policy, full fetched-block retention,
+site-derived registry pivots, bounded dialogue refinement and versioned
+preliminary profile. Local suite: 1362 passed, 1 xfailed; app import/JS syntax pass.
+No deployment or real-company quality recovery is claimed.
+
+Contract, evidence and open acceptance:
+[`AUDIT-RESEARCH-PROFILE-LOOP-V0.1`](docs/architecture/AUDIT-RESEARCH-PROFILE-LOOP-V0.1.md).
+The older operational snapshots below remain historical evidence.
+
 ## Активный контур Search Recovery
 
 - `SR-G0 / #81` слит в `main` через PR

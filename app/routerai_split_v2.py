@@ -198,6 +198,32 @@ async def analyze_with_routerai_split_v2(
     persist_merged_evidence_ledger(merged)
 
     profile = _full_reasoning_profile(merged)
+    try:
+        return await asyncio.wait_for(
+            _reason_and_assemble(url, title, text, external_sources, profile, accessed_at),
+            timeout=30.0,
+        )
+    except Exception as exc:
+        # Extraction has already completed and been persisted. A reasoning
+        # failure must not discard its facts or pretend the provider succeeded.
+        from app.heuristics import heuristic_analysis
+        fallback = heuristic_analysis(url, title, text)
+        result = _assemble_site_analysis(
+            url=url, title=title, text=text, external_sources=external_sources,
+            profile=profile, km=BusinessMachineSynthesis(),
+            commercial=CommercialSynthesis(
+                commercial_opportunity=fallback.commercial_opportunity,
+                agents=fallback.agents, action_package=fallback.action_package,
+            ), accessed_at=accessed_at,
+        )
+        result.readiness.provider_states["routerai"] = "reasoning_failed_extraction_preserved"
+        result.risks_and_assumptions.append(
+            f"Факты извлечены; коммерческий синтез не завершён ({type(exc).__name__})."
+        )
+        return result
+
+
+async def _reason_and_assemble(url, title, text, external_sources, profile, accessed_at):
     profile_context = json.dumps(
         profile.model_dump(mode="json"),
         ensure_ascii=False,
@@ -265,7 +291,11 @@ FULL EXTRACTED PROFILE:\n{profile_context}
             timeout_seconds=25.0,
             reasoning_effort="high",
         ),
+        return_exceptions=True,
     )
+    for outcome in gathered:
+        if isinstance(outcome, BaseException):
+            raise outcome
     km_result = _merge_km_results(
         [
             (codes, result)

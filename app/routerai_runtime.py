@@ -11,7 +11,7 @@ import httpx
 
 from app.llm import MODEL, analyze_with_routerai
 from app.models import SiteAnalysis
-from app.routerai_evidence_units import DEFAULT_EVIDENCE_CHUNK_CHARS, chunk_text
+from app.routerai_evidence_units import DEFAULT_EVIDENCE_CHUNK_CHARS, EvidenceCoverageOverflow, chunk_text
 from app.routerai_projection_metrics import routerai_projection_metrics
 from app.routerai_split_synthesis import (
     SplitSynthesisPhaseError,
@@ -183,6 +183,11 @@ async def run_bounded_routerai_analysis(
     )
     analysis_fn = analyze_with_routerai_split_v2 if use_split else analyze_with_routerai
     try:
+        if not use_split and (
+            len(text) > 30000
+            or len(json.dumps(external_sources or [], ensure_ascii=False, indent=2)) > 52000
+        ):
+            raise EvidenceCoverageOverflow("legacy_monolith_cannot_cover_input")
         result = await asyncio.wait_for(
             analysis_fn(url, title, text, external_sources),
             timeout=budget_seconds,

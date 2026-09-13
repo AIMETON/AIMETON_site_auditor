@@ -138,15 +138,11 @@ def test_split_v2_persists_merged_ledger_before_any_reasoning(monkeypatch) -> No
     monkeypatch.setattr(split_v2, "_request_json", fail_reasoning)
     monkeypatch.setattr(split_v2, "request_json_strict", fail_reasoning)
 
-    with pytest.raises(RuntimeError, match="intentional_reasoning_failure"):
-        asyncio.run(
-            split_v2.analyze_with_routerai_split_v2(
-                "https://example.test",
-                "Example",
-                "Official text",
-                [],
-            )
-        )
+    result = asyncio.run(split_v2.analyze_with_routerai_split_v2(
+        "https://example.test", "Example", "Official text", [],
+    ))
+    assert result.company_facts[-1].value == "TAIL_FACT"
+    assert result.readiness.provider_states["routerai"] == "reasoning_failed_extraction_preserved"
 
     assert events[0:2] == ["extract", "persist"]
     assert "reasoning" in events

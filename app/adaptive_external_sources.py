@@ -11,6 +11,8 @@ from app.external_sources import (
     classify_source_domain,
     query_plan,
 )
+from app.hunter_search_policy_authority import resolve_hunter_search_policy
+from app.trace_context import current_trace_identity
 from app.models import IntelligenceSource, SourceKind
 from app.search_gateway import (
     SearchDiagnostics,
@@ -90,17 +92,19 @@ async def collect_external_sources_adaptive(
     region: str | None = None,
     max_sources: int = 60,
     anchors: IdentityAnchors | None = None,
+    query_overrides: list[tuple[SourceKind, str]] | None = None,
 ) -> tuple[list[IntelligenceSource], list[str], SearchDiagnostics]:
     """Run exact queries first and one relaxed fallback only where needed."""
     anchors = anchors or IdentityAnchors()
     notes: list[str] = []
-    plan = query_plan(company_name, region, anchors)
+    plan = query_overrides if query_overrides is not None else query_plan(company_name, region, anchors)
     per_query = max(2, min(5, max_sources // max(1, len(plan)) + 1))
     semaphore = asyncio.Semaphore(6)
-    mission_id = f"company-{uuid4()}"
+    trace_identity = current_trace_identity()
+    mission_id = trace_identity.mission_id if trace_identity else f"company-{uuid4()}"
     correlation_id = f"corr-{uuid4()}"
     gateway = get_search_gateway()
-    policy = search_policy_from_env()
+    policy = resolve_hunter_search_policy().policy
 
     async def execute(kind: SourceKind, query: str, variant: str):
         async with semaphore:
@@ -118,7 +122,7 @@ async def collect_external_sources_adaptive(
     async def run_vertical(kind: SourceKind, exact_query: str):
         exact = await execute(kind, exact_query, "exact")
         responses = [("exact", exact_query, exact)]
-        if _should_relax(exact):
+        if query_overrides is None and _should_relax(exact):
             fallback = relaxed_query(
                 kind,
                 company_name,

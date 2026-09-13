@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 from datetime import datetime, timezone
@@ -13,6 +14,7 @@ from app.sef.models import DiscoveryHint, Source, SourceKind
 
 
 VERIFICATION_PRIORITY = {
+    "official": 110,
     "registry": 100,
     "finance": 95,
     "court": 90,
@@ -118,7 +120,7 @@ def document_matches_entity(
 
     strong_text, phone_digits, cities = _anchor_values(anchors)
     for value in strong_text:
-        if value.casefold() in normalized:
+        if re.search(r"(?<!\d)" + re.escape(value) + r"(?!\d)", normalized):
             return True, "registration_identifier_match"
 
     document_digits = _digits(text)
@@ -165,6 +167,9 @@ async def verify_external_sources(
     company_name: str,
     anchors: Any,
     max_documents: int = 24,
+    preserve_blocks: bool = False,
+    include_official: bool = False,
+    timeout_seconds: float = 60,
 ) -> list[IntelligenceSource]:
     """Fetch and verify high-value discovery hints before exposing them as evidence.
 
@@ -178,9 +183,9 @@ async def verify_external_sources(
             source
             for source in sources
             if source.lifecycle_state == "discovery_hint"
-            and source.classification_state != "ambiguous"
             and not (
-                official_domain
+                not include_official
+                and official_domain
                 and (
                     _host(str(source.url)) == official_domain
                     or _host(str(source.url)).endswith(f".{official_domain}")
@@ -198,11 +203,11 @@ async def verify_external_sources(
     mission_id = _identifier("mission_external_verify", company_name)
     correlation_id = _identifier("corr_external_verify", company_name)
 
-    for source_item in candidates:
+    async def verify_one(source_item):
         url = str(source_item.url)
         host = _host(url)
         if not host:
-            continue
+            return
         source_item.lifecycle_state = "source_candidate"
         source_item.verification_note = "Первичный документ запрошен; поисковый сниппет не используется как evidence."
 
@@ -240,7 +245,7 @@ async def verify_external_sources(
             source_item.verification_note = (
                 f"Первичный документ не загружен ({type(exc).__name__}); источник остаётся кандидатом."
             )
-            continue
+            return
 
         matches, match_reason = document_matches_entity(
             fetched.normalized_text,
@@ -253,7 +258,7 @@ async def verify_external_sources(
                 "Первичный документ загружен, но identity конкретной компании не подтверждена; "
                 "источник не повышен до evidence."
             )
-            continue
+            return
 
         block = _best_quote_block(fetched, company_name=company_name, anchors=anchors)
         quote = block.text.strip()[:800]
@@ -280,5 +285,48 @@ async def verify_external_sources(
             "цитата закреплена locator+digest."
         )
         verified.append(source_item)
+        if preserve_blocks:
+            # The identity quote is an anchor, not a summary of the document.
+            # Preserve every fetched block as independently locatable evidence.
+            for block_index, evidence_block in enumerate(fetched.blocks):
+                for offset in range(0, len(evidence_block.text), 4000):
+                    fragment = evidence_block.text[offset:offset + 4000]
+                    if not fragment.strip():
+                        continue
+                    promotion = pipeline.promote_quote(
+                        fetched, locator=evidence_block.locator, quote=fragment,
+                    )
+                    record = source_item.model_copy(deep=True)
+                    record.id = f"{source_item.id}-b{block_index}-{offset}"
+                    record.evidence_quote = promotion.evidence.quote
+                    record.evidence_locator = promotion.evidence.locator
+                    record.evidence_digest = promotion.evidence.digest
+                    verified.append(record)
+
+    semaphore = asyncio.Semaphore(4)
+
+    async def bounded(source_item):
+        async with semaphore:
+            try:
+                await verify_one(source_item)
+            except Exception as exc:
+                source_item.verification_note = (
+                    f"Проверка документа не завершена ({type(exc).__name__}); "
+                    "полнота evidence не подтверждена."
+                )
+
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*(bounded(item) for item in candidates)),
+            timeout=timeout_seconds,
+        )
+    except TimeoutError:
+        for item in candidates:
+            if item.lifecycle_state != "evidence":
+                item.verification_note = "Лимит времени проверки; документ не проверен."
+    # Stable output order regardless of network completion order.
+    verified.sort(key=lambda item: item.id)
+    known_ids = {item.id for item in sources}
+    sources.extend(item for item in verified if item.id not in known_ids)
 
     return verified

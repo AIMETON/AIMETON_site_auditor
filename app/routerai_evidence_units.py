@@ -59,7 +59,7 @@ def project_sources(
     selected: list[dict[str, Any]] = []
     for source in sources:
         kind = str(source.get("query_kind") or "unknown")
-        if kind not in kinds:
+        if kind not in kinds and source.get("lifecycle_state") != "evidence":
             continue
         selected.append(
             {

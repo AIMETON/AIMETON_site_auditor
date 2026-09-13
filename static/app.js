@@ -487,6 +487,14 @@ function render() {
           </article>`).join('') : '<p>Источники не представлены.</p>'}
       </div>
 
+      <h3>Промежуточный профиль · ревизия ${Number(analysis.profile_revision) || 0}</h3>
+      <p>Проверено документов: ${Number(analysis.research_status?.verified_documents) || 0}.
+      Ожидают проверки: ${Number(analysis.research_status?.unverified_documents) || 0}.
+      Поиск: ${esc(analysis.research_status?.search_state || 'не выполнялся')}.</p>
+      ${(analysis.research_queries || []).length ? `<details><summary>План уточняющего поиска</summary><ul>${analysis.research_queries.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}
+      <p>Какие сведения уточнить дальше: продукты и услуги, руководство, филиалы, финансы или реквизиты?</p>
+      ${(analysis.user_clarifications || []).length ? `<h3>Уточнения пользователя — требуют проверки</h3><ul>${analysis.user_clarifications.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+
       <!-- Assumptions -->
       <h3>Ограничения и предположения</h3>
       <ul>${analysis.risks_and_assumptions.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
@@ -525,6 +533,8 @@ document.querySelector('#chatForm').onsubmit = async (e) => {
   q.value = '';
   chatBtn.disabled = true;
 
+  const requestAnalysisId = activeAnalysisId;
+  const requestAnalysis = analysis;
   addMessage(text, 'user');
 
   const thinking = document.createElement('div');
@@ -538,16 +548,24 @@ document.querySelector('#chatForm').onsubmit = async (e) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        analysis,
+        analysis: requestAnalysis,
+        refine_search: document.querySelector('#refineSearch').checked,
         messages: currentChatSession().slice(-12),
       })
     });
     const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
     thinking.remove();
+    if (activeAnalysisId !== requestAnalysisId) return;
+    if (data.analysis) {
+      analysis = { ...data.analysis, ui_analysis_id: requestAnalysisId };
+      saveToHistory(analysis);
+      render();
+    }
     addMessage(data.reply, 'assistant');
   } catch (err) {
     thinking.remove();
-    addMessage('Ошибка: ' + err.message, 'assistant');
+    if (activeAnalysisId === requestAnalysisId) addMessage('Ошибка: ' + err.message, 'assistant');
   } finally {
     chatBtn.disabled = false;
     q.focus();

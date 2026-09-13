@@ -33,13 +33,16 @@ def strict_cities_from_evidence(text: str, *, limit: int = 3) -> tuple[str, ...]
 
 def guard_identity_anchors(anchors: Any, evidence_text: str):
     """Replace permissively parsed city anchors with strictly evidenced cities."""
+    from app.entity_resolution.service import _valid_inn, _valid_ogrn
     strict_cities = strict_cities_from_evidence(evidence_text)
+    inn = getattr(anchors, "inn", None)
+    ogrn = getattr(anchors, "ogrn", None)
     cls = anchors.__class__
     return cls(
         domain=getattr(anchors, "domain", None),
         legal_name=getattr(anchors, "legal_name", None),
-        inn=getattr(anchors, "inn", None),
-        ogrn=getattr(anchors, "ogrn", None),
+        inn=inn if inn and _valid_inn(inn) else None,
+        ogrn=ogrn if ogrn and _valid_ogrn(ogrn) else None,
         cities=strict_cities,
         phones=tuple(getattr(anchors, "phones", ()) or ()),
     )

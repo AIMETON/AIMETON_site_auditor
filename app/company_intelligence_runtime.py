@@ -14,7 +14,10 @@ from app.external_sources import (
 from app.document_pipeline import get_document_pipeline
 from app.document_pipeline.models import FetchPolicy
 from app.heuristics import heuristic_analysis
-from app.llm import analyze_with_routerai
+from app.routerai_runtime import run_bounded_routerai_analysis as analyze_with_routerai
+from app.external_verification import verify_external_sources
+from app.external_sources import extract_identity_anchors
+from app.identity_anchor_guard import guard_identity_anchors
 from app.models import (
     CompanyIntelligenceRequest,
     CompanyIntelligenceResult,
@@ -115,12 +118,17 @@ async def _analyze_site_with_sources(
             "Первичный документ загружен; цитата проверена по стабильному locator и digest."
         )
 
+    await verify_external_sources(
+        external_sources, company_name=page["title"],
+        anchors=guard_identity_anchors(extract_identity_anchors(page["text"], url), page["text"]),
+        preserve_blocks=True, include_official=True,
+    )
     try:
         analysis = await analyze_with_routerai(
             page["final_url"],
             page["title"],
             page["text"],
-            to_llm_sources(external_sources),
+            to_llm_sources([s for s in external_sources if s.lifecycle_state == "evidence"]),
         )
     except Exception as exc:
         analysis = heuristic_analysis(page["final_url"], page["title"], page["text"])
