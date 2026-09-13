@@ -58,3 +58,5 @@
 Индексы RAG не являются источником истины: оригиналы и provenance должны позволять полностью перестроить поисковый слой.
 
 - [Opt-in Deep Research v0.1](architecture/AUDIT-DEEP-RESEARCH-V0.1.md) — явное согласие на расход LLM, полная обработка, учёт и остановка.
+
+- [Document Preflight v0.1](architecture/DOCUMENT-PREFLIGHT-V0.1.md) — предварительный отбор больших документов перед полной LLM-обработкой.

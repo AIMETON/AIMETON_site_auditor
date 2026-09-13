@@ -184,3 +184,12 @@ acquisition and extraction, usage reporting and cooperative stop. See
 Next: exact-head CI and stage acceptance including partial-result stop and
 profile refinement. Provider quotas and cross-device/restart work remain separate;
 existing dates and milestone status are unchanged.
+
+## 2026-09-13T14:01:41Z — relevance screening before full extraction
+
+PR #906 adds two-pass screening for large acquired documents, with observable
+exclusions and conservative retention on uncertainty. See
+[Document preflight](../architecture/DOCUMENT-PREFLIGHT-V0.1.md).
+Next acceptance measures useful-document recall and avoided extraction calls on
+real company corpora. Streaming binary preview remains future work; milestone
+dates and prior acceptance status remain unchanged.

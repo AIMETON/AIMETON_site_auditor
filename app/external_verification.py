@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from app.document_pipeline import get_document_pipeline
+from app.document_preflight import screen_document
 from app.document_pipeline.models import FetchPolicy
 from app.models import IntelligenceSource
 from app.research_control import current_research, deep_research_enabled
@@ -290,6 +291,21 @@ async def verify_external_sources(
                 )
                 sources.append(discovered)
                 pending.append(discovered)
+
+        screening = await screen_document(fetched, company_name=company_name, anchors=anchors)
+        source_item.preflight_decision = screening.decision
+        source_item.preflight_reason = screening.reason
+        control = current_research()
+        if control:
+            control.checkpoint(f"preflight/{source_item.id}", {
+                **screening.model_dump(), "url": url, "digest": fetched.normalized_content_digest,
+            })
+        if screening.decision == "exclude":
+            source_item.verification_note = f"Исключён из полного анализа после двух проходов: {screening.reason}"
+            return
+        if control and control.stop_requested:
+            source_item.verification_note = "Остановлен после предварительной классификации."
+            return
 
         block = _best_quote_block(fetched, company_name=company_name, anchors=anchors)
         quote = block.text.strip()[:800]

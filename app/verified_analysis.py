@@ -195,6 +195,10 @@ async def _run_verified_enriched_site_analysis(
         f"Search gateway state={diagnostics.state}; attempts={len(diagnostics.attempts)}."
     )
     analysis.risks_and_assumptions.extend(notes)
+    for source in external_sources:
+        if source.preflight_decision in {"exclude", "uncertain"}:
+            action = "Исключён из полного анализа" if source.preflight_decision == "exclude" else "Оставлен в пуле при неопределённой классификации"
+            analysis.risks_and_assumptions.append(f"{action}: {source.url}. {source.preflight_reason}")
 
     if dadata_result is not None:
         analysis.readiness.provider_states["dadata"] = dadata_result.state.value
@@ -224,6 +228,7 @@ async def _run_verified_enriched_site_analysis(
         "evidence_records": evidence_count,
         "verified_documents": len({s.document_url or s.url for s in verified}),
         "unverified_documents": discovery_count + candidate_count,
+        "preflight_excluded_documents": sum(s.preflight_decision == "exclude" for s in external_sources),
         "official_input_chars": len(text),
         "registry_authority_verified": False,
     }

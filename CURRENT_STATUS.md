@@ -2,6 +2,16 @@
 
 _Last updated: 2026-07-30_
 
+## Large-document preflight candidate — 2026-09-13T14:01:41Z
+
+PR #906 adds relevance screening before full extraction for acquired documents
+>=48,000 characters. Headings/beginning are inspected first; exclusions require
+confirmation using middle/end/identity excerpts. Errors and uncertainty retain
+content. Decisions and exclusions are visible in the preliminary report.
+Contract: [Document preflight](docs/architecture/DOCUMENT-PREFLIGHT-V0.1.md).
+This saves LLM extraction work; partial binary downloads and live recall validation
+are not implemented/confirmed.
+
 ## Opt-in deep research candidate — 2026-09-13T13:30:00Z
 
 PR #906 now includes explicit per-run LLM budget consent in audit and chat,

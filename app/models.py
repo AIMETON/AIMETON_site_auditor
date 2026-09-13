@@ -303,6 +303,8 @@ class IntelligenceSource(BaseModel):
     )
     fetch_path: Literal["static", "crawl4ai", "browser", "cache"] | None = None
     verification_note: str = "Поисковый сниппет; первичный документ не проверен."
+    preflight_decision: Literal["not_required", "include", "exclude", "uncertain"] = "not_required"
+    preflight_reason: str = ""
 
 
 class CompanyIntelligenceRequest(BaseModel):
