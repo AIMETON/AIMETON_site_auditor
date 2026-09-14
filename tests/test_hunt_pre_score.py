@@ -259,21 +259,29 @@ async def test_unexpected_candidate_failure_is_isolated_as_shallow_observation(m
     assert any("RuntimeError" in reason for reason in result.candidates[0].reasons)
 
 @pytest.mark.asyncio
-async def test_candidate_phase_timeout_returns_shallow_partial_candidates(monkeypatch):
+async def test_candidate_phase_has_no_aggregate_timeout_and_reports_progress(monkeypatch):
     req = _request(deep_audit_score=50)
     monkeypatch.setattr(discovery, "_build_queries", lambda _req: ["query"])
-    monkeypatch.setattr(discovery, "_candidate_inspection_timeout_seconds", lambda: 0.01)
 
     async def fake_search(_query: str, _limit: int):
         return [{"url": "https://clinic.ru", "title": "Стоматология Красноярск", "content": "услуги стоматология Красноярск"}]
     async def slow_fetch(_url: str):
-        await asyncio.sleep(1)
-        raise AssertionError("cancelled candidate must not finish")
+        await asyncio.sleep(0.03)
+        return {
+            "final_url": "https://clinic.ru",
+            "title": "Клиника Красноярск",
+            "text": "Красноярск стоматология услуги " * 30,
+        }
 
     monkeypatch.setattr(discovery, "get_search_gateway", lambda: _gateway_for(fake_search))
     monkeypatch.setattr(discovery, "fetch_site", slow_fetch)
-    result = await discovery.run_hunt(req)
+    progress = []
+    result = await discovery.run_hunt(req, on_progress=progress.append)
 
     assert len(result.candidates) == 1
-    assert result.candidates[0].deep_analysis_performed is False
-    assert any("лимиту времени" in note for note in result.notes)
+    assert result.candidates[0].deep_analysis_performed is True
+    assert progress[-1]["phase"] == "inspecting_candidates"
+    assert progress[-1]["processed_candidates"] == 1
+    assert progress[-1]["total_candidates"] == 1
+    assert len(progress[-1]["candidates"]) == 1
+    assert not any("лимиту времени" in note for note in result.notes)

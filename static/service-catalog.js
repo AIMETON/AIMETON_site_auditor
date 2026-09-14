@@ -479,6 +479,63 @@
   });
 
   const huntForm = document.querySelector('#hunterForm');
+  const hunterStopButton = document.querySelector('#hunterStopButton');
+  let activeHunterRun = null;
+
+  function hunterProgressMessage(data) {
+    const progress = data.progress || {};
+    const elapsed = Math.round(data.elapsed_seconds || 0);
+    if (data.phase === 'inspecting_candidates') {
+      return `Поиск продолжается ${elapsed} с. Проверено кандидатов: ${progress.processed_candidates || 0}/${progress.total_candidates || 0}. Можно дождаться полного результата или остановить поиск.`;
+    }
+    return `Поиск продолжается ${elapsed} с. Поисковых направлений завершено: ${progress.completed_queries || 0}/${progress.total_queries || 0}. Можно дождаться полного результата или остановить поиск.`;
+  }
+
+  async function hunterRequest(path, options = {}) {
+    const response = await fetch(path, {credentials: 'same-origin', ...options});
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = typeof data.detail === 'string' ? data.detail : data.detail?.reason;
+      throw new Error(detail || `HTTP ${response.status}`);
+    }
+    return data;
+  }
+
+  function renderHunterResult(list, data, fallbackRegion) {
+    const candidates = data.candidates || [];
+    const counts = candidateGroupCounts(candidates);
+    const funnel = data.funnel || {};
+    const rawResults = funnel.raw_results ?? '—';
+    const uniqueCandidates = funnel.unique_candidates ?? data.discovered ?? 0;
+    const qualifiedCandidates = funnel.qualified_candidates ?? candidates.length;
+    const returnedCandidates = funnel.returned_candidates ?? candidates.length;
+    appendItem(
+      list,
+      'Поисковая воронка',
+      `Raw: ${rawResults} → уникальные: ${uniqueCandidates} → прошли фильтр: ${qualifiedCandidates} → возвращено API: ${returnedCandidates}`,
+      `Компании-кандидаты: ${counts.company} · источники для проверки: ${counts.supporting} · наблюдение: ${counts.observation} · все возвращённые результаты раскрыты ниже`,
+    );
+    renderHunterCandidates(list, candidates, data.region || fallbackRegion);
+    return candidates.length;
+  }
+
+  hunterStopButton?.addEventListener('click', async () => {
+    if (!activeHunterRun) return;
+    if (!window.confirm('Остановить поиск? Уже завершённые проверки будут сохранены и показаны.')) return;
+    hunterStopButton.disabled = true;
+    const statusNode = document.querySelector('#hunterStatus');
+    setStatus(statusNode, 'Останавливаем поиск и сохраняем завершённые результаты…');
+    try {
+      await hunterRequest(activeHunterRun.stop_url, {
+        method: 'POST',
+        headers: {'X-Hunter-Run-Token': activeHunterRun.run_token},
+      });
+    } catch (error) {
+      hunterStopButton.disabled = false;
+      setStatus(statusNode, `Не удалось остановить поиск: ${error.message}`, 'error');
+    }
+  });
+
   huntForm?.addEventListener('submit', async event => {
     event.preventDefault();
     const status = document.querySelector('#hunterStatus');
@@ -486,6 +543,9 @@
     const list = output.querySelector('.service-summary');
     const button = huntForm.querySelector('button');
     button.disabled = true;
+    hunterStopButton.hidden = true;
+    hunterStopButton.disabled = false;
+    activeHunterRun = null;
     output.hidden = true;
     list.replaceChildren();
     setStatus(status, 'Ищем и ранжируем компании…');
@@ -496,26 +556,48 @@
         region,
         industries: industry ? [industry] : [],
       };
-      const data = await postJson('/api/hunt', payload);
-      const candidates = data.candidates || [];
-      const counts = candidateGroupCounts(candidates);
-      const funnel = data.funnel || {};
-      const rawResults = funnel.raw_results ?? '—';
-      const uniqueCandidates = funnel.unique_candidates ?? data.discovered ?? 0;
-      const qualifiedCandidates = funnel.qualified_candidates ?? candidates.length;
-      const returnedCandidates = funnel.returned_candidates ?? candidates.length;
-      appendItem(
-        list,
-        'Поисковая воронка',
-        `Raw: ${rawResults} → уникальные: ${uniqueCandidates} → прошли фильтр: ${qualifiedCandidates} → возвращено API: ${returnedCandidates}`,
-        `Компании-кандидаты: ${counts.company} · источники для проверки: ${counts.supporting} · наблюдение: ${counts.observation} · все возвращённые результаты раскрыты ниже`,
-      );
-      renderHunterCandidates(list, candidates, data.region || region);
+      const regime = document.querySelector('#hunterSearchRegime')?.value || 'auto';
+      activeHunterRun = await hunterRequest(`/api/hunt/start?search_regime=${encodeURIComponent(regime)}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+      hunterStopButton.hidden = false;
+      let snapshot;
+      let transientFailures = 0;
+      while (activeHunterRun) {
+        await new Promise(resolve => window.setTimeout(resolve, 1200));
+        try {
+          snapshot = await hunterRequest(activeHunterRun.status_url, {
+            headers: {'X-Hunter-Run-Token': activeHunterRun.run_token},
+          });
+          transientFailures = 0;
+        } catch (error) {
+          transientFailures += 1;
+          if (transientFailures < 5) {
+            setStatus(status, 'Поиск продолжается. Временно не удалось обновить прогресс; повторяем подключение…');
+            continue;
+          }
+          throw error;
+        }
+        if (snapshot.state === 'completed' || snapshot.state === 'stopped') break;
+        if (snapshot.state === 'failed') throw new Error(snapshot.error || 'hunter_search_failed');
+        setStatus(status, hunterProgressMessage(snapshot));
+      }
+      const data = snapshot?.result || {};
+      const candidateCount = renderHunterResult(list, data, region);
       output.hidden = false;
-      setStatus(status, `Список кандидатов подготовлен: отображено ${candidates.length} результатов.`, 'success');
+      if (snapshot?.state === 'stopped') {
+        setStatus(status, `Поиск остановлен по вашему запросу. Показано завершённых результатов: ${candidateCount}.`, 'success');
+      } else {
+        setStatus(status, `Полный поиск завершён: отображено ${candidateCount} результатов.`, 'success');
+      }
     } catch (error) {
       setStatus(status, `Поиск не выполнен: ${error.message}`, 'error');
     } finally {
+      activeHunterRun = null;
+      hunterStopButton.hidden = true;
+      hunterStopButton.disabled = false;
       button.disabled = false;
     }
   });

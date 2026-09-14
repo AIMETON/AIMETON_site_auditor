@@ -2,14 +2,20 @@
 
 _Last updated: 2026-07-30_
 
-## Hunter stage latency follow-up — 2026-09-14T01:42:00Z
+## Hunter continuous-search follow-up — 2026-09-14T02:03:12Z
 
 PR #906 merged and deployed as `2aeae347dc2e0768e02018aa22a4ae9dc9dc070b`;
 the former dentistry HTTP 500 no longer reproduced. A full request exceeded 150
 seconds because candidate deep inspection lacked an aggregate phase deadline.
-A follow-up candidate limits that phase to 45 seconds and preserves unfinished
-items as shallow candidates. Focused Hunter/policy/API suite: 31 passed. Stage
-latency revalidation of the follow-up SHA remains open.
+The first PR #907 candidate proposed a 45-second aggregate deadline. The owner
+rejected that direction because it sacrificed completeness. The superseding
+candidate runs Hunter in the background without an aggregate search/candidate
+deadline, reports elapsed time and query/candidate progress, and exposes an
+explicit user stop action. A stop returns only completed candidate checks and
+does not invent shallow replacements for cancelled work. The legacy synchronous
+`POST /api/hunt` remains compatible. Focused Hunter/API/UI suite: 31 passed.
+The run controller is process-local; restart recovery is not yet implemented.
+CI and exact-SHA stage acceptance of the superseding PR #907 head remain open.
 
 ## Hunter HTTP 500 corrective candidate — 2026-09-13T18:27:27Z
 
