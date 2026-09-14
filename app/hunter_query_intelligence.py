@@ -26,6 +26,45 @@ def _extract_json(text: str) -> dict:
     return json.loads(cleaned)
 
 
+def _normalize_text(value: str) -> str:
+    return " ".join(value.casefold().replace("ё", "е").split())
+
+
+def _anchor_variants(value: str) -> set[str]:
+    normalized = _normalize_text(value)
+    variants: set[str] = set()
+    if not normalized:
+        return variants
+    variants.add(normalized)
+    for token in re.split(r"[^0-9a-zа-я]+", normalized):
+        if len(token) < 5:
+            continue
+        variants.add(token)
+        variants.add(token[: max(5, len(token) - 3)])
+    return variants
+
+
+def _query_preserves_semantic_anchors(
+    query: str,
+    *,
+    region: str,
+    industries: list[str],
+) -> bool:
+    """Fail closed when an LLM query drops the hunt's region or industry."""
+
+    haystack = _normalize_text(query)
+    region_anchors = _anchor_variants(region)
+    industry_anchors: set[str] = set()
+    for industry in industries:
+        industry_anchors.update(_anchor_variants(industry))
+
+    if not region_anchors or not industry_anchors:
+        return False
+    return any(anchor in haystack for anchor in region_anchors) and any(
+        anchor in haystack for anchor in industry_anchors
+    )
+
+
 def _dedupe_queries(values: list[str], limit: int) -> list[str]:
     result: list[str] = []
     seen: set[str] = set()
@@ -41,6 +80,25 @@ def _dedupe_queries(values: list[str], limit: int) -> list[str]:
     return result
 
 
+def _validated_queries(
+    values: list[str],
+    *,
+    region: str,
+    industries: list[str],
+    limit: int,
+) -> tuple[list[str], int]:
+    valid: list[str] = []
+    rejected = 0
+    for query in _dedupe_queries(values, max(limit, len(values))):
+        if _query_preserves_semantic_anchors(query, region=region, industries=industries):
+            valid.append(query)
+            if len(valid) >= limit:
+                break
+        else:
+            rejected += 1
+    return valid, rejected
+
+
 async def generate_hunter_query_plan(
     *,
     region: str,
@@ -51,7 +109,8 @@ async def generate_hunter_query_plan(
     """Normalize Hunter input and generate diverse search variants with bounded RouterAI use.
 
     Returns None on any provider/config/schema failure so the caller can safely fall back to
-    the deterministic Hunter query builder.
+    the deterministic Hunter query builder. LLM variants are validated deterministically
+    before execution: every query must preserve both the normalized region and industry.
     """
     key = os.getenv("ROUTERAI_API_KEY")
     if not key:
@@ -70,9 +129,10 @@ async def generate_hunter_query_plan(
 4. Сгенерируй разнообразные поисковые варианты, которые реально расширяют покрытие, а не являются косметическими перефразированиями.
 5. Используй уместные синонимы и отраслевые варианты только при высокой уверенности.
 6. Часть запросов должна искать официальные сайты компаний; часть — локальные организации/сети/клиники/центры соответствующей отрасли; допускаются каталожные формулировки только как вспомогательный путь обнаружения.
-7. Не выдумывай названия конкретных компаний, юридические лица, адреса или факты.
-8. Не генерируй более {max_queries} query_variants.
-9. Верни только JSON по схеме без Markdown.
+7. Каждый query_variant обязан явно сохранять территорию и отрасль из нормализованного задания; не выдавай generic-запросы только со словами `каталог`, `список`, `детская`, `сеть` и т.п.
+8. Не выдумывай названия конкретных компаний, юридические лица, адреса или факты.
+9. Не генерируй более {max_queries} query_variants.
+10. Верни только JSON по схеме без Markdown.
 
 Вход:
 region={json.dumps(region, ensure_ascii=False)}
@@ -107,7 +167,18 @@ JSON schema:
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError, ValidationError, json.JSONDecodeError):
         return None
 
-    deduped = _dedupe_queries(plan.query_variants, max_queries)
-    if not deduped:
+    effective_region = plan.normalized_region or region
+    effective_industries = plan.normalized_industries or industries
+    validated, rejected = _validated_queries(
+        plan.query_variants,
+        region=effective_region,
+        industries=effective_industries,
+        limit=max_queries,
+    )
+    if not validated:
         return None
-    return plan.model_copy(update={"query_variants": deduped})
+
+    warnings = list(plan.warnings)
+    if rejected:
+        warnings.append(f"deterministic_query_guard_rejected={rejected}")
+    return plan.model_copy(update={"query_variants": validated, "warnings": warnings[:12]})
