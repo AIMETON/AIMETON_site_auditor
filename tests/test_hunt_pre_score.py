@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 
 import pytest
 
@@ -256,3 +257,23 @@ async def test_unexpected_candidate_failure_is_isolated_as_shallow_observation(m
     assert len(result.candidates) == 1
     assert not result.candidates[0].deep_analysis_performed
     assert any("RuntimeError" in reason for reason in result.candidates[0].reasons)
+
+@pytest.mark.asyncio
+async def test_candidate_phase_timeout_returns_shallow_partial_candidates(monkeypatch):
+    req = _request(deep_audit_score=50)
+    monkeypatch.setattr(discovery, "_build_queries", lambda _req: ["query"])
+    monkeypatch.setattr(discovery, "_candidate_inspection_timeout_seconds", lambda: 0.01)
+
+    async def fake_search(_query: str, _limit: int):
+        return [{"url": "https://clinic.ru", "title": "Стоматология Красноярск", "content": "услуги стоматология Красноярск"}]
+    async def slow_fetch(_url: str):
+        await asyncio.sleep(1)
+        raise AssertionError("cancelled candidate must not finish")
+
+    monkeypatch.setattr(discovery, "get_search_gateway", lambda: _gateway_for(fake_search))
+    monkeypatch.setattr(discovery, "fetch_site", slow_fetch)
+    result = await discovery.run_hunt(req)
+
+    assert len(result.candidates) == 1
+    assert result.candidates[0].deep_analysis_performed is False
+    assert any("лимиту времени" in note for note in result.notes)

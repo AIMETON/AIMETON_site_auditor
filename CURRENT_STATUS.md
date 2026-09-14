@@ -2,6 +2,15 @@
 
 _Last updated: 2026-07-30_
 
+## Hunter stage latency follow-up — 2026-09-14T01:42:00Z
+
+PR #906 merged and deployed as `2aeae347dc2e0768e02018aa22a4ae9dc9dc070b`;
+the former dentistry HTTP 500 no longer reproduced. A full request exceeded 150
+seconds because candidate deep inspection lacked an aggregate phase deadline.
+A follow-up candidate limits that phase to 45 seconds and preserves unfinished
+items as shallow candidates. Focused Hunter/policy/API suite: 31 passed. Stage
+latency revalidation of the follow-up SHA remains open.
+
 ## Hunter HTTP 500 corrective candidate — 2026-09-13T18:27:27Z
 
 Stage reproduced HTTP 500 for Auto client search with industry `стоматология`.

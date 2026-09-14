@@ -93,6 +93,14 @@ def _observer_runtime_steering_config() -> tuple[bool, str, int]:
     return enabled, regime, max(0, min(10, reserve_queries))
 
 
+def _candidate_inspection_timeout_seconds() -> float:
+    try:
+        value = float(os.getenv("HUNTER_CANDIDATE_INSPECTION_TIMEOUT_SECONDS", "45"))
+    except ValueError:
+        value = 45.0
+    return max(5.0, min(120.0, value))
+
+
 def _build_queries(req: HuntRequest) -> list[str]:
     selected = resolve_industries(req.industries)
     queries: list[str] = []
@@ -808,7 +816,37 @@ async def run_hunt(req: HuntRequest) -> HuntResult:
                 fallback.reasons.append(f"ошибка кандидата изолирована: {type(exc).__name__}")
                 return fallback
 
-    inspected = await asyncio.gather(*(guarded(item) for item in unique.values()))
+    candidate_items = list(unique.values())
+    task_items = {
+        asyncio.create_task(guarded(item)): item
+        for item in candidate_items
+    }
+    done, pending = await asyncio.wait(
+        task_items,
+        timeout=_candidate_inspection_timeout_seconds(),
+    )
+    inspected = [task.result() for task in done]
+    timed_out_candidates = 0
+    for task in pending:
+        task.cancel()
+        item = task_items[task]
+        url = str(item.get("url") or "")
+        title = str(item.get("title") or _domain(url))
+        snippet = str(item.get("content") or item.get("snippet") or "")
+        score = _pre_score(effective_req, title, snippet, url)
+        if score.status == "calculated" and score.score is not None and score.score < req.minimum_pre_score:
+            continue
+        fallback = _shallow_candidate(
+            title, snippet, url, score,
+            qualification="Недостаточно данных",
+            summary="Кандидат найден; глубокая проверка отложена из-за общего лимита времени.",
+            recommendation="Продолжить проверку кандидата отдельным аудитом.",
+        )
+        fallback.reasons.append("общий лимит времени Hunter: глубокая проверка не завершена")
+        inspected.append(fallback)
+        timed_out_candidates += 1
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
     candidates = [candidate for candidate in inspected if candidate is not None]
     candidates.sort(
         key=lambda candidate: (
@@ -897,6 +935,10 @@ async def run_hunt(req: HuntRequest) -> HuntResult:
             *(
                 [f"Изолированы ошибки поисковых направлений: {len(search_execution_failures)}; успешные направления сохранены."]
                 if search_execution_failures else []
+            ),
+            *(
+                [f"По общему лимиту времени отложена глубокая проверка кандидатов: {timed_out_candidates}; поверхностные карточки сохранены."]
+                if timed_out_candidates else []
             ),
             "План охоты сформирован по Справочнику охотника.",
             "Каждый кандидат получает объяснимый pre-score либо явный статус insufficient_data.",
