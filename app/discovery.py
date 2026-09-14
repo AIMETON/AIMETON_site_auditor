@@ -825,21 +825,46 @@ async def run_hunt(
                 raise
             except Exception as exc:
                 url = str(item.get("url") or "")
-                title = str(item.get("title") or _domain(url))
+                raw_title = str(item.get("title") or "")
+                display_title = raw_title or _domain(url)
                 snippet = str(item.get("content") or item.get("snippet") or "")
-                result = _pre_score(effective_req, title, snippet, url)
+                result = _pre_score(effective_req, raw_title, snippet, url)
+                identity = _domain(url) or "unknown"
                 trace.append(
                     "candidate_processing_failed",
                     state=TraceState.DEGRADED,
                     reason_code="candidate_exception_contained",
-                    summary="Candidate processing failed; shallow observation retained",
-                    identity=_domain(url) or "unknown",
+                    summary="Candidate processing failed; fallback policy evaluated",
+                    identity=identity,
                     url=url,
-                    title=title,
+                    title=display_title,
                     metadata={"error_type": type(exc).__name__},
                 )
+                if (
+                    result.status == "calculated"
+                    and result.score is not None
+                    and result.score < req.minimum_pre_score
+                ):
+                    trace.append(
+                        "candidate_rejected",
+                        state=TraceState.SKIPPED,
+                        reason_code="below_minimum_pre_score_after_processing_error",
+                        summary="Candidate processing failed and recalculated pre-score is below Hunter minimum",
+                        identity=identity,
+                        url=url,
+                        title=display_title,
+                        counters={
+                            "pre_score": result.score,
+                            "minimum_pre_score": req.minimum_pre_score,
+                        },
+                        metadata={
+                            **_score_metadata(result),
+                            "error_type": type(exc).__name__,
+                        },
+                    )
+                    return None
                 fallback = _shallow_candidate(
-                    title, snippet, url, result,
+                    display_title, snippet, url, result,
                     qualification="Недостаточно данных",
                     summary="Кандидат найден, но его обработка завершилась частично.",
                     recommendation="Повторить проверку первичного сайта.",
