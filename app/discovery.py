@@ -724,7 +724,12 @@ async def run_hunt(
         )
         try:
             page = await fetch_site(url)
-            analysis = heuristic_analysis(page["final_url"], page["title"], page["text"])
+            analysis = await asyncio.to_thread(
+                heuristic_analysis,
+                page["final_url"],
+                page["title"],
+                page["text"],
+            )
             regional_text = f'{page["title"]} {page["text"][:12000]}'.lower()
             region_tokens = [token for token in effective_req.region.lower().split() if len(token) > 3]
             region_confirmed = any(token in regional_text for token in region_tokens)
