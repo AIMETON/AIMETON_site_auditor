@@ -73,7 +73,7 @@
     meta.className = 'service-summary__meta';
     const parts = [];
     if (host) parts.push(`Сайт: ${host}`);
-    if (region) parts.push(`Регион: ${region}`);
+    if (region) parts.push(`Искомый регион: ${region}`);
     if (LEAD_FIT_LABELS[leadFit]) parts.push(`Hunter: ${LEAD_FIT_LABELS[leadFit]}`);
     parts.push('Из поиска клиентов');
     meta.textContent = parts.join(' · ');
@@ -101,6 +101,13 @@
     const effective = REGIME_LABELS[metadata.effective] || metadata.effective || '—';
     const reason = REGIME_REASON_LABELS[metadata.reason] || metadata.reason || 'без причины';
     node.textContent = `Запрошено: ${requested}. Shadow-тактика AIMETON: ${effective}. Причина: ${reason}. Production routing не изменён.`;
+  }
+
+  function rewriteHunterRegionLabels(root = document) {
+    root.querySelectorAll('.service-summary__candidate .service-summary__meta').forEach(node => {
+      if (!node.textContent.startsWith('Регион: ')) return;
+      node.textContent = node.textContent.replace(/^Регион:/, 'Искомый регион:');
+    });
   }
 
   const originalFetch = window.fetch.bind(window);
@@ -133,6 +140,13 @@
     const card = event.target.closest('[data-service-card="company-intelligence"]');
     if (card) clearContext();
   });
+
+  const hunterOutput = document.querySelector('#hunterOutput');
+  if (hunterOutput) {
+    rewriteHunterRegionLabels(hunterOutput);
+    const hunterObserver = new MutationObserver(() => rewriteHunterRegionLabels(hunterOutput));
+    hunterObserver.observe(hunterOutput, {childList: true, subtree: true});
+  }
 
   const status = document.querySelector('#companyIntelligenceStatus');
   if (status) {
