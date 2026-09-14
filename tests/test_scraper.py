@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import socket
+import time
 from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 
+import app.scraper as scraper
 from app.models import AnalyzeRequest
 from app.scraper import (
     BLOCKED_MESSAGE,
@@ -63,6 +66,34 @@ async def test_httpx_success_does_not_use_browser():
 
     assert result["title"] == "Test Site"
     browser.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_dns_validation_and_html_parsing_do_not_block_event_loop(monkeypatch):
+    original_extract = scraper.extract_visible_text
+
+    def slow_validate(_url: str) -> None:
+        time.sleep(0.15)
+
+    def slow_extract(html: str):
+        time.sleep(0.15)
+        return original_extract(html)
+
+    monkeypatch.setattr(scraper, "_validate_public_url", slow_validate)
+    monkeypatch.setattr(scraper, "extract_visible_text", slow_extract)
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_via_httpx",
+        AsyncMock(return_value=(200, "https://example.com/", GOOD_HTML)),
+    )
+
+    started = time.monotonic()
+    task = asyncio.create_task(fetch_site("https://example.com"))
+    await asyncio.sleep(0.02)
+
+    assert time.monotonic() - started < 0.1
+    result = await task
+    assert result["title"] == "Test Site"
 
 
 @pytest.mark.asyncio

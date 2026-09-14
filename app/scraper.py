@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import ipaddress
 import shutil
@@ -121,7 +122,7 @@ async def _fetch_via_httpx(
     ) as client:
         current = url
         for _ in range(MAX_REDIRECTS + 1):
-            _validate_public_url(current)
+            await asyncio.to_thread(_validate_public_url, current)
             async with client.stream("GET", current) as response:
                 if response.is_redirect:
                     location = response.headers.get("location")
@@ -188,7 +189,7 @@ async def _fetch_via_browser(url: str) -> tuple[str, str, str]:
                     await route.abort()
                     return
                 port = request_url.port or (443 if request_url.scheme == "https" else 80)
-                if _host_is_public(request_url.hostname, port):
+                if await asyncio.to_thread(_host_is_public, request_url.hostname, port):
                     await route.continue_()
                 else:
                     await route.abort()
@@ -196,7 +197,7 @@ async def _fetch_via_browser(url: str) -> tuple[str, str, str]:
             await page.route("**/*", guard_route)
             response = await page.goto(url, wait_until="domcontentloaded", timeout=25_000)
             final_url = page.url
-            _validate_public_url(final_url)
+            await asyncio.to_thread(_validate_public_url, final_url)
 
             if response is not None and response.status in FALLBACK_STATUSES:
                 raise FetchError(BLOCKED_MESSAGE)
@@ -225,7 +226,7 @@ async def _fetch_via_browser(url: str) -> tuple[str, str, str]:
 
 async def fetch_site(url: str) -> dict[str, str]:
     normalized_url = normalize_url(url)
-    _validate_public_url(normalized_url)
+    await asyncio.to_thread(_validate_public_url, normalized_url)
 
     status, final_url, html = 0, normalized_url, ""
     httpx_failed = False
@@ -238,7 +239,7 @@ async def fetch_site(url: str) -> dict[str, str]:
 
     title, text = ("", "")
     if html:
-        title, text = extract_visible_text(html)
+        title, text = await asyncio.to_thread(extract_visible_text, html)
 
     needs_fallback = (
         httpx_failed
@@ -253,7 +254,7 @@ async def fetch_site(url: str) -> dict[str, str]:
         return {"final_url": final_url, "title": title, "text": text}
 
     final_url, title, html = await _fetch_via_browser(normalized_url)
-    _, text = extract_visible_text(html)
+    _, text = await asyncio.to_thread(extract_visible_text, html)
     if len(text) < MIN_TEXT_LEN:
         raise FetchError(BLOCKED_MESSAGE)
     return {"final_url": final_url, "title": title, "text": text}

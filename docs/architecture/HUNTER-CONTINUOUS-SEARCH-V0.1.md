@@ -41,14 +41,18 @@ local suite (1386 passed, 1 expected xfail, 6 subtests), Baseline CI run
 34798185817 and Acceptance Governance run 34798200106. No stage acceptance is
 claimed before an authorized merge and exact-SHA deployment.
 
-## Stage checkpoint — 2026-09-14T02:54:18Z
+## Stage checkpoint and responsiveness correction — 2026-09-14T02:54:18Z
 
 PR #907 is merged and deployed at exact SHA
 `3377b758fd48763a83bbcd9a407c417353434f3c`; post-merge Baseline CI
 34800345992 and Deploy Stage 34800405291 succeeded. Live evidence confirms
-continued execution at 74.3 seconds after all 20 search directions and confirms
-an explicit reduced-load stop returning `stopped` in 7.79 seconds. A full-load
-stop request exceeded the diagnostic client's 30-second read timeout, leaving
-full-load stop responsiveness as an open acceptance item. This does not negate
-the confirmed no-aggregate-deadline behavior, but prevents declaring the whole
-stop contour fully GREEN.
+continued execution at 74.3 seconds after all 20 search directions, so the
+no-aggregate-deadline invariant is GREEN.
+
+Stop responsiveness under candidate load is RED: two requests exceeded 30 and
+120 seconds, although a reduced run returned `stopped` in 7.79 seconds. The
+corrective PR #908 candidate offloads synchronous DNS validation, HTML parsing
+and heuristic analysis from the asyncio event loop. This is a responsiveness
+change, not a new search budget: work is still awaited to completion unless the
+user explicitly stops it. Stage acceptance must demonstrate progress polling and
+explicit stop while a large candidate pool is actively being inspected.
