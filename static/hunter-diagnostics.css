@@ -1,0 +1,88 @@
+.hunter-diagnostics-controls {
+  margin-top: 1rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(127, 127, 127, 0.28);
+  border-radius: 12px;
+}
+
+.hunter-diagnostics-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 700;
+}
+
+.hunter-diagnostics {
+  margin-top: 0.9rem;
+}
+
+.hunter-diagnostics__head,
+.hunter-diagnostics__tabs,
+.hunter-diagnostics__scope,
+.hunter-diagnostic-event__top {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.hunter-diagnostics__head select {
+  min-width: min(34rem, 100%);
+  flex: 1 1 22rem;
+}
+
+.hunter-diagnostics__tabs {
+  margin: 0.75rem 0;
+}
+
+.hunter-diagnostics__tabs [aria-selected="true"] {
+  font-weight: 800;
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
+.hunter-diagnostics__scope {
+  margin-bottom: 0.75rem;
+}
+
+.hunter-diagnostics__scope span {
+  padding: 0.25rem 0.45rem;
+  border-radius: 7px;
+  background: rgba(127, 127, 127, 0.12);
+  font-size: 0.82rem;
+}
+
+.hunter-diagnostics__body {
+  display: grid;
+  gap: 0.7rem;
+  max-height: 38rem;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.hunter-diagnostic-event {
+  padding: 0.75rem;
+  border: 1px solid rgba(127, 127, 127, 0.22);
+  border-radius: 10px;
+}
+
+.hunter-diagnostic-event__top {
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.hunter-diagnostic-event__json {
+  margin: 0.5rem 0 0;
+  padding: 0.55rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.09);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.hunter-diagnostics__limitations {
+  margin-top: 0.8rem;
+}

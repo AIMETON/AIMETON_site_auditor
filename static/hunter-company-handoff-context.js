@@ -144,3 +144,12 @@
     observer.observe(status, {childList: true, characterData: true, subtree: true});
   }
 })();
+
+(() => {
+  if (document.querySelector('script[data-hunter-diagnostics-loader]')) return;
+  const script = document.createElement('script');
+  script.src = '/static/hunter-diagnostics.js?v=20260914a';
+  script.defer = true;
+  script.dataset.hunterDiagnosticsLoader = 'true';
+  document.head.append(script);
+})();
