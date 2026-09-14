@@ -2,6 +2,23 @@
 
 _Last updated: 2026-07-30_
 
+## Hunter stop-responsiveness corrective candidate — 2026-09-14T02:54:18Z
+
+PR #907 merged as `3377b758fd48763a83bbcd9a407c417353434f3c`.
+Post-merge Baseline CI run 34800345992 and Deploy Stage run 34800405291
+succeeded; `/api/health` reported the exact merge SHA. A live Russia/dentistry
+run remained active after the rejected 45-second boundary: at 74.3 seconds all
+20 search directions had completed and candidate inspection had begun (`0/100`).
+Continuous progress and absence of automatic aggregate truncation are confirmed.
+
+A reduced live run accepted explicit stop and returned `stopped` in 7.79 seconds,
+but two candidate-pool runs did not return the stop response within 30 and 120
+seconds. Full-load stop responsiveness is therefore RED. The corrective PR #908
+candidate moves synchronous DNS validation, HTML parsing and Hunter heuristic
+analysis off the asyncio event loop so status/stop requests remain serviceable
+during candidate work. Focused scraper/Hunter/runtime suite: 28 passed. CI and
+exact-SHA stage revalidation remain open.
+
 ## Hunter continuous-search follow-up — 2026-09-14T02:03:12Z
 
 PR #906 merged and deployed as `2aeae347dc2e0768e02018aa22a4ae9dc9dc070b`;
