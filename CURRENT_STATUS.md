@@ -13,9 +13,12 @@ candidate runs Hunter in the background without an aggregate search/candidate
 deadline, reports elapsed time and query/candidate progress, and exposes an
 explicit user stop action. A stop returns only completed candidate checks and
 does not invent shallow replacements for cancelled work. The legacy synchronous
-`POST /api/hunt` remains compatible. Focused Hunter/API/UI suite: 31 passed.
-The run controller is process-local; restart recovery is not yet implemented.
-CI and exact-SHA stage acceptance of the superseding PR #907 head remain open.
+`POST /api/hunt` remains compatible. Focused Hunter/API/UI suite: 31 passed;
+the full local suite is 1386 passed, 1 expected xfail and 6 subtests passed.
+Implementation SHA `153126855af10e8a45f2bf2bd193316e6c25892a` passed Baseline CI
+run 34798185817 and Acceptance Governance run 34798200106. The run controller
+is process-local; restart recovery is not yet implemented. Merge/deploy decision
+and exact-SHA stage acceptance remain open.
 
 ## Hunter HTTP 500 corrective candidate — 2026-09-13T18:27:27Z
 

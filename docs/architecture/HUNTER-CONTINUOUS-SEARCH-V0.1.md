@@ -35,3 +35,8 @@ returns completed candidates, an invalid run token cannot inspect a run, and the
 legacy regime response contract remains intact. Deployment acceptance requires
 an exact-SHA long-running Hunter smoke where progress remains observable beyond
 the former failure window and either completes fully or stops only by user action.
+
+Implementation SHA `153126855af10e8a45f2bf2bd193316e6c25892a` passed the full
+local suite (1386 passed, 1 expected xfail, 6 subtests), Baseline CI run
+34798185817 and Acceptance Governance run 34798200106. No stage acceptance is
+claimed before an authorized merge and exact-SHA deployment.
