@@ -2,6 +2,19 @@
 
 _Last updated: 2026-07-30_
 
+## Hunter continuous-search stage acceptance — 2026-09-14T02:54:18Z
+
+PR #907 merged as `3377b758fd48763a83bbcd9a407c417353434f3c`.
+Post-merge Baseline CI run 34800345992 and Deploy Stage run 34800405291
+succeeded; `/api/health` reported the exact merge SHA. A live Russia/dentistry
+run remained active after the rejected 45-second boundary: at 74.3 seconds all
+20 search directions had completed and candidate inspection had begun (`0/100`).
+A separate reduced live run accepted explicit stop and returned `stopped` in
+7.79 seconds. The diagnostic client's stop request for the full-load run timed
+out after 30 seconds, so full-load stop latency/terminal state remains YELLOW
+and requires a dedicated acceptance run. Continuous progress and absence of
+automatic aggregate truncation are confirmed on stage.
+
 ## Hunter continuous-search follow-up — 2026-09-14T02:03:12Z
 
 PR #906 merged and deployed as `2aeae347dc2e0768e02018aa22a4ae9dc9dc070b`;

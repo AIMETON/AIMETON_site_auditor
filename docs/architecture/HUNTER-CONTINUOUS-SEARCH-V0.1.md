@@ -40,3 +40,15 @@ Implementation SHA `153126855af10e8a45f2bf2bd193316e6c25892a` passed the full
 local suite (1386 passed, 1 expected xfail, 6 subtests), Baseline CI run
 34798185817 and Acceptance Governance run 34798200106. No stage acceptance is
 claimed before an authorized merge and exact-SHA deployment.
+
+## Stage checkpoint — 2026-09-14T02:54:18Z
+
+PR #907 is merged and deployed at exact SHA
+`3377b758fd48763a83bbcd9a407c417353434f3c`; post-merge Baseline CI
+34800345992 and Deploy Stage 34800405291 succeeded. Live evidence confirms
+continued execution at 74.3 seconds after all 20 search directions and confirms
+an explicit reduced-load stop returning `stopped` in 7.79 seconds. A full-load
+stop request exceeded the diagnostic client's 30-second read timeout, leaving
+full-load stop responsiveness as an open acceptance item. This does not negate
+the confirmed no-aggregate-deadline behavior, but prevents declaring the whole
+stop contour fully GREEN.
