@@ -51,7 +51,7 @@ def compact_routerai_sources(sources: list[dict[str, Any]]) -> list[dict[str, An
         if lifecycle == "evidence":
             quote = source.get("evidence_quote") or source.get("snippet")
             if quote not in (None, ""):
-                item["snippet"] = str(quote)[:900]
+                item["snippet"] = str(quote)
             for key in _EVIDENCE_KEYS:
                 value = source.get(key)
                 if value not in (None, "", [], {}):

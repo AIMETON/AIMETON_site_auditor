@@ -10,6 +10,7 @@ import httpx
 from pydantic import BaseModel
 
 from app.llm import BASE_URL, MODEL
+from app.research_control import deep_research_enabled, record_llm_start, record_llm_usage
 from app.routerai_split_synthesis import (
     SplitSynthesisPhaseError,
     SplitSynthesisPhaseTimeout,
@@ -37,10 +38,13 @@ async def request_json_strict(
     reasoning_effort: ReasoningEffort | None = None,
 ) -> TModel:
     """Request provider-enforced JSON Schema output for a bounded split phase."""
+    if deep_research_enabled():
+        timeout_seconds = max(timeout_seconds, 120.0)
     key = os.getenv("ROUTERAI_API_KEY")
     if not key:
         raise RuntimeError("ROUTERAI_API_KEY не задан")
 
+    record_llm_start()
     payload = {
         "model": MODEL,
         "temperature": 0.1,
@@ -76,6 +80,7 @@ async def request_json_strict(
             )
             response.raise_for_status()
         body = response.json()
+        record_llm_usage(body)
         choice = body["choices"][0]
         if choice.get("finish_reason") == "length":
             raise SplitSynthesisPhaseError(phase, "OutputTruncated")

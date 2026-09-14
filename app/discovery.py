@@ -24,8 +24,10 @@ from app.search_observer_verified_promotion import verified_continuation_promoti
 from app.search_gateway import (
     SearchDiagnostics,
     SearchRequest,
+    SearchResponse,
     get_search_gateway,
 )
+from app.search_gateway.models import GatewayState
 from app.trace_ledger import TraceState
 
 
@@ -334,6 +336,7 @@ async def run_hunt(req: HuntRequest) -> HuntResult:
 
     raw_results: list[dict] = []
     search_diagnostics: list[SearchDiagnostics] = []
+    search_execution_failures: list[str] = []
     gateway = get_search_gateway()
     policy_resolution = resolve_hunter_search_policy()
     policy = policy_resolution.policy
@@ -353,15 +356,31 @@ async def run_hunt(req: HuntRequest) -> HuntResult:
     )
 
     async def search_query(query: str):
-        return await gateway.search(
-            SearchRequest(
-                query=query,
-                limit=req.results_per_query,
-                mission_id=mission_id,
-                correlation_id=correlation_id,
-            ),
-            policy,
-        )
+        try:
+            return await gateway.search(
+                SearchRequest(
+                    query=query,
+                    limit=req.results_per_query,
+                    mission_id=mission_id,
+                    correlation_id=correlation_id,
+                ),
+                policy,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            search_execution_failures.append(type(exc).__name__)
+            trace.append(
+                "hunt_search_query_failed",
+                state=TraceState.DEGRADED,
+                reason_code="search_query_exception_contained",
+                summary="One Hunter query failed; remaining queries continue",
+                metadata={"error_type": type(exc).__name__},
+            )
+            return SearchResponse(
+                results=[],
+                diagnostics=SearchDiagnostics(state=GatewayState.UNAVAILABLE),
+            )
 
     async def search_many(batch: list[str]):
         return await asyncio.gather(*(search_query(query) for query in batch))
@@ -496,7 +515,14 @@ async def run_hunt(req: HuntRequest) -> HuntResult:
             discovered=0,
             candidates=[],
             funnel=funnel,
-            notes=[query_intelligence_note, f"Поиск не дал результатов: gateway state={aggregate.state}."],
+            notes=[
+                query_intelligence_note,
+                *(
+                    [f"Изолированы ошибки поисковых направлений: {len(search_execution_failures)}; успешные направления сохранены."]
+                    if search_execution_failures else []
+                ),
+                f"Поиск не дал результатов: gateway state={aggregate.state}.",
+            ],
             search=aggregate,
         )
 
@@ -754,7 +780,33 @@ async def run_hunt(req: HuntRequest) -> HuntResult:
 
     async def guarded(item: dict) -> HuntCandidate | None:
         async with semaphore:
-            return await inspect(item)
+            try:
+                return await inspect(item)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                url = str(item.get("url") or "")
+                title = str(item.get("title") or _domain(url))
+                snippet = str(item.get("content") or item.get("snippet") or "")
+                result = _pre_score(effective_req, title, snippet, url)
+                trace.append(
+                    "candidate_processing_failed",
+                    state=TraceState.DEGRADED,
+                    reason_code="candidate_exception_contained",
+                    summary="Candidate processing failed; shallow observation retained",
+                    identity=_domain(url) or "unknown",
+                    url=url,
+                    title=title,
+                    metadata={"error_type": type(exc).__name__},
+                )
+                fallback = _shallow_candidate(
+                    title, snippet, url, result,
+                    qualification="Недостаточно данных",
+                    summary="Кандидат найден, но его обработка завершилась частично.",
+                    recommendation="Повторить проверку первичного сайта.",
+                )
+                fallback.reasons.append(f"ошибка кандидата изолирована: {type(exc).__name__}")
+                return fallback
 
     inspected = await asyncio.gather(*(guarded(item) for item in unique.values()))
     candidates = [candidate for candidate in inspected if candidate is not None]
@@ -842,6 +894,10 @@ async def run_hunt(req: HuntRequest) -> HuntResult:
         funnel=funnel,
         notes=[
             query_intelligence_note,
+            *(
+                [f"Изолированы ошибки поисковых направлений: {len(search_execution_failures)}; успешные направления сохранены."]
+                if search_execution_failures else []
+            ),
             "План охоты сформирован по Справочнику охотника.",
             "Каждый кандидат получает объяснимый pre-score либо явный статус insufficient_data.",
             f"Глубокая обработка запускается только при pre-score >= {req.deep_audit_score}.",

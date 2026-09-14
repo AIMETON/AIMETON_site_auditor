@@ -11,7 +11,8 @@ import httpx
 
 from app.llm import MODEL, analyze_with_routerai
 from app.models import SiteAnalysis
-from app.routerai_evidence_units import DEFAULT_EVIDENCE_CHUNK_CHARS, chunk_text
+from app.research_control import deep_research_enabled
+from app.routerai_evidence_units import DEFAULT_EVIDENCE_CHUNK_CHARS, EvidenceCoverageOverflow, chunk_text
 from app.routerai_projection_metrics import routerai_projection_metrics
 from app.routerai_split_synthesis import (
     SplitSynthesisPhaseError,
@@ -169,8 +170,10 @@ async def run_bounded_routerai_analysis(
 ) -> SiteAnalysis:
     """Run RouterAI analysis with a hard wall-clock deadline and rollbackable split mode."""
     budget_seconds = routerai_analysis_timeout_seconds()
-    use_split = routerai_split_synthesis_enabled()
+    deep = deep_research_enabled()
+    use_split = deep or routerai_split_synthesis_enabled()
     input_metrics = routerai_input_metrics(text, external_sources)
+    input_metrics["unlimited_llm_budget"] = deep
     input_metrics["synthesis_mode"] = "split_v2_parallel" if use_split else "legacy_monolith"
     started = time.perf_counter()
     _trace(
@@ -183,9 +186,14 @@ async def run_bounded_routerai_analysis(
     )
     analysis_fn = analyze_with_routerai_split_v2 if use_split else analyze_with_routerai
     try:
+        if not use_split and (
+            len(text) > 30000
+            or len(json.dumps(external_sources or [], ensure_ascii=False, indent=2)) > 52000
+        ):
+            raise EvidenceCoverageOverflow("legacy_monolith_cannot_cover_input")
         result = await asyncio.wait_for(
             analysis_fn(url, title, text, external_sources),
-            timeout=budget_seconds,
+            timeout=None if deep else budget_seconds,
         )
     except (asyncio.TimeoutError, httpx.TimeoutException, SplitSynthesisPhaseTimeout) as exc:
         duration_ms = max(0, round((time.perf_counter() - started) * 1000))

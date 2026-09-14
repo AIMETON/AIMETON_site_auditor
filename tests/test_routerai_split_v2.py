@@ -320,3 +320,21 @@ def test_split_v2_commercial_envelopes_are_bounded_and_expandable() -> None:
     assert isinstance(expanded, CommercialSynthesis)
     assert len(expanded.agents) == 3
     assert expanded.commercial_opportunity.score == 70
+
+
+def test_reasoning_failure_preserves_extracted_company_facts(monkeypatch):
+    async def extract(**kwargs):
+        return MergedProfileExtraction(
+            company_name="Example", business_summary="Extracted profile", evidence=[],
+            company_facts=[CompanyFact(field="executives", value="Поздний руководитель", source_ids=["S1"])],
+            economic_signals=[], risks_and_assumptions=[], coverage=_coverage(),
+        )
+    async def fail(*args):
+        raise TimeoutError("reasoning")
+    monkeypatch.setattr(split_v2, "extract_profile_parallel", extract)
+    monkeypatch.setattr(split_v2, "_reason_and_assemble", fail)
+    result = asyncio.run(split_v2.analyze_with_routerai_split_v2("https://example.org", "Example", "Official text"))
+    assert result.company_facts[0].value == "Поздний руководитель"
+    assert result.company_facts[0].source_ids == ["S1"]
+    assert result.readiness.provider_states["routerai"] == "reasoning_failed_extraction_preserved"
+    assert result.readiness.client_release_eligible is False

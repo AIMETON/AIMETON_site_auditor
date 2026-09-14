@@ -213,7 +213,9 @@ def _build_sources(
     seen = {"S1"}
     for item in external_sources:
         source_id = str(item.get("id") or "")
-        if not source_id or source_id in seen or source_id not in referenced_ids:
+        if (not source_id or source_id in seen or source_id not in referenced_ids
+                or item.get("lifecycle_state") != "evidence"
+                or not item.get("evidence_digest")):
             continue
         sources.append(
             EvidenceSource(
@@ -225,7 +227,7 @@ def _build_sources(
                     item.get("evidence_quote")
                     or item.get("snippet")
                     or "Поисковый сниппет без подтверждённой цитаты."
-                )[:900],
+                ),
                 source_type=_safe_source_type(item.get("source_type")),
                 evidence_level=_safe_evidence_level(item.get("evidence_level")),
                 document_url=item.get("document_url"),
@@ -256,16 +258,17 @@ def _readiness(
         "ownership": {"founders", "executives", "beneficial_owners", "affiliates"},
         "legal_events": set(),
     }
-    confirmed_sources = sum(
-        source.evidence_level in {"confirmed_fact", "corroborated_signal"}
+    document_keys = {source.document_url or source.url for source in sources}
+    confirmed_documents = {
+        source.document_url or source.url for source in sources
+        if source.evidence_level in {"confirmed_fact", "corroborated_signal"}
         and source.document_digest is not None
         and source.evidence_digest is not None
-        for source in sources
-    )
+    }
     return PreliminaryResultReadiness(
         analysis_state="schema_validated",
         profile_completeness=min(len(fact_fields) / 25, 1),
-        evidence_quality=(confirmed_sources / len(sources) if sources else 0),
+        evidence_quality=(len(confirmed_documents) / len(document_keys) if document_keys else 0),
         commercial_priority=commercial_score,
         required_verticals=[
             PreliminaryVerticalStatus(
@@ -321,6 +324,7 @@ def _assemble_site_analysis(
         cell.source_ids = [source_id for source_id in cell.source_ids if source_id in known_ids]
 
     return SiteAnalysis(
+        research_status={"extraction_input_coverage_complete": bool(getattr(profile, "coverage", {}).get("complete", False))},
         url=url,
         company_name=profile.company_name or title or url,
         business_summary=profile.business_summary,

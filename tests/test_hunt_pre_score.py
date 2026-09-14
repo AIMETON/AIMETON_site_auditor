@@ -220,3 +220,39 @@ async def test_degraded_gateway_state_is_visible_in_hunt_api(monkeypatch):
     assert result.search is not None
     assert result.search.state == GatewayState.DEGRADED
     assert result.search.fallback_used is True
+
+@pytest.mark.asyncio
+async def test_search_query_exception_is_contained_and_returns_partial_result(monkeypatch):
+    class BrokenGateway:
+        async def search(self, _request, _policy):
+            raise RuntimeError("provider_transport_broke")
+
+    monkeypatch.setattr(discovery, "get_search_gateway", lambda: BrokenGateway())
+    monkeypatch.setattr(discovery, "generate_hunter_query_plan", lambda **kwargs: _async_value(None))
+    result = await discovery.run_hunt(_request(max_queries=2))
+
+    assert result.candidates == []
+    assert result.search.state == "unavailable"
+    assert any("Изолированы ошибки поисковых направлений: 2" in note for note in result.notes)
+
+
+async def _async_value(value):
+    return value
+
+@pytest.mark.asyncio
+async def test_unexpected_candidate_failure_is_isolated_as_shallow_observation(monkeypatch):
+    req = _request(deep_audit_score=50)
+    monkeypatch.setattr(discovery, "_build_queries", lambda _req: ["query"])
+
+    async def fake_search(_query: str, _limit: int):
+        return [{"url": "https://clinic.ru", "title": "Стоматология Красноярск", "content": "услуги стоматология Красноярск"}]
+    async def broken_fetch(_url: str):
+        raise RuntimeError("unexpected_fetch_runtime_error")
+
+    monkeypatch.setattr(discovery, "get_search_gateway", lambda: _gateway_for(fake_search))
+    monkeypatch.setattr(discovery, "fetch_site", broken_fetch)
+    result = await discovery.run_hunt(req)
+
+    assert len(result.candidates) == 1
+    assert not result.candidates[0].deep_analysis_performed
+    assert any("RuntimeError" in reason for reason in result.candidates[0].reasons)

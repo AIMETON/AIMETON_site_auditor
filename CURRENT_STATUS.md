@@ -2,6 +2,45 @@
 
 _Last updated: 2026-07-30_
 
+## Hunter HTTP 500 corrective candidate — 2026-09-13T18:27:27Z
+
+Stage reproduced HTTP 500 for Auto client search with industry `стоматология`.
+PR #906 now initializes a missing persisted standard search policy at startup and
+contains per-direction/per-candidate failures. Exact exception type remains
+provisional until corrected stage validation. Incident evidence:
+[`HUNTER-HTTP-500-2026-09-13`](docs/incidents/HUNTER-HTTP-500-2026-09-13.md).
+
+## Large-document preflight candidate — 2026-09-13T14:01:41Z
+
+PR #906 adds relevance screening before full extraction for acquired documents
+>=48,000 characters. Headings/beginning are inspected first; exclusions require
+confirmation using middle/end/identity excerpts. Errors and uncertainty retain
+content. Decisions and exclusions are visible in the preliminary report.
+Contract: [Document preflight](docs/architecture/DOCUMENT-PREFLIGHT-V0.1.md).
+This saves LLM extraction work; partial binary downloads and live recall validation
+are not implemented/confirmed.
+
+## Opt-in deep research candidate — 2026-09-13T13:30:00Z
+
+PR #906 now includes explicit per-run LLM budget consent in audit and chat,
+uncapped aggregate extraction/acquisition, usage counters and owner-scoped stop
+with partial results. Standard mode remains the default. Contract and limitations:
+[`AUDIT-DEEP-RESEARCH-V0.1`](docs/architecture/AUDIT-DEEP-RESEARCH-V0.1.md).
+Candidate only: deployment, paid-provider smoke and automatic restart continuation
+are not confirmed.
+
+## Audit profile recovery candidate — 2026-09-13T08:12:12Z
+
+Implementation candidate on base `a9d08d74c2fa955d5299c2b7e698a387bb352d92`:
+shared verified audit/Hunter search policy, full fetched-block retention,
+site-derived registry pivots, bounded dialogue refinement and versioned
+preliminary profile. Local suite: 1362 passed, 1 xfailed; app import/JS syntax pass.
+No deployment or real-company quality recovery is claimed.
+
+Contract, evidence and open acceptance:
+[`AUDIT-RESEARCH-PROFILE-LOOP-V0.1`](docs/architecture/AUDIT-RESEARCH-PROFILE-LOOP-V0.1.md).
+The older operational snapshots below remain historical evidence.
+
 ## Активный контур Search Recovery
 
 - `SR-G0 / #81` слит в `main` через PR

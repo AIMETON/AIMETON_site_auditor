@@ -10,6 +10,8 @@
 
 ## Главный план развития
 
+- [Audit Research Profile Loop v0.1](architecture/AUDIT-RESEARCH-PROFILE-LOOP-V0.1.md) — кандидат восстановления полноты аудита и уточняющего поиска из диалога; локальные проверки и открытая stage-приёмка.
+
 - [Полный план развития системы поиска, анализа и действий](roadmap/AIMETON_Site_Auditor_full_system_development_plan.md) — целевая архитектура Site Auditor как прикладного Runtime AIMETON: 12 РПТК, федеративный поиск, многоплоскостность, фрактальные ветви, усушение поиска, свойства мишеней, сценарии, Evidence/Entity Graph, Hunter, отчётность, Capability Management и очередность реализации.
 - [План продуктовой проверки Runner Controller](roadmap/RUNNER_CONTROLLER_PRODUCT_VALIDATION_PLAN_2026-08-30.md) — ограниченный provider-free срез `contract → inventory → runtime identity` на существующем Site Auditor burst acceptance.
 - [SEF T0 baseline](baseline/SEF-T0-BASELINE-2026-07-28.md) — точные SHA сервиса, stage, Sentinel и инфраструктуры, evidence ATS-09A, teardown/no-orphan и честная фиксация красного внешнего валидатора.
@@ -54,3 +56,9 @@
 ```
 
 Индексы RAG не являются источником истины: оригиналы и provenance должны позволять полностью перестроить поисковый слой.
+
+- [Opt-in Deep Research v0.1](architecture/AUDIT-DEEP-RESEARCH-V0.1.md) — явное согласие на расход LLM, полная обработка, учёт и остановка.
+
+- [Document Preflight v0.1](architecture/DOCUMENT-PREFLIGHT-V0.1.md) — предварительный отбор больших документов перед полной LLM-обработкой.
+
+- [Hunter HTTP 500 — 2026-09-13](incidents/HUNTER-HTTP-500-2026-09-13.md) — воспроизведение и корректирующий кандидат для поиска клиентов.

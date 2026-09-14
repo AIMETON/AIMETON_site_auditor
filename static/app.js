@@ -30,6 +30,11 @@ function safeHref(v) {
   }
 }
 
+function researchHeaders() {
+  const token = document.cookie.split('; ').find(x => x.startsWith('aimeton_csrf='))?.split('=').slice(1).join('=');
+  return { 'Content-Type': 'application/json', ...(token ? { 'X-CSRF-Token': decodeURIComponent(token) } : {}) };
+}
+
 function setStatus(msg, loading) {
   statusEl.innerHTML = loading
     ? `<span class="spinner"></span>${esc(msg)}`
@@ -301,8 +306,10 @@ f.onsubmit = async (e) => {
   try {
     const r = await fetch('/api/analyze', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: document.querySelector('#url').value })
+      headers: researchHeaders(),
+      body: JSON.stringify({ url: document.querySelector('#url').value,
+        deep_research: document.querySelector('#deepResearch').checked,
+        unlimited_llm_budget: document.querySelector('#deepResearch').checked })
     });
     if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка сервера');
     analysis = await r.json();
@@ -487,6 +494,14 @@ function render() {
           </article>`).join('') : '<p>Источники не представлены.</p>'}
       </div>
 
+      <h3>Промежуточный профиль · ревизия ${Number(analysis.profile_revision) || 0}</h3>
+      <p>Проверено документов: ${Number(analysis.research_status?.verified_documents) || 0}.
+      Ожидают проверки: ${Number(analysis.research_status?.unverified_documents) || 0}.
+      Поиск: ${esc(analysis.research_status?.search_state || 'не выполнялся')}.</p>
+      ${(analysis.research_queries || []).length ? `<details><summary>План уточняющего поиска</summary><ul>${analysis.research_queries.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>` : ''}
+      <p>Какие сведения уточнить дальше: продукты и услуги, руководство, филиалы, финансы или реквизиты?</p>
+      ${(analysis.user_clarifications || []).length ? `<h3>Уточнения пользователя — требуют проверки</h3><ul>${analysis.user_clarifications.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+
       <!-- Assumptions -->
       <h3>Ограничения и предположения</h3>
       <ul>${analysis.risks_and_assumptions.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
@@ -516,6 +531,49 @@ function addMessage(text, role, persist = true) {
   return d;
 }
 
+let activeChatResearch = null;
+document.querySelector('#chatDeepResearch').addEventListener('change', (event) => {
+  if (event.target.checked) document.querySelector('#refineSearch').checked = true;
+});
+document.querySelector('#stopChatResearch').onclick = async () => {
+  if (!activeChatResearch) return;
+  const response = await fetch(`/api/analyze/${encodeURIComponent(activeChatResearch.analysis_id)}/stop`, {
+    method: 'POST', credentials: 'same-origin', headers: researchHeaders(),
+  });
+  if (!response.ok) alert('Не удалось остановить исследование. Повторите запрос.');
+};
+
+async function deepChatResearch(payload, thinking) {
+  const response = await fetch('/api/analyze/refine/start', {
+    method: 'POST', credentials: 'same-origin', headers: researchHeaders(), body: JSON.stringify(payload),
+  });
+  const started = await response.json();
+  if (!response.ok) throw new Error(started.detail || `HTTP ${response.status}`);
+  activeChatResearch = started;
+  const stop = document.querySelector('#stopChatResearch');
+  stop.hidden = false;
+  while (true) {
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    let status;
+    try {
+      const update = await fetch(started.status_url, { credentials: 'same-origin' });
+      if (!update.ok) throw new Error(`HTTP ${update.status}`);
+      status = await update.json();
+    } catch {
+      thinking.textContent = 'Восстанавливаем связь с исследованием. Кнопка остановки доступна.';
+      continue;
+    }
+    const usage = status.research || {};
+    thinking.textContent = `Углублённое исследование: документов ${usage.documents_attempted || 0}, LLM-вызовов ${usage.llm_calls || 0}, токенов ${(usage.prompt_tokens || 0) + (usage.completion_tokens || 0)}, обработано порций ${usage.completed_chunks || 0}.${usage.stop_requested ? ' Останавливаем…' : ''}`;
+    if (['completed', 'failed', 'blocked', 'degraded'].includes(status.state)) {
+      stop.hidden = true;
+      activeChatResearch = null;
+      if (!status.result) throw new Error('Исследование прервано; прежний профиль сохранён.');
+      return { analysis: status.result, reply: status.dialogue_reply || 'Уточнённый профиль сохранён.' };
+    }
+  }
+}
+
 document.querySelector('#chatForm').onsubmit = async (e) => {
   e.preventDefault();
   const q       = document.querySelector('#question');
@@ -525,6 +583,8 @@ document.querySelector('#chatForm').onsubmit = async (e) => {
   q.value = '';
   chatBtn.disabled = true;
 
+  const requestAnalysisId = activeAnalysisId;
+  const requestAnalysis = analysis;
   addMessage(text, 'user');
 
   const thinking = document.createElement('div');
@@ -534,20 +594,35 @@ document.querySelector('#chatForm').onsubmit = async (e) => {
   messages.scrollTop = messages.scrollHeight;
 
   try {
-    const r = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        analysis,
-        messages: currentChatSession().slice(-12),
-      })
-    });
-    const data = await r.json();
+    const deep = document.querySelector('#chatDeepResearch').checked;
+    const payload = {
+      analysis: requestAnalysis,
+      refine_search: deep || document.querySelector('#refineSearch').checked,
+      deep_research: deep,
+      unlimited_llm_budget: deep,
+      messages: currentChatSession().slice(-12),
+    };
+    let data;
+    if (deep) {
+      data = await deepChatResearch(payload, thinking);
+    } else {
+      const r = await fetch('/api/chat', {
+        method: 'POST', headers: researchHeaders(), body: JSON.stringify(payload),
+      });
+      data = await r.json();
+      if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+    }
     thinking.remove();
+    if (activeAnalysisId !== requestAnalysisId) return;
+    if (data.analysis) {
+      analysis = { ...data.analysis, ui_analysis_id: requestAnalysisId };
+      saveToHistory(analysis);
+      render();
+    }
     addMessage(data.reply, 'assistant');
   } catch (err) {
     thinking.remove();
-    addMessage('Ошибка: ' + err.message, 'assistant');
+    if (activeAnalysisId === requestAnalysisId) addMessage('Ошибка: ' + err.message, 'assistant');
   } finally {
     chatBtn.disabled = false;
     q.focus();

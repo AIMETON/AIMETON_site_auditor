@@ -236,10 +236,10 @@ def test_split_assembly_filters_unknown_sources_and_enforces_km_canon() -> None:
         accessed_at="2026-08-16T00:00:00+00:00",
     )
 
-    assert [source.id for source in result.sources] == ["S1", "E1"]
-    assert result.company_facts[0].source_ids == ["S1", "E1"]
-    assert result.economic_signals[0].source_ids == ["E1"]
-    assert result.business_machine_4x4[0].source_ids == ["E1"]
+    assert [source.id for source in result.sources] == ["S1"]
+    assert result.company_facts[0].source_ids == ["S1"]
+    assert result.economic_signals[0].source_ids == []
+    assert result.business_machine_4x4[0].source_ids == []
     assert result.business_machine_4x4[0].detail_operator == "I — Коммуникационные системы"
     assert result.business_machine_4x4[0].vertex == "Взаимодействие"
     assert result.readiness.provider_states["routerai"] == "active"

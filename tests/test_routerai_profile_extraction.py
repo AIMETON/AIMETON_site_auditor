@@ -55,7 +55,7 @@ def test_source_slices_follow_search_verticals_keep_ids_and_never_prefix_truncat
     assert {item["id"] for item in signals} == {"E4", "E5"}
     assert late in signals_raw
     assert all(
-        "url" not in item
+        "url" in item
         for item in identity_core + management + ownership_network + operations + signals
     )
 

@@ -178,6 +178,10 @@
         readJson(current.status_url), readJson(current.events_url)
       ]);
       renderReporter(events, status.state, status.updated_at);
+      const usage = status.research;
+      document.querySelector('#researchUsage').textContent = usage?.deep_research
+        ? `Бюджет LLM: без общего лимита. Документов: ${usage.documents_attempted || 0}; вызовов: ${usage.llm_calls}; токенов: ${usage.prompt_tokens + usage.completion_tokens}; обработано порций: ${usage.completed_chunks}.${usage.stop_requested ? ' Останавливаем исследование…' : ''}` : '';
+      document.querySelector('#stopResearch').hidden = !usage?.deep_research || TERMINAL.has(status.state);
       if (TERMINAL.has(status.state)) {
         clearInterval(pollTimer);
         clearInterval(elapsedTimer);
@@ -209,8 +213,10 @@
     const response = await fetch('/api/analyze/start', {
       method: 'POST',
       credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
+      headers: researchHeaders(),
+      body: JSON.stringify({ url,
+        deep_research: document.querySelector('#deepResearch').checked,
+        unlimited_llm_budget: document.querySelector('#deepResearch').checked }),
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
@@ -223,6 +229,14 @@
     pollTimer = setInterval(poll, 1200);
     elapsedTimer = setInterval(refreshClockAndHeartbeat, 1000);
   }
+
+  document.querySelector('#stopResearch').onclick = async () => {
+    if (!current) return;
+    const response = await fetch(`/api/analyze/${encodeURIComponent(current.analysis_id)}/stop`, {
+      method: 'POST', credentials: 'same-origin', headers: researchHeaders(),
+    });
+    if (!response.ok) alert('Не удалось остановить исследование. Повторите запрос.');
+  };
 
   form.addEventListener('submit', async event => {
     event.preventDefault();

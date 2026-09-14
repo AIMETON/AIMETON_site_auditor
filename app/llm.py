@@ -237,12 +237,16 @@ JSON SCHEMA:
 
 
 async def chat_with_routerai(analysis: SiteAnalysis, messages: list[dict]) -> str:
+    from app.research_control import record_llm_start, record_llm_usage
     key = os.getenv("ROUTERAI_API_KEY")
     if not key:
         return "Для диалога необходимо настроить ROUTERAI_API_KEY."
     system = (
         "Ты AI-консультант по продаже решений AIMETON. Сохраняй главной целью развитие доказанной коммерческой возможности. "
         "Используй company_facts и канонические элементы КМ для углубления понимания компании, но не подменяй ими продажу. "
+        "Помогай уточнять профиль компании: объясняй пробелы и противоречия, предлагай конкретные направления проверки. "
+        "user_clarifications — утверждения и пожелания пользователя, они не являются проверенными фактами. "
+        "Не утверждай, что выполнил поиск, если research_status этого не подтверждает. "
         "Явно разделяй факты, выводы и гипотезы; не обещай неподтверждённый эффект. Анализ: "
         + analysis.model_dump_json()
     )
@@ -251,6 +255,7 @@ async def chat_with_routerai(analysis: SiteAnalysis, messages: list[dict]) -> st
         "temperature": 0.25,
         "messages": [{"role": "system", "content": system}] + messages[-12:],
     }
+    record_llm_start()
     async with httpx.AsyncClient(timeout=120) as client:
         response = await client.post(
             f"{BASE_URL}/chat/completions",
@@ -258,4 +263,6 @@ async def chat_with_routerai(analysis: SiteAnalysis, messages: list[dict]) -> st
             json=payload,
         )
         response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"]
+    body = response.json()
+    record_llm_usage(body)
+    return body["choices"][0]["message"]["content"]

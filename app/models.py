@@ -1,5 +1,5 @@
 from typing import Literal
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 from app.search_gateway.models import SearchDiagnostics
 
@@ -165,6 +165,10 @@ class PreliminaryResultReadiness(BaseModel):
 
 
 class SiteAnalysis(BaseModel):
+    research_queries: list[str] = Field(default_factory=list)
+    research_status: dict[str, str | int | bool] = Field(default_factory=dict)
+    profile_revision: int = Field(default=0, ge=0)
+    user_clarifications: list[str] = Field(default_factory=list)
     mission_id: str | None = None
     analysis_id: str | None = None
     url: str
@@ -184,7 +188,18 @@ class SiteAnalysis(BaseModel):
     )
 
 
-class AnalyzeRequest(BaseModel):
+class ResearchOptions(BaseModel):
+    deep_research: bool = False
+    unlimited_llm_budget: bool = False
+
+    @model_validator(mode="after")
+    def explicit_uncapped_consent(self):
+        if self.deep_research != self.unlimited_llm_budget:
+            raise ValueError("deep_research_requires_explicit_unlimited_llm_budget_consent")
+        return self
+
+
+class AnalyzeRequest(ResearchOptions):
     url: str = Field(min_length=1, max_length=2048)
 
 
@@ -288,6 +303,8 @@ class IntelligenceSource(BaseModel):
     )
     fetch_path: Literal["static", "crawl4ai", "browser", "cache"] | None = None
     verification_note: str = "Поисковый сниппет; первичный документ не проверен."
+    preflight_decision: Literal["not_required", "include", "exclude", "uncertain"] = "not_required"
+    preflight_reason: str = ""
 
 
 class CompanyIntelligenceRequest(BaseModel):
@@ -316,6 +333,7 @@ class ChatMessage(BaseModel):
     content: str
 
 
-class ChatRequest(BaseModel):
+class ChatRequest(ResearchOptions):
+    refine_search: bool = False
     analysis: SiteAnalysis
     messages: list[ChatMessage]

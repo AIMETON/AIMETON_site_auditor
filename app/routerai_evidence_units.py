@@ -59,7 +59,7 @@ def project_sources(
     selected: list[dict[str, Any]] = []
     for source in sources:
         kind = str(source.get("query_kind") or "unknown")
-        if kind not in kinds:
+        if kind not in kinds and source.get("lifecycle_state") != "evidence":
             continue
         selected.append(
             {
@@ -102,7 +102,7 @@ def evidence_units(
     projected_sources: list[dict[str, Any]],
     *,
     chunk_chars: int = DEFAULT_EVIDENCE_CHUNK_CHARS,
-    max_units: int = DEFAULT_MAX_FAST_PATH_UNITS,
+    max_units: int | None = DEFAULT_MAX_FAST_PATH_UNITS,
 ) -> list[tuple[str, str]]:
     """Return full-coverage units as (official_text_chunk, source_json_chunk).
 
@@ -114,7 +114,7 @@ def evidence_units(
     units = [(chunk, "[]") for chunk in text_chunks] + [("", chunk) for chunk in source_chunks]
     if not units:
         units = [("", "[]")]
-    if len(units) > max_units:
+    if max_units is not None and len(units) > max_units:
         raise EvidenceCoverageOverflow(
             f"evidence_units={len(units)} exceeds fast_path_max_units={max_units}"
         )

@@ -125,6 +125,10 @@ async def test_fetched_document_promotes_candidate_to_evidence(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_official_candidate_selection_does_not_depend_on_unfetched_redirect(monkeypatch):
+    # External discovery is now attempted, but cannot be promoted from an
+    # unrelated/unfetched redirect. Keep this verification offline.
+    monkeypatch.setattr("app.external_verification.get_document_pipeline",
+                        lambda: FakePipeline(error=ValueError("unavailable")))
     unrelated = hint()
     unrelated.url = "https://catalog.example.org/example"
     unrelated.source_class = "registry"
@@ -152,7 +156,8 @@ async def test_official_candidate_selection_does_not_depend_on_unfetched_redirec
 
     assert analysis.url == "https://example.com/about"
     assert official.lifecycle_state == "evidence"
-    assert unrelated.lifecycle_state == "discovery_hint"
+    assert unrelated.lifecycle_state == "source_candidate"
+    assert unrelated.evidence_quote is None
 
 
 @pytest.mark.asyncio

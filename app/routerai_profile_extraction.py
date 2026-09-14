@@ -8,6 +8,7 @@ from typing import Annotated, Any, Awaitable, Callable, Literal
 from pydantic import BaseModel, Field
 
 from app.models import CompanyFact, EconomicSignal
+from app.research_control import current_research, deep_research_enabled
 from app.routerai_evidence_units import (
     DEFAULT_EVIDENCE_CHUNK_CHARS,
     EvidenceCoverage,
@@ -90,6 +91,47 @@ class SignalProfileSlice(BaseModel):
     risks_and_assumptions: list[ShortText] = Field(default_factory=list, max_length=4)
 
 
+class DeepIdentitySlice(IdentityCoreSlice):
+    company_name: str
+    business_summary: str
+    evidence: list[str] = Field(default_factory=list)
+    company_facts: list[CompanyFact] = Field(default_factory=list)
+    risks_and_assumptions: list[str] = Field(default_factory=list)
+
+
+class DeepManagementFact(CompanyFact):
+    field: Literal["founders", "executives"]
+
+
+class DeepManagementSlice(ManagementSlice):
+    company_facts: list[DeepManagementFact] = Field(default_factory=list)
+    risks_and_assumptions: list[str] = Field(default_factory=list)
+
+
+class DeepOwnershipFact(CompanyFact):
+    field: Literal["beneficial_owners", "affiliates", "social_accounts"]
+
+
+class DeepOwnershipSlice(OwnershipNetworkSlice):
+    company_facts: list[DeepOwnershipFact] = Field(default_factory=list)
+    risks_and_assumptions: list[str] = Field(default_factory=list)
+
+
+class DeepOperationsSlice(OperationsProfileSlice):
+    company_facts: list[CompanyFact] = Field(default_factory=list)
+    risks_and_assumptions: list[str] = Field(default_factory=list)
+
+
+class DeepSignalSlice(SignalProfileSlice):
+    economic_signals: list[EconomicSignal] = Field(default_factory=list)
+    risks_and_assumptions: list[str] = Field(default_factory=list)
+
+
+_DEEP_MODELS = {IdentityCoreSlice: DeepIdentitySlice, ManagementSlice: DeepManagementSlice,
+                OwnershipNetworkSlice: DeepOwnershipSlice, OperationsProfileSlice: DeepOperationsSlice,
+                SignalProfileSlice: DeepSignalSlice}
+
+
 @dataclass(frozen=True)
 class MergedProfileExtraction:
     company_name: str
@@ -124,7 +166,8 @@ _ALL_ROUTED_KINDS = (
 )
 _SLICE_SOURCE_KEYS = (
     "id", "title", "query_kind", "result_kind", "source_class",
-    "evidence_level", "snippet",
+    "evidence_level", "snippet", "lifecycle_state", "url",
+    "document_url", "evidence_locator", "evidence_digest",
 )
 
 
@@ -231,6 +274,12 @@ async def extract_profile_parallel(
     accessed_at: str,
 ) -> MergedProfileExtraction:
     """Coverage-preserving map→merge extraction followed by compact reasoning."""
+    deep = deep_research_enabled()
+    control = current_research()
+    processed_units = 0
+    incomplete_reasons = []
+    if deep:
+        control.checkpoint("corpus", {"url": url, "title": title, "text": text, "sources": external_sources})
     unrouted = [
         source for source in external_sources
         if str(source.get("query_kind") or "unknown") not in _ALL_ROUTED_KINDS
@@ -246,7 +295,7 @@ async def extract_profile_parallel(
         "signals": project_sources(external_sources, _SIGNAL_KINDS, _SLICE_SOURCE_KEYS),
     }
     units_by_slice = {
-        name: evidence_units(text, projected)
+        name: evidence_units(text, projected, **({"max_units": None} if deep else {}))
         for name, projected in projected_by_slice.items()
     }
 
@@ -279,6 +328,67 @@ async def extract_profile_parallel(
         timeout_seconds: float,
         include_accessed_at: bool = False,
     ) -> list[BaseModel]:
+        nonlocal processed_units
+        if deep:
+            output = []
+            deep_model = _DEEP_MODELS[model_type]
+
+            async def process(official, sources, key):
+                if control.stop_requested:
+                    return []
+                prompt = (f"{instructions}\n{common_rules}\n"
+                          "Сохрани ВСЕ отдельные факты, имена, значения и периоды без сжатия списков.\n"
+                          f"URL: {url}\nTITLE: {title}\nCHUNK: {key}\n"
+                          f"OFFICIAL PAGE TEXT CHUNK:\n{official}\nRELEVANT SOURCES CHUNK:\n{sources}")
+                try:
+                    async with control.semaphore:
+                        if control.stop_requested:
+                            return []
+                        item = await deterministic_request(
+                            phase, deep_model, system=system, prompt=prompt,
+                            max_tokens=8192, timeout_seconds=120.0,
+                        )
+                except Exception as exc:
+                    if getattr(exc, "error_type", None) != "OutputTruncated":
+                        raise
+                    # Subdivide the evidence, not the returned fact list.
+                    if len(official) > 1:
+                        midpoint = len(official) // 2
+                        pieces = [(official[:midpoint], "[]"), (official[midpoint:], "[]")]
+                    else:
+                        records = json.loads(sources)
+                        if len(records) > 1:
+                            midpoint = len(records) // 2
+                            pieces = [("", json.dumps(records[:midpoint], ensure_ascii=False)),
+                                      ("", json.dumps(records[midpoint:], ensure_ascii=False))]
+                        elif records and len(records[0].get("snippet", "")) > 1:
+                            content = records[0]["snippet"]
+                            midpoint = len(content) // 2
+                            pieces = [("", json.dumps([{**records[0], "snippet": part}], ensure_ascii=False))
+                                      for part in (content[:midpoint], content[midpoint:])]
+                        else:
+                            raise
+                    result = []
+                    for index, (part, context) in enumerate(pieces):
+                        result.extend(await process(part, context, f"{key}.{index}"))
+                    return result
+                control.completed_chunks += 1
+                control.checkpoint(f"{phase}/{key}", item.model_dump(mode="json"))
+                output.append(item)
+                return [item]
+
+            for index, (official, sources) in enumerate(units_by_slice[slice_name]):
+                if control.stop_requested:
+                    break
+                try:
+                    await process(official, sources, str(index))
+                    if not control.stop_requested:
+                        processed_units += 1
+                except Exception as exc:
+                    incomplete_reasons.append(f"{phase}: {type(exc).__name__}")
+                    control.checkpoint(f"{phase}/failure", {"error_type": type(exc).__name__, "chunk": index})
+                    break
+            return output
         calls = []
         units = units_by_slice[slice_name]
         for index, (official_chunk, source_chunk) in enumerate(units, start=1):
@@ -403,17 +513,20 @@ business_effect и реальные source_ids. Не повторяй профи
         for projected in projected_by_slice.values()
     )
     unit_count = sum(len(units) for units in units_by_slice.values())
+    complete = not deep or (processed_units == unit_count and not incomplete_reasons)
+    if not complete:
+        risks.append("Углублённое извлечение неполное: остановлено пользователем или ошибкой; сохранены обработанные порции.")
     coverage = EvidenceCoverage(
         official_chars_total=len(text),
         official_chunks_total=len(official_chunks),
-        official_chunks_processed=len(official_chunks),
+        official_chunks_processed=len(official_chunks) if complete else 0,
         sources_total=len(external_sources),
-        sources_processed=len(external_sources),
+        sources_processed=len(external_sources) if complete else 0,
         source_chunks_total=source_chunk_count,
-        source_chunks_processed=source_chunk_count,
+        source_chunks_processed=source_chunk_count if complete else 0,
         extraction_units_total=unit_count,
-        extraction_units_processed=unit_count,
-        complete=True,
+        extraction_units_processed=unit_count if not deep else processed_units,
+        complete=complete,
     )
 
     return MergedProfileExtraction(

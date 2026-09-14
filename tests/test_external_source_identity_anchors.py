@@ -30,9 +30,10 @@ def test_query_plan_uses_domain_region_and_registry_ids() -> None:
         phones=("+73912915155",),
     )
 
-    plan = dict(query_plan("Стоматология для вас", anchors=anchors))
+    queries = query_plan("Стоматология для вас", anchors=anchors)
+    plan = dict(queries)
 
-    assert plan["official"] == 'site:stomadv.ru "Стоматология для вас"'
+    assert queries[0][1] == 'site:stomadv.ru "Стоматология для вас"'
     assert '"2465085561"' in plan["registry"]
     assert '"1042402655910"' in plan["registry"]
     assert '"Красноярск"' in plan["review"]

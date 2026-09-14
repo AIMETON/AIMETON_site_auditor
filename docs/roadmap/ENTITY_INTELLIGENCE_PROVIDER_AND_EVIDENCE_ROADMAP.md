@@ -163,3 +163,33 @@ Surpass through:
 ## Done condition
 
 The roadmap is not complete when the UI displays more fields. It is complete only when the same real benchmark target produces materially stronger **verified evidence**, not merely richer generated prose.
+
+
+## 2026-09-13T08:12:12Z — audit integration candidate
+
+Local delivery under #173 connects URL audit to the existing Hunter-governed
+search, primary-document verification and DaData mirror, preserving late input
+and supporting explicit dialogue refinements. See
+[Audit Research Profile Loop v0.1](../architecture/AUDIT-RESEARCH-PROFILE-LOOP-V0.1.md).
+This is a candidate contribution to EI-P0-06/07/08, not completion of the FNS,
+GIR BO, graph or cross-device consultation roadmap. Next: CI and exact-SHA stage
+acceptance with a frozen company dossier and measured query/evidence/profile delta.
+Existing dates and prior milestone statuses are unchanged.
+
+## 2026-09-13T13:30:00Z — optional uncapped LLM research
+
+Owner-requested extension in PR #906 adds per-run explicit consent, deeper
+acquisition and extraction, usage reporting and cooperative stop. See
+[Deep Research contract](../architecture/AUDIT-DEEP-RESEARCH-V0.1.md).
+Next: exact-head CI and stage acceptance including partial-result stop and
+profile refinement. Provider quotas and cross-device/restart work remain separate;
+existing dates and milestone status are unchanged.
+
+## 2026-09-13T14:01:41Z — relevance screening before full extraction
+
+PR #906 adds two-pass screening for large acquired documents, with observable
+exclusions and conservative retention on uncertainty. See
+[Document preflight](../architecture/DOCUMENT-PREFLIGHT-V0.1.md).
+Next acceptance measures useful-document recall and avoided extraction calls on
+real company corpora. Streaming binary preview remains future work; milestone
+dates and prior acceptance status remain unchanged.
