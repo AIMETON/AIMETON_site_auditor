@@ -83,6 +83,64 @@ class _OneResultGateway:
         )
 
 
+class _NoiseGateway:
+    async def search(self, request, _policy):
+        return SearchResponse(
+            results=[
+                SearchItem(
+                    url="https://noise-shop.ru/catalog",
+                    title="Каталог товаров интернет-магазина",
+                    snippet="широкий ассортимент товаров и цены",
+                    provider="fake",
+                )
+            ],
+            diagnostics=SearchDiagnostics(state=GatewayState.SUCCESS, selected_provider="fake"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_processing_exception_cannot_resurrect_below_minimum_candidate(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AIMETON_RUNTIME_DB", str(tmp_path / "runtime.sqlite3"))
+    monkeypatch.setattr(discovery, "get_search_gateway", lambda: _NoiseGateway())
+
+    async def no_llm_plan(**_kwargs):
+        return None
+
+    monkeypatch.setattr(discovery, "generate_hunter_query_plan", no_llm_plan)
+    monkeypatch.setattr(discovery, "_build_queries", lambda _req: ["стоматология Красноярск"])
+
+    original_append = discovery.HunterForensicTrace.append
+    failed_once = False
+
+    def fail_first_pre_score_trace(self, operation, *args, **kwargs):
+        nonlocal failed_once
+        if operation == "candidate_pre_scored" and not failed_once:
+            failed_once = True
+            raise RuntimeError("synthetic_trace_failure")
+        return original_append(self, operation, *args, **kwargs)
+
+    monkeypatch.setattr(discovery.HunterForensicTrace, "append", fail_first_pre_score_trace)
+
+    result = await discovery.run_hunt(
+        HuntRequest(
+            region="Красноярск",
+            industries=["Стоматология"],
+            max_queries=1,
+            results_per_query=10,
+            max_candidates=10,
+            minimum_pre_score=35,
+            deep_audit_score=60,
+            output_limit=10,
+            concurrency=1,
+        )
+    )
+
+    assert failed_once is True
+    assert result.candidates == []
+    assert result.funnel.qualified_candidates == 0
+    assert result.funnel.returned_candidates == 0
+
+
 @pytest.mark.asyncio
 async def test_deep_audit_without_region_confirmation_cannot_remain_priority(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("AIMETON_RUNTIME_DB", str(tmp_path / "runtime.sqlite3"))
