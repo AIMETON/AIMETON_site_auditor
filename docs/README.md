@@ -59,6 +59,8 @@
 
 - [Opt-in Deep Research v0.1](architecture/AUDIT-DEEP-RESEARCH-V0.1.md) — явное согласие на расход LLM, полная обработка, учёт и остановка.
 
+- [Hunter Continuous Search v0.1](architecture/HUNTER-CONTINUOUS-SEARCH-V0.1.md) — длительный поиск без общего тайм-аута, наблюдаемый прогресс и явная пользовательская остановка с уже завершёнными результатами.
+
 - [Document Preflight v0.1](architecture/DOCUMENT-PREFLIGHT-V0.1.md) — предварительный отбор больших документов перед полной LLM-обработкой.
 
 - [Hunter HTTP 500 — 2026-09-13](incidents/HUNTER-HTTP-500-2026-09-13.md) — воспроизведение и корректирующий кандидат для поиска клиентов.

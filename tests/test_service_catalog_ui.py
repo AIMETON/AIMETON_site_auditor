@@ -103,7 +103,10 @@ def test_hunter_never_hides_returned_candidate_count_or_groups_by_default() -> N
     assert "наблюдение: ${counts.observation}" in script
     assert "все возвращённые результаты раскрыты ниже" in script
     assert script.count("details.open = true;") == 2
-    assert "отображено ${candidates.length} результатов" in script
+    assert "отображено ${candidateCount} результатов" in script
+    assert "/api/hunt/start?search_regime=" in script
+    assert "X-Hunter-Run-Token" in script
+    assert "Остановить поиск" in script
 
 
 def test_hunter_desktop_results_have_visible_scroll_without_trapping_mobile() -> None:

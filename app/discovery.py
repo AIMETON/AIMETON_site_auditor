@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass
+from typing import Callable
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -66,6 +67,7 @@ STRONG_INDUSTRY_MARKERS_BY_REQUEST = {
 
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 _STEERING_REGIMES = {"auto", "precision", "balanced", "discovery"}
+HuntProgressCallback = Callable[[dict[str, object]], None]
 
 
 @dataclass(frozen=True)
@@ -277,7 +279,15 @@ def _score_metadata(result: PreScoreResult) -> dict[str, object]:
     return metadata
 
 
-async def run_hunt(req: HuntRequest) -> HuntResult:
+async def run_hunt(
+    req: HuntRequest,
+    *,
+    on_progress: HuntProgressCallback | None = None,
+) -> HuntResult:
+    def emit_progress(**values: object) -> None:
+        if on_progress is not None:
+            on_progress(values)
+
     mission_id = f"hunt-{uuid4()}"
     correlation_id = f"corr-{uuid4()}"
     trace = HunterForensicTrace(mission_id, correlation_id)
@@ -307,6 +317,16 @@ async def run_hunt(req: HuntRequest) -> HuntResult:
         queries = _build_queries(req)
         query_intelligence_note = "Query Intelligence: fallback на детерминированный план поиска."
         plan_source = "deterministic_fallback"
+
+    emit_progress(
+        phase="searching_sources",
+        queries=list(queries),
+        total_queries=len(queries),
+        completed_queries=0,
+        processed_candidates=0,
+        total_candidates=0,
+        candidates=[],
+    )
 
     trace.append(
         "hunt_plan",
@@ -355,7 +375,10 @@ async def run_hunt(req: HuntRequest) -> HuntResult:
         },
     )
 
+    completed_queries = 0
+
     async def search_query(query: str):
+        nonlocal completed_queries
         try:
             return await gateway.search(
                 SearchRequest(
@@ -380,6 +403,17 @@ async def run_hunt(req: HuntRequest) -> HuntResult:
             return SearchResponse(
                 results=[],
                 diagnostics=SearchDiagnostics(state=GatewayState.UNAVAILABLE),
+            )
+        finally:
+            completed_queries += 1
+            emit_progress(
+                phase="searching_sources",
+                queries=list(queries),
+                total_queries=len(queries),
+                completed_queries=completed_queries,
+                processed_candidates=0,
+                total_candidates=0,
+                candidates=[],
             )
 
     async def search_many(batch: list[str]):
@@ -808,7 +842,42 @@ async def run_hunt(req: HuntRequest) -> HuntResult:
                 fallback.reasons.append(f"ошибка кандидата изолирована: {type(exc).__name__}")
                 return fallback
 
-    inspected = await asyncio.gather(*(guarded(item) for item in unique.values()))
+    candidate_items = list(unique.values())
+    emit_progress(
+        phase="inspecting_candidates",
+        queries=list(queries),
+        raw_results=len(raw_results),
+        total_queries=len(queries),
+        completed_queries=len(queries),
+        processed_candidates=0,
+        total_candidates=len(candidate_items),
+        candidates=[],
+    )
+    tasks = [asyncio.create_task(guarded(item)) for item in candidate_items]
+    inspected: list[HuntCandidate | None] = []
+    try:
+        for completed in asyncio.as_completed(tasks):
+            inspected.append(await completed)
+            completed_candidates = [candidate for candidate in inspected if candidate is not None]
+            emit_progress(
+                phase="inspecting_candidates",
+                queries=list(queries),
+                raw_results=len(raw_results),
+                total_queries=len(queries),
+                completed_queries=len(queries),
+                processed_candidates=len(inspected),
+                total_candidates=len(candidate_items),
+                candidates=[
+                    candidate.model_dump(mode="json")
+                    for candidate in completed_candidates[: req.output_limit]
+                ],
+            )
+    except asyncio.CancelledError:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
     candidates = [candidate for candidate in inspected if candidate is not None]
     candidates.sort(
         key=lambda candidate: (

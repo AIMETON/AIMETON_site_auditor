@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
@@ -29,6 +29,7 @@ from app.evidence_crawler.api import router as evidence_crawler_router
 from app.identity_evidence.api import router as identity_evidence_router
 from app.external_sources import run_enriched_site_analysis
 from app.hunter_handbook import handbook
+from app.hunter_async_runtime import get_hunter_run, start_hunter_run, stop_hunter_run
 from app.hunter_settings import get_hunter_settings_repository
 from app.search_strategy_settings import get_search_strategy_settings_repository
 from app.hunter_sources import get_hunter_sources
@@ -408,15 +409,20 @@ def preliminary_analysis_docx(req: SiteAnalysis):
     )
 
 
-@app.post("/api/hunt")
-async def hunt(req: HuntRequest, request: Request):
-    requested_regime = request.query_params.get("search_regime", "auto").strip().lower()
+async def _run_hunt_payload(
+    req: HuntRequest,
+    requested_regime: str,
+    progress_callback=None,
+):
     allowed_regimes = {"auto", "precision", "balanced", "discovery"}
     if requested_regime not in allowed_regimes:
         raise HTTPException(status_code=422, detail="invalid_search_regime")
 
     effective = get_hunter_settings_repository().apply(req)
-    result = await run_hunt(effective)
+    if progress_callback is None:
+        result = await run_hunt(effective)
+    else:
+        result = await run_hunt(effective, on_progress=progress_callback)
     payload = result.model_dump(mode="json") if hasattr(result, "model_dump") else dict(result)
     if requested_regime == "auto":
         funnel = payload.get("funnel")
@@ -505,6 +511,51 @@ async def hunt(req: HuntRequest, request: Request):
             plan=refinement,
         )
     return payload
+
+
+@app.post("/api/hunt")
+async def hunt(req: HuntRequest, request: Request):
+    requested_regime = request.query_params.get("search_regime", "auto").strip().lower()
+    return await _run_hunt_payload(req, requested_regime)
+
+
+@app.post("/api/hunt/start", status_code=status.HTTP_202_ACCEPTED)
+async def start_hunt(req: HuntRequest, request: Request):
+    requested_regime = request.query_params.get("search_regime", "auto").strip().lower()
+    if requested_regime not in {"auto", "precision", "balanced", "discovery"}:
+        raise HTTPException(status_code=422, detail="invalid_search_regime")
+
+    async def runner(progress_callback):
+        return await _run_hunt_payload(req, requested_regime, progress_callback)
+
+    return start_hunter_run(
+        region=req.region,
+        search_zone=req.search_zone,
+        requested_regime=requested_regime,
+        runner=runner,
+    )
+
+
+@app.get("/api/hunt/runs/{run_id}")
+async def hunt_status(
+    run_id: str,
+    x_hunter_run_token: str = Header(default="", alias="X-Hunter-Run-Token"),
+):
+    try:
+        return get_hunter_run(run_id, x_hunter_run_token)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="hunter_run_not_found") from exc
+
+
+@app.post("/api/hunt/runs/{run_id}/stop")
+async def stop_hunt(
+    run_id: str,
+    x_hunter_run_token: str = Header(default="", alias="X-Hunter-Run-Token"),
+):
+    try:
+        return stop_hunter_run(run_id, x_hunter_run_token)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="hunter_run_not_found") from exc
 
 
 @app.post("/api/chat")

@@ -112,8 +112,8 @@
       target = `/api/hunt?search_regime=${encodeURIComponent(requested)}`;
     }
     const response = await originalFetch(target, init);
-    if (typeof target === 'string' && target.startsWith('/api/hunt?') && response.ok) {
-      response.clone().json().then(data => renderSearchRegimeStatus(data.search_regime)).catch(() => {});
+    if (typeof target === 'string' && target.startsWith('/api/hunt') && response.ok) {
+      response.clone().json().then(data => renderSearchRegimeStatus(data.result?.search_regime || data.search_regime)).catch(() => {});
     }
     return response;
   };
