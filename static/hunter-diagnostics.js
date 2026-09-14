@@ -156,6 +156,13 @@
     const selector = document.querySelector('#hunterDiagnosticsAttempt');
     const previous = selector?.value || '';
     const currentRegion = normalize(document.querySelector('#hunterRegion')?.value);
+    if (currentRegion) {
+      const activeScoped = attempts.find(item => {
+        const scope = item.scope || {};
+        return !item.complete && normalize(scope.effective_region || scope.input_region) === currentRegion;
+      });
+      if (activeScoped) return activeScoped;
+    }
     const previousMatch = attempts.find(item => `${item.mission_id}::${item.attempt_id}` === previous);
     if (previousMatch) return previousMatch;
     if (currentRegion) {
