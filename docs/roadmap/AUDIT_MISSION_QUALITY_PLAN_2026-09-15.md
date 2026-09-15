@@ -1,5 +1,20 @@
 # План восстановления качества и управляемого исполнения аудита
 
+## Search spending observations
+
+Checkpoint: 2026-09-15T14:24:16.262759+00:00. Continuation of #915 after #921.
+Each dispatched SearchGateway attempt now checkpoints its configured tariff estimate
+in the bound research run, including retries and interrupted/failed calls. Decimal
+totals retain currencies separately; no FX conversion or invented tariff is used.
+Unknown paid pricing has a separate counter. Denied work and cache responses do not
+invoke the dispatch hook. The async site-audit UI labels these amounts as search
+tariff estimates, not confirmed billing or the total audit cost. Provider LLM billing
+remains unknown; monetary_cost=not_reported and monetary threshold status=unknown
+remain honest until reconciliation is implemented. This adds observation only, no
+new admission gate or user approval step. Tests cover exact decimal accumulation,
+separate currencies, unknown pricing, retry costs, cancellation and denied work.
+
+
 ## Owner correction: account for spending, continue execution
 
 Checkpoint: 2026-09-15T14:20:07.784980+00:00. Part of #915; supersedes the monetary/token admission
