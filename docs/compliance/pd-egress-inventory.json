@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "status": "technical_inventory_not_legal_determination",
+  "issue": 925,
+  "audited_source_files": [
+    "app/llm.py",
+    "app/search_gateway/providers.py",
+    "app/entity_resolution/dadata.py"
+  ],
+  "destinations": [
+    {
+      "id": "routerai",
+      "kind": "static_literal_with_env_override",
+      "endpoint": "https://routerai.ru/api/v1",
+      "env_var": "ROUTERAI_BASE_URL",
+      "payload_classes": [
+        "target_url",
+        "page_title",
+        "webpage_text",
+        "osint_source_context",
+        "third_party_personal_data_possible"
+      ],
+      "service_operator_country": "RU",
+      "downstream_country": "variable",
+      "personal_data_possible": true,
+      "review_state": "owner_legal_required",
+      "notes": "RouterAI public terms state that request content can be forwarded to underlying model providers and prohibit the user from sending third-party personal data."
+    },
+    {
+      "id": "tavily",
+      "kind": "static_literal",
+      "endpoint": "https://api.tavily.com/search",
+      "payload_classes": [
+        "search_query",
+        "third_party_personal_data_possible"
+      ],
+      "service_operator_country": "US",
+      "downstream_country": "US_or_provider_defined",
+      "personal_data_possible": true,
+      "review_state": "owner_legal_required",
+      "notes": "Provider execution can be contract-blocked in code; query classification is required before production use with person-level data."
+    },
+    {
+      "id": "yandex_search",
+      "kind": "static_literal",
+      "endpoint": "https://searchapi.api.cloud.yandex.net/v2/web/search",
+      "payload_classes": [
+        "search_query",
+        "folder_id",
+        "third_party_personal_data_possible"
+      ],
+      "service_operator_country": "RU",
+      "downstream_country": "RU_or_contract_defined",
+      "personal_data_possible": true,
+      "review_state": "contract_and_payload_review",
+      "notes": "Russian endpoint does not by itself resolve legal-basis, retention or processing-contract questions."
+    },
+    {
+      "id": "dadata_find_party",
+      "kind": "static_literal",
+      "endpoint": "https://suggestions.dadata.ru/suggestions/api/4_1/rs/findById/party",
+      "payload_classes": [
+        "party_identifier",
+        "company_and_person_related_response_possible"
+      ],
+      "service_operator_country": "RU",
+      "downstream_country": "RU_or_contract_defined",
+      "personal_data_possible": true,
+      "review_state": "contract_and_retention_review",
+      "notes": "The party lookup can return company records linked to natural persons; downstream retention/use must be inventoried."
+    },
+    {
+      "id": "searxng",
+      "kind": "env_base_url",
+      "endpoint": null,
+      "env_var": "SEARXNG_BASE_URL",
+      "payload_classes": [
+        "search_query",
+        "language",
+        "engine_selection",
+        "third_party_personal_data_possible"
+      ],
+      "service_operator_country": "deployment_defined",
+      "downstream_country": "engine_defined",
+      "personal_data_possible": true,
+      "review_state": "runtime_evidence_required",
+      "notes": "Self-hosting the SearXNG frontend does not prove that configured upstream engines keep queries inside the same jurisdiction."
+    }
+  ]
+}
