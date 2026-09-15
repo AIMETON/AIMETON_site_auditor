@@ -35,7 +35,9 @@ from app.search_strategy_settings import get_search_strategy_settings_repository
 from app.hunter_sources import get_hunter_sources
 from app.llm import chat_with_routerai
 from app.audit_dialogue import run_audit_dialogue
-from app.research_control import authorize_research, bind_research
+from app.research_control import authorize_research, bind_research, bind_settings_snapshot
+from app.research_execution import run_controlled, ResearchInterrupted
+from app.research_settings_api import router as research_settings_router
 from app.mcp_security import McpSecurityMiddleware
 from app.mcp_server import admin_mcp, admin_mcp_http_app, mcp, mcp_http_app
 from app.mission_orchestrator import (
@@ -108,6 +110,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(auth_router)
+app.include_router(research_settings_router)
 app.include_router(runtime_router)
 app.include_router(mission_router)
 app.include_router(evidence_crawler_router)
@@ -265,40 +268,38 @@ async def analyze(req: AnalyzeRequest, request: Request):
         default_site_mission_request(str(req.url)),
         entry_point=EntryPoint.LEGACY_ADAPTER,
     )
+    bind_settings_snapshot(control, mission.contract.mission_id, mission.contract.analysis_id)
     final_url = str(req.url)
-    try:
+    async def operation():
+        nonlocal final_url
         page = await fetch_site(str(req.url))
         final_url = page["final_url"]
-        with bind_research(control):
-            result = await run_enriched_site_analysis(
-                page["final_url"], page["title"], page["text"],
-            )
-        record_legacy_site_turn(
-            orchestrator,
-            mission.contract.mission_id,
-            final_url=page["final_url"],
-            succeeded=True,
-        )
-        return result.model_copy(
-            update={
-                "mission_id": mission.contract.mission_id,
-                "analysis_id": mission.contract.analysis_id,
-            }
-        )
+        return await run_enriched_site_analysis(page["final_url"], page["title"], page["text"])
+    try:
+        result = await run_controlled(control, operation)
+        record_legacy_site_turn(orchestrator, mission.contract.mission_id, final_url=final_url, succeeded=True)
+        return result.model_copy(update={"mission_id": mission.contract.mission_id, "analysis_id": mission.contract.analysis_id})
+    except (ResearchInterrupted, TimeoutError) as exc:
+        record_legacy_site_turn(orchestrator, mission.contract.mission_id, final_url=final_url, succeeded=False)
+        raise HTTPException(status_code=408, detail=getattr(exc, "reason", "operation_timeout")) from exc
     except (FetchError, httpx.HTTPError, ValueError) as exc:
-        record_legacy_site_turn(
-            orchestrator,
-            mission.contract.mission_id,
-            final_url=final_url,
-            succeeded=False,
-        )
+        record_legacy_site_turn(orchestrator, mission.contract.mission_id, final_url=final_url, succeeded=False)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/api/company-intelligence")
-async def company_intelligence(req: CompanyIntelligenceRequest):
+async def company_intelligence(req: CompanyIntelligenceRequest, request: Request = None):
+    control = authorize_research(req, request, service="company-intelligence")
+    if control and control.settings:
+        # Explicit transitional scope; this is not a canonical orchestrator mission.
+        bind_settings_snapshot(control, "company-run:" + control.run_id, control.run_id)
     try:
-        return await run_company_intelligence(req)
+        result = await run_controlled(control, lambda: run_company_intelligence(req))
+        if control and control.settings:
+            return {**result.model_dump(mode="json"), "research": control.snapshot()}
+        return result
+    except (ResearchInterrupted, TimeoutError) as exc:
+        raise HTTPException(status_code=408, detail=getattr(exc, "reason", "operation_timeout")) from exc
     except (FetchError, httpx.HTTPError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -560,7 +561,9 @@ async def stop_hunt(
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest, request: Request):
-    control = authorize_research(req, request)
+    if req.research_settings_revision is not None:
+        raise HTTPException(status_code=409, detail="settings_not_supported_for_chat")
+    control = authorize_research(req, request, use_saved_settings=False)
     try:
         with bind_research(control):
             return await run_audit_dialogue(req)

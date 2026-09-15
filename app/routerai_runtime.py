@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.research_execution import active_settings
+
 import asyncio
 import json
 import os
@@ -169,7 +171,7 @@ async def run_bounded_routerai_analysis(
     external_sources: list[dict] | None = None,
 ) -> SiteAnalysis:
     """Run RouterAI analysis with a hard wall-clock deadline and rollbackable split mode."""
-    budget_seconds = routerai_analysis_timeout_seconds()
+    budget_seconds = 0.0 if active_settings() else routerai_analysis_timeout_seconds()
     deep = deep_research_enabled()
     use_split = deep or routerai_split_synthesis_enabled()
     input_metrics = routerai_input_metrics(text, external_sources)
@@ -193,7 +195,7 @@ async def run_bounded_routerai_analysis(
             raise EvidenceCoverageOverflow("legacy_monolith_cannot_cover_input")
         result = await asyncio.wait_for(
             analysis_fn(url, title, text, external_sources),
-            timeout=None if deep else budget_seconds,
+            timeout=None if deep or active_settings() else budget_seconds,
         )
     except (asyncio.TimeoutError, httpx.TimeoutException, SplitSynthesisPhaseTimeout) as exc:
         duration_ms = max(0, round((time.perf_counter() - started) * 1000))

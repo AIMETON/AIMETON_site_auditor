@@ -44,7 +44,7 @@
     const response = await fetch(path, {
       method: 'POST',
       credentials: 'same-origin',
-      headers: {'Content-Type': 'application/json'},
+      headers: researchHeaders(),
       body: JSON.stringify(payload),
     });
     const data = await response.json().catch(() => ({}));
@@ -460,7 +460,7 @@
       const companyName = document.querySelector('#companyName').value.trim();
       const url = document.querySelector('#companyUrl').value.trim();
       const region = document.querySelector('#companyRegion').value.trim();
-      const payload = {company_name: companyName};
+      const payload = {company_name: companyName, ...await researchSettingsForLaunch("company-intelligence")};
       if (url) payload.url = url;
       if (region) payload.region = region;
       const data = await postJson('/api/company-intelligence', payload);

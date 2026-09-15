@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>AIMETON AI Studio</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260729a">
+  <link rel="stylesheet" href="/static/style.css?v=20260915a">
   <link rel="stylesheet" href="/static/auth-ui.css?v=20260803c">
   <link rel="stylesheet" href="/static/service-catalog.css?v=20260804b">
   <link rel="stylesheet" href="/static/business-audit-workspace.css?v=20260808a">
@@ -54,6 +54,34 @@
     <h1>Бизнес-разведка и AI-возможности</h1>
     <p class="tagline">Исследуйте компанию, найдите клиентов и определите доказанные точки внедрения искусственного интеллекта.</p>
   </header>
+
+  <details id="researchSettingsPanel" class="card">
+    <summary>Настройки времени и расходов на аудит</summary>
+    <label>Услуга <select id="researchSettingsService"><option value="site-audit">Аудит сайта</option><option value="company-intelligence">Аудит компании</option></select></label>
+    <p>Сохранённые настройки применяются к новым запускам этой услуги. Текущий аудит сохраняет свою версию настроек.</p>
+    <form id="researchSettingsForm">
+      <label>Общий тайм-аут, секунд (пусто — без общего ограничения)<input name="mission_timeout_seconds" type="number" min="0.001" step="any"></label>
+      <label>Тайм-аут одного запроса к сайту или поиску, секунд<input name="request_timeout_seconds" type="number" min="0.001" step="any" required></label>
+      <label>Тайм-аут одного обращения к LLM, секунд<input name="llm_call_timeout_seconds" type="number" min="0.001" step="any" required></label>
+      <label>Сообщить о продолжении работы через, секунд<input name="progress_warning_seconds" type="number" min="0.001" step="any" required></label>
+      <label>Повторов неуспешного поискового запроса<input name="retry_count" type="number" min="0" step="1" required></label>
+      <label>Пауза между повторами поиска, секунд<input name="retry_backoff_seconds" type="number" min="0.001" step="any" required></label>
+      <label>Действие при общем лимите<select name="hard_limit_action"><option value="pause">Пауза (возобновление пока недоступно)</option><option value="stop">Остановить</option></select></label>
+      <fieldset><legend>Расходы</legend>
+        <p>Сквозная проверка тарифов ещё не подключена. Сохранение денежного или токенового порога заблокирует запуск до появления гарантированного учёта.</p>
+        <label>Валюта<select name="currency"><option>RUB</option><option>USD</option><option>EUR</option></select></label>
+        <label>Предупреждение о стоимости<input name="cost_warning_amount" type="text" inputmode="decimal" placeholder="Не задано"></label>
+        <label>Предельная стоимость<input name="cost_limit_amount" type="text" inputmode="decimal" placeholder="Не задано"></label>
+        <label>Предупреждение о токенах<input name="token_warning" type="number" min="1" step="1"></label>
+        <label>Предел токенов<input name="token_limit" type="number" min="1" step="1"></label>
+        <label>При предупреждении о расходах<select name="threshold_action"><option value="notify_continue">Сообщить и продолжить</option><option value="pause">Приостановить</option></select></label>
+        <label>Если точная стоимость неизвестна<select name="unknown_price_action"><option value="pause">Не начинать платную работу</option><option value="allow_unpriced">Разрешаю работу без денежного лимита</option></select></label>
+      </fieldset>
+      <button type="submit" disabled>Сохранить настройки</button>
+      <button id="reloadResearchSettings" type="button">Загрузить заново</button>
+    </form>
+    <p id="researchSettingsMessage" role="status" aria-live="polite"></p>
+  </details>
 
   <section class="service-catalog" aria-labelledby="serviceCatalogTitle">
     <div class="service-catalog__heading">
@@ -162,16 +190,17 @@
   </section>
 </main>
 
-<script src="/static/auth-ui.js?v=20260801a"></script>
+<script src="/static/auth-ui.js?v=20260915a"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <script src="/static/response-guard.js?v=20260803b"></script>
 <script src="/static/app.js?v=20260803e"></script>
 <script src="/static/instant-umel-reporter.js?v=20260805a"></script>
-<script src="/static/live-analysis.js?v=20260804a"></script>
+<script src="/static/research-settings.js?v=20260915a"></script>
+<script src="/static/live-analysis.js?v=20260915a"></script>
 <script src="/static/business-audit-workspace.js?v=20260808a"></script>
 <script src="/static/workspace-legacy-result-compat.js?v=20260812a"></script>
-<script src="/static/service-catalog.js?v=20260804b"></script>
+<script src="/static/service-catalog.js?v=20260915a"></script>
 <script src="/static/hunter-company-handoff-context.js?v=20260814b"></script>
 <script src="/static/analyze-response-guard.js?v=20260803b"></script>
 <script src="/static/sources.js?v=20260720e"></script>

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.research_execution import research_timed, operation_timeout
+
 import json
 import os
 import re
@@ -101,6 +103,7 @@ def _validated_queries(
     return valid, rejected
 
 
+@research_timed("llm")
 async def generate_hunter_query_plan(
     *,
     region: str,
@@ -158,7 +161,7 @@ JSON schema:
 
     record_llm_start()
     try:
-        async with httpx.AsyncClient(timeout=25) as client:
+        async with httpx.AsyncClient(timeout=operation_timeout("llm", 25)) as client:
             response = await client.post(
                 f"{BASE_URL}/chat/completions",
                 headers={"Authorization": f"Bearer {key}"},

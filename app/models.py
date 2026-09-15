@@ -189,6 +189,7 @@ class SiteAnalysis(BaseModel):
 
 
 class ResearchOptions(BaseModel):
+    research_settings_revision: int | None = Field(default=None, ge=0, strict=True)
     deep_research: bool = False
     unlimited_llm_budget: bool = False
 
@@ -308,6 +309,7 @@ class IntelligenceSource(BaseModel):
 
 
 class CompanyIntelligenceRequest(BaseModel):
+    research_settings_revision: int | None = Field(default=None, ge=0, strict=True)
     company_name: str = Field(min_length=2)
     url: HttpUrl | None = None
     region: str | None = None

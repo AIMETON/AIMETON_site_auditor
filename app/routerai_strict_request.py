@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.research_execution import research_timed, operation_timeout
+
 import asyncio
 import json
 import os
@@ -26,6 +28,7 @@ def _schema_name(phase: str) -> str:
     return (safe or "aimeton_structured_output")[:64]
 
 
+@research_timed("llm")
 async def request_json_strict(
     phase: str,
     model_type: type[TModel],

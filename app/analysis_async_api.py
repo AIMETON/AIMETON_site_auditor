@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.research_execution import active_settings, run_controlled, ResearchInterrupted
+
 import asyncio
 import os
 from datetime import UTC, datetime
@@ -21,7 +23,7 @@ from app.mission_orchestrator import (
     record_legacy_site_turn,
 )
 from app.models import AnalyzeRequest, ChatRequest
-from app.research_control import CONTROLS, authorize_research, bind_research, deep_research_enabled
+from app.research_control import CONTROLS, authorize_research, bind_research, deep_research_enabled, bind_settings_snapshot
 from app.public_llm_status import (
     project_public_llm_input_metrics,
     project_public_llm_outcome,
@@ -656,7 +658,7 @@ async def _run_enriched_bounded(
     text: str,
     analysis_id: str,
 ):
-    if deep_research_enabled():
+    if deep_research_enabled() or active_settings():
         return await run_enriched_site_analysis(source_url, title, text)
     deadline_seconds = _analysis_deadline_seconds()
     try:
@@ -684,7 +686,7 @@ async def _run_enriched_bounded(
         return result
 
 
-async def _run_analysis(
+async def _run_analysis_body(
     *,
     source_url: str,
     mission_id: str,
@@ -823,6 +825,17 @@ async def _run_analysis(
                 pass
 
 
+async def _run_analysis(*, source_url: str, mission_id: str, analysis_id: str) -> None:
+    try:
+        await run_controlled(CONTROLS.get(analysis_id), lambda: _run_analysis_body(
+            source_url=source_url, mission_id=mission_id, analysis_id=analysis_id))
+    except ResearchInterrupted as exc:
+        record_legacy_site_turn(get_mission_orchestrator(), mission_id, final_url=source_url, succeeded=False)
+        _append_event(analysis_id, phase=exc.reason, event_code="mission.failed", state="failed",
+                      icon_key="clock", message="Исследование остановлено по настройкам пользователя.",
+                      detail=exc.reason, next_action="Исследование не завершено; измените настройки для нового запуска.")
+
+
 def schedule_analysis_runtime(
     *,
     source_url: str,
@@ -853,6 +866,12 @@ async def start_analysis(req: AnalyzeRequest, background_tasks: BackgroundTasks,
         str(req.url),
         entry_point=EntryPoint.LEGACY_ADAPTER,
     )
+    try:
+        bind_settings_snapshot(control, started.mission_id, started.analysis_id)
+    except HTTPException:
+        _append_event(started.analysis_id, phase="settings_conflict", event_code="mission.failed", state="failed",
+                      icon_key="alert-triangle", message="Настройки изменились; повторите запуск.")
+        raise
     if control:
         CONTROLS[started.analysis_id] = control
     background_tasks.add_task(
@@ -895,6 +914,7 @@ async def stop_deep_research(analysis_id: str, request: Request):
     if terminal_state in _TERMINAL_ANALYSIS_STATES:
         return {"state": terminal_state, "research": control.snapshot()}
     control.stop_requested = True
+    control.stop_reason = "stopped_by_user"
     control.checkpoint("stop", control.snapshot())
     _append_event(analysis_id, phase="stop_requested", event_code="service.degraded", state="running",
                   icon_key="clock", message="Останавливаем исследование и сохраняем полученные данные.",
@@ -922,9 +942,11 @@ async def _run_dialogue_research(req: ChatRequest, started: AnalysisStartRespons
 
 @router.post("/refine/start", response_model=AnalysisStartResponse, status_code=202)
 async def start_deep_refinement(req: ChatRequest, background_tasks: BackgroundTasks, request: Request = None):
+    if req.research_settings_revision is not None:
+        raise HTTPException(status_code=409, detail="settings_not_supported_for_refinement")
     if not req.deep_research or not req.refine_search:
         raise HTTPException(status_code=422, detail="deep_refinement_requires_search_and_budget_consent")
-    control = authorize_research(req, request)
+    control = authorize_research(req, request, use_saved_settings=False)
     started = create_analysis_runtime(req.analysis.url, entry_point=EntryPoint.LEGACY_ADAPTER)
     CONTROLS[started.analysis_id] = control
     background_tasks.add_task(_run_dialogue_research, req, started)

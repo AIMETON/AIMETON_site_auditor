@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.research_execution import active_settings
+
 import asyncio
 import json
 from datetime import datetime, timezone
@@ -204,7 +206,7 @@ async def analyze_with_routerai_split_v2(
             raise ResearchStopped("research_stopped_by_user")
         return await asyncio.wait_for(
             _reason_and_assemble(url, title, text, external_sources, profile, accessed_at),
-            timeout=None if deep_research_enabled() else 30.0,
+            timeout=None if deep_research_enabled() or active_settings() else 30.0,
         )
     except Exception as exc:
         # Extraction has already completed and been persisted. A reasoning

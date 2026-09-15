@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.research_execution import research_timed, operation_timeout
+
 import json
 import os
 import re
@@ -32,6 +34,7 @@ def _fallback_quote(text: str, limit: int = 320) -> str:
     return compact[:limit] if compact else "Текст страницы не извлечён."
 
 
+@research_timed("llm")
 async def analyze_with_routerai(url: str, title: str, text: str, external_sources: list[dict] | None = None) -> SiteAnalysis:
     key = os.getenv("ROUTERAI_API_KEY")
     if not key:
@@ -122,7 +125,7 @@ JSON SCHEMA:
         ],
     }
     record_llm_start()
-    async with httpx.AsyncClient(timeout=180) as client:
+    async with httpx.AsyncClient(timeout=operation_timeout("llm", 180)) as client:
         response = await client.post(
             f"{BASE_URL}/chat/completions",
             headers={"Authorization": f"Bearer {key}"},
@@ -241,6 +244,7 @@ JSON SCHEMA:
     return result
 
 
+@research_timed("llm")
 async def chat_with_routerai(analysis: SiteAnalysis, messages: list[dict]) -> str:
     key = os.getenv("ROUTERAI_API_KEY")
     if not key:
@@ -260,7 +264,7 @@ async def chat_with_routerai(analysis: SiteAnalysis, messages: list[dict]) -> st
         "messages": [{"role": "system", "content": system}] + messages[-12:],
     }
     record_llm_start()
-    async with httpx.AsyncClient(timeout=120) as client:
+    async with httpx.AsyncClient(timeout=operation_timeout("llm", 120)) as client:
         response = await client.post(
             f"{BASE_URL}/chat/completions",
             headers={"Authorization": f"Bearer {key}"},

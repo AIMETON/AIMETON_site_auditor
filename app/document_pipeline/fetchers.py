@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.research_execution import research_timed
+
 import codecs
 import hashlib
 import re
@@ -159,6 +161,7 @@ class StaticHttpFetcher:
     def __init__(self, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self._transport = transport
 
+    @research_timed("request")
     async def fetch(
         self,
         url: str,
@@ -267,6 +270,7 @@ class Crawl4AIHttpWorker(DynamicFetcher):
     def configured(self) -> bool:
         return bool(self._base_url)
 
+    @research_timed("request")
     async def fetch(self, url: str, *, timeout_seconds: float) -> RawDocument:
         if not self.configured:
             raise FetchError("Crawl4AI worker не настроен")
@@ -345,6 +349,7 @@ class PlaywrightFallback(DynamicFetcher):
     def configured(self) -> bool:
         return True
 
+    @research_timed("request")
     async def fetch(self, url: str, *, timeout_seconds: float) -> RawDocument:
         del timeout_seconds
         final_url, title, html = await _fetch_via_browser(url)

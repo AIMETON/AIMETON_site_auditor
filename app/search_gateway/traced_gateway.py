@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.research_execution import active_settings
+
 import hashlib
 import os
 import time
@@ -34,6 +36,9 @@ def _diagnostic_url(item: SearchItem) -> str:
 
 
 def _provider_budget_seconds(policy: SearchPolicy) -> float:
+    settings = active_settings()
+    if settings:
+        return settings.request_timeout_seconds * (settings.retry_count + 1) + settings.retry_backoff_seconds * settings.retry_count
     backoff = sum(
         min(
             policy.retry_backoff_max_seconds,
@@ -121,8 +126,8 @@ class TracedSearchGateway(SearchGateway):
                     metadata={
                         "query_index": query_index,
                         "secondary": secondary,
-                        "timeout_seconds": policy.timeout_seconds,
-                        "retry_limit": policy.retries,
+                        "timeout_seconds": active_settings().request_timeout_seconds if active_settings() else policy.timeout_seconds,
+                        "retry_limit": active_settings().retry_count if active_settings() else policy.retries,
                         "provider_budget_seconds": provider_budget_seconds,
                     },
                     event_key=f"{live_key}:started",

@@ -68,3 +68,5 @@
 - [Hunter HTTP 500 — 2026-09-13](incidents/HUNTER-HTTP-500-2026-09-13.md) — воспроизведение и корректирующий кандидат для поиска клиентов.
 
 - [Настройки исследования: серверная основа](architecture/USER_RESEARCH_SETTINGS_V0.1.md) — #915, draft P0-B: schema/revisions/snapshots/API; UI и enforcement ещё не подключены.
+
+- [User research execution v0.1](architecture/USER_RESEARCH_EXECUTION_V0.1.md) — applied time settings, preflight gates and lifecycle boundaries.
