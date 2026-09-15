@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 
 import httpx
 
+from app.research_control import record_llm_start, record_llm_usage
+
 from app.models import (
     EvidenceSource,
     PreliminaryResultReadiness,
@@ -119,6 +121,7 @@ JSON SCHEMA:
             {"role": "user", "content": prompt},
         ],
     }
+    record_llm_start()
     async with httpx.AsyncClient(timeout=180) as client:
         response = await client.post(
             f"{BASE_URL}/chat/completions",
@@ -126,7 +129,9 @@ JSON SCHEMA:
             json=payload,
         )
         response.raise_for_status()
-    result = SiteAnalysis.model_validate(_extract_json(response.json()["choices"][0]["message"]["content"]))
+    body = response.json()
+    record_llm_usage(body)
+    result = SiteAnalysis.model_validate(_extract_json(body["choices"][0]["message"]["content"]))
 
     if not any(source.id == "S1" for source in result.sources):
         result.sources.insert(0, EvidenceSource(
@@ -237,7 +242,6 @@ JSON SCHEMA:
 
 
 async def chat_with_routerai(analysis: SiteAnalysis, messages: list[dict]) -> str:
-    from app.research_control import record_llm_start, record_llm_usage
     key = os.getenv("ROUTERAI_API_KEY")
     if not key:
         return "Для диалога необходимо настроить ROUTERAI_API_KEY."

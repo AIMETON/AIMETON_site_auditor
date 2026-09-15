@@ -4,6 +4,8 @@ import json
 import os
 import re
 
+from app.research_control import record_llm_start, record_llm_usage
+
 import httpx
 from pydantic import BaseModel, Field, ValidationError
 
@@ -154,6 +156,7 @@ JSON schema:
         ],
     }
 
+    record_llm_start()
     try:
         async with httpx.AsyncClient(timeout=25) as client:
             response = await client.post(
@@ -162,7 +165,9 @@ JSON schema:
                 json=payload,
             )
             response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
+        body = response.json()
+        record_llm_usage(body)
+        content = body["choices"][0]["message"]["content"]
         plan = HunterQueryPlan.model_validate(_extract_json(content))
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError, ValidationError, json.JSONDecodeError):
         return None

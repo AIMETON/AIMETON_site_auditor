@@ -10,6 +10,7 @@ from typing import Any, TypeVar
 import httpx
 from pydantic import BaseModel, Field
 
+from app.research_control import record_llm_start, record_llm_usage
 from app.llm import BASE_URL, MODEL
 from app.models import (
     ActionPackage,
@@ -102,6 +103,7 @@ async def _request_json(
             },
         ],
     }
+    record_llm_start()
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
             response = await client.post(
@@ -111,6 +113,7 @@ async def _request_json(
             )
             response.raise_for_status()
         body = response.json()
+        record_llm_usage(body)
         choice = body["choices"][0]
         if choice.get("finish_reason") == "length":
             raise SplitSynthesisPhaseError(phase, "OutputTruncated")

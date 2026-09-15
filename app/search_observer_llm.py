@@ -8,6 +8,8 @@ import time
 from contextvars import ContextVar
 from enum import StrEnum
 
+from app.research_control import record_llm_start, record_llm_usage
+
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -244,6 +246,7 @@ JSON schema:
         ],
     }
 
+    record_llm_start()
     try:
         async with httpx.AsyncClient(timeout=_observer_timeout_seconds() + 5.0) as client:
             response = await client.post(
@@ -252,7 +255,9 @@ JSON schema:
                 json=payload,
             )
             response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
+        body = response.json()
+        record_llm_usage(body)
+        content = body["choices"][0]["message"]["content"]
         recommendation = SearchObserverRecommendation.model_validate(_extract_json(content))
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError, ValidationError, json.JSONDecodeError) as exc:
         _LAST_SHADOW_OBSERVER_FAILURE_REASON.set(_observer_failure_reason(exc))

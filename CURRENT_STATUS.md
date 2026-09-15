@@ -1,6 +1,20 @@
+<!-- Research settings implementation checkpoint 2026-09-15T07:56:45.410907+00:00 -->
+P0-B/C draft #917 now includes durable reservation/claim/settlement accounting and
+missing per-run usage hooks in legacy synthesis and advisory LLM paths. Full local
+suite: 1453 passed, 1 xfailed, 6 subtests. Provider integration, authoritative tariff
+bounds, time guards, settings UI and activation remain open; no production budget
+cap is claimed. See docs/architecture/USER_RESEARCH_SETTINGS_V0.1.md. #916 stage
+deploy 34925242984 is confirmed successful.
+
 # AIMETON Site Auditor · Current Status
 
 _Last updated: 2026-07-30_
+
+## Audit recovery continuation — 2026-09-15T03:33:54.995917+00:00
+
+PR #916 merged as e4941e5c052842bd9600f941a936160fd44e71bb after all three PR checks passed. Post-merge Baseline CI 34925159315 succeeded. Stage health independently returned this exact deployment SHA on 2026-09-15; this is deployment identity evidence, not a real-company recall acceptance.
+
+Next P0-B draft adds server preference schema/revisions/snapshots and isolated authenticated API, with 16 focused tests passing. Router is not mounted: UI, effective policy and enforcement remain required before delivery. Details: [user settings](docs/architecture/USER_RESEARCH_SETTINGS_V0.1.md). Full mission #915 remains open.
 
 ## Audit quality recovery / #915 — 2026-09-15T02:39:46Z
 
