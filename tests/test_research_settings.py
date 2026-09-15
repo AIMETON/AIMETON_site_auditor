@@ -18,7 +18,6 @@ from app.research_settings_api import repository, router
     {"request_timeout_seconds": True}, {"token_limit": True}, {"cost_limit_amount": "NaN"},
     {"token_warning": 11, "token_limit": 10},
     {"cost_warning_amount": "10.01", "cost_limit_amount": "10"},
-    {"cost_limit_amount": "5", "unknown_price_action": "allow_unpriced"},
     {"owner_id": 3}, {"retry_count": -1},
 ])
 def test_invalid_preferences_cannot_be_saved(values):
@@ -29,13 +28,13 @@ def test_invalid_preferences_cannot_be_saved(values):
 def test_owner_service_isolation_and_restart(tmp_path):
     path = tmp_path / "runtime.sqlite3"
     store = ResearchSettingsRepository(path)
-    settings = ResearchSettings(mission_timeout_seconds=900, cost_limit_amount=Decimal("500.25"))
+    settings = ResearchSettings(mission_timeout_seconds=900, hard_limit_action="stop", cost_limit_amount=Decimal("500.25"))
     saved = store.save(1, "site-audit", settings, expected_revision=0)
     assert ResearchSettingsRepository(path).get(1, "site-audit") == saved
     assert store.get(2, "site-audit").revision == 0
     assert store.get(1, "company-intelligence").revision == 0
     assert saved.settings.cost_limit_amount == Decimal("500.25")
-    assert saved.execution_enabled is False
+    assert saved.execution_enabled is True
 
 
 def test_concurrent_saves_cannot_silently_overwrite(tmp_path):

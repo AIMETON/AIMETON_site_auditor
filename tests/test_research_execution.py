@@ -20,11 +20,18 @@ def settings(**values):
 @pytest.mark.parametrize("value", [
     ResearchSettings(), ResearchSettings(cost_limit_amount="1"),
     ResearchSettings(cost_warning_amount="1"), ResearchSettings(token_limit=10),
-    ResearchSettings(token_warning=10), ResearchSettings(mission_timeout_seconds=10, unknown_price_action="allow_unpriced"),
+    ResearchSettings(token_warning=10), ResearchSettings(cost_limit_amount="1", unknown_price_action="allow_unpriced"),
 ])
-def test_unsupported_guarantees_are_rejected(value):
-    with pytest.raises(PolicyUnavailable):
-        compile_policy(value)
+def test_spending_preferences_never_block_execution(value):
+    policy = compile_policy(value)
+    assert policy["spending_policy"] == "account_only"
+    assert policy["unknown_price_action"] == "allow_unpriced"
+    assert not policy["monetary_limit_enforced"] and not policy["token_limit_enforced"]
+
+
+def test_unsupported_deadline_pause_is_rejected():
+    with pytest.raises(PolicyUnavailable, match="deadline_pause_resume_unavailable"):
+        compile_policy(ResearchSettings(mission_timeout_seconds=10))
 
 
 def test_effective_snapshot_is_immutable_and_checks_revision(tmp_path):
@@ -140,15 +147,28 @@ def test_total_timeout_includes_acquisition_and_never_reports_success(client, mo
 
 
 @pytest.mark.parametrize("deep", [False, True])
-def test_saved_cost_cap_cannot_be_bypassed_by_omitting_revision(client, monkeypatch, deep):
-    import app.analysis_async_api as async_api
-    save(client, "site-audit", ResearchSettings(cost_limit_amount="500"))
-    async def unexpected(*args, **kwargs):
-        pytest.fail("budget preflight allowed acquisition")
-    monkeypatch.setattr(async_api, "fetch_site", unexpected)
-    result = client.post("/api/analyze/start", json={"url": "https://example.org", "deep_research": deep, "unlimited_llm_budget": deep})
-    assert result.status_code == 409
-    assert result.json()["detail"].startswith("budget_enforcement_unavailable")
+def test_saved_spending_thresholds_allow_acquisition_without_revision(client, monkeypatch, deep):
+    import app.main as main
+    from app.heuristics import heuristic_analysis
+    from app.research_control import current_research, record_llm_start, record_llm_usage
+    save(client, "site-audit", ResearchSettings(cost_limit_amount="500", token_limit=1))
+    observed = []
+    async def fetch(url):
+        record_llm_start()
+        record_llm_usage({"usage": {"prompt_tokens": 10, "completion_tokens": 20}})
+        # Crossing a threshold and a subsequent call must not stop execution.
+        record_llm_start()
+        observed.append(current_research().snapshot())
+        return {"final_url": url, "title": "Example", "text": "Evidence"}
+    async def analyze(url, title, text):
+        return heuristic_analysis(url, title, text)
+    monkeypatch.setattr(main, "fetch_site", fetch)
+    monkeypatch.setattr(main, "run_enriched_site_analysis", analyze)
+    result = client.post("/api/analyze", json={"url": "https://example.org", "deep_research": deep, "unlimited_llm_budget": deep})
+    assert result.status_code == 200
+    assert observed[0]["spending_thresholds"] == {"token_limit": "reached", "cost_limit_amount": "unknown"}
+    assert observed[0]["llm_calls"] == 2
+    assert not observed[0]["stop_requested"]
 
 
 @pytest.mark.asyncio

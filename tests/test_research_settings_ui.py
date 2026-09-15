@@ -71,8 +71,9 @@ vm.runInNewContext(fs.readFileSync('static/research-settings.js','utf8'),context
  assert.equal((await window.researchSettingsForLaunch('site-audit')).research_settings_revision,2);
  fields.cost_limit_amount.value='500.25'; await form.emit('input'); await form.emit('submit');
  assert.equal(record.settings.cost_limit_amount,'500.25');
- record.execution_enabled=false; record.execution_block_reason='budget_enforcement_unavailable:cost_limit_amount';
- await assert.rejects(window.researchSettingsForLaunch('site-audit'), /Запуск заблокирован/);
+ assert.equal((await window.researchSettingsForLaunch('site-audit')).research_settings_revision,3);
+ record.execution_enabled=false; record.execution_block_reason='deadline_pause_resume_unavailable:select_stop';
+ await assert.rejects(window.researchSettingsForLaunch('site-audit'), /Возобновление/);
  let release; pending=new Promise(resolve=>release=resolve);
  const loading=reload.emit('click');
  assert.ok(submit.disabled && service.disabled);

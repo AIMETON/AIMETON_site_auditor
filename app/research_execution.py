@@ -20,18 +20,16 @@ class ResearchInterrupted(asyncio.CancelledError):
 
 
 def compile_policy(settings: ResearchSettings) -> dict:
-    unsupported = [name for name in ("cost_warning_amount", "cost_limit_amount", "token_warning", "token_limit")
-                   if getattr(settings, name) is not None]
-    if unsupported:
-        raise PolicyUnavailable("budget_enforcement_unavailable:" + ",".join(unsupported))
-    if settings.unknown_price_action != "allow_unpriced":
-        raise PolicyUnavailable("price_unknown:explicit_allow_unpriced_required")
     if settings.mission_timeout_seconds is not None and settings.hard_limit_action != "stop":
         raise PolicyUnavailable("deadline_pause_resume_unavailable:select_stop")
-    return {name: getattr(settings, name) for name in (
+    effective = {name: getattr(settings, name) for name in (
         "mission_timeout_seconds", "request_timeout_seconds", "llm_call_timeout_seconds",
         "progress_warning_seconds", "retry_count", "retry_backoff_seconds", "hard_limit_action",
         "unknown_price_action")}
+    effective.update(spending_policy="account_only", monetary_limit_enforced=False,
+                     token_limit_enforced=False, unknown_price_action="allow_unpriced",
+                     threshold_action="notify_continue")
+    return effective
 
 
 def active_settings() -> ResearchSettings | None:

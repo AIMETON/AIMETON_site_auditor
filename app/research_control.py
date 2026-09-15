@@ -37,8 +37,22 @@ class ResearchControl:
     frontier_size: int = 0
     semaphore: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(4), repr=False)
 
+    def spending_status(self) -> dict:
+        thresholds = {}
+        if self.settings:
+            total = self.prompt_tokens + self.completion_tokens
+            for name in ("token_warning", "token_limit"):
+                value = getattr(self.settings, name)
+                if value is not None:
+                    thresholds[name] = "reached" if total >= value else "not_reached"
+            for name in ("cost_warning_amount", "cost_limit_amount"):
+                if getattr(self.settings, name) is not None:
+                    thresholds[name] = "unknown"
+        return {"spending_policy": "account_only", "monetary_limit_enforced": False,
+                "token_limit_enforced": False, "spending_thresholds": thresholds}
+
     def snapshot(self) -> dict:
-        return {"run_id": self.run_id, "deep_research": self.deep,
+        return {**self.spending_status(), "run_id": self.run_id, "deep_research": self.deep,
                 "llm_budget": "uncapped" if self.deep else "standard",
                 "stop_requested": self.stop_requested, "llm_calls": self.llm_calls,
                 **({"settings_revision": self.settings_revision, "settings_digest": self.settings_digest or "",
