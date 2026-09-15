@@ -131,3 +131,11 @@ tests/test_document_pipeline.py
 P0 использует memory cache и не заявляет сохранность после restart. Следующий
 инкремент должен сохранить raw object, document metadata, version и idempotency
 key в PostgreSQL/object storage без изменения этого прикладного контракта.
+
+## Surface text recovery candidate — 2026-09-15T02:39:46Z
+
+Part of #915. Semantic blocks retain existing locators for elements up to 20000 characters. Uncovered static DOM text is recovered in both scraper and document pipeline through a shared traversal; additional blocks use header/body/footer `text[n]` locators. Inline text is joined, covered semantic subtrees are skipped, comments/script/template content is excluded. This is DOM text, not a guarantee of CSS visibility or accepted entity identity.
+
+Larger blocks use `original-locator/part[n]` (maximum 20000 characters each), preserving all text and equal chunks at different offsets. New documents receive new content digests; stored historical documents/locators are not rewritten. Quote promotion still requires a literal match at the exact locator. JSON-LD requires separate declaration semantics in a later increment.
+
+Validation: six base failures reproduced; final extraction/document suite 25 passed. Full suite before final extra equal-chunk test: 1404 passed, 1 xfailed, 6 subtests. CI/live acceptance pending. See [execution plan](../roadmap/AUDIT_MISSION_QUALITY_PLAN_2026-09-15.md).

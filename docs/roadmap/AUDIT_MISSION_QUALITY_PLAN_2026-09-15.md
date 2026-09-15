@@ -1,6 +1,6 @@
 # План восстановления качества и управляемого исполнения аудита
 
-Checkpoint: 2026-09-15T09:45:00Z
+Checkpoint: 2026-09-15T02:39:46Z
 Base: `5f9d8ca2415f8b7f57a3a848cb6bc3427ce0d769`.
 Статус: план принят к исполнению по прямому поручению владельца в чате 2026-09-15; реализация и live-приёмка учитываются отдельно.
 Область: кнопки «AI-аудит сайта» и «Исследование компании», их общий evidence/mission runtime. Hunter — только совместимые общие компоненты и handoff.
@@ -127,3 +127,11 @@ Fixtures: div/span/address; таблица; JSON-LD-only; SSR Next; SPA menu she
 - В каждом PR обновлять этот журнал, CURRENT_STATUS.md и профильный контракт; docs/README.md содержит ссылку на план.
 - Не менять существующие даты GitHub Project. Задача исполнения ссылается на #173, #422, #456, #850 и этот документ.
 - Done всей миссии: обе кнопки исполняют common policy/run/evidence contract, пользователь управляет временем и затратами, контрольные факты и реальные прогоны приняты. Первый PR не закрывает всю миссию.
+
+### P0-A implementation candidate — 2026-09-15T02:39:46Z
+
+Tracking: #915. Shared uncovered DOM text traversal now feeds scraper and document pipeline. Direct container/inline/address text is retained without re-extracting covered parent subtrees. Oversized blocks are split with stable part locators; equal chunks at distinct offsets survive.
+
+Six new cases fail on base SHA and pass on candidate. Full suite before the final equal-chunk regression addition: 1404 passed, 1 xfailed, 6 subtests. Final focused extraction/document suite: 25 passed. App import and diff check verified separately. CI and deployed real-company acceptance remain pending. JSON-LD, guarded dynamic rendering, traversal integration and user settings are not implemented in this slice.
+
+Next reviewable slice: P0-B user settings store/API/UI and per-run snapshot, followed by P0-C end-to-end enforcement. No aggregate budget change is activated by P0-A.
