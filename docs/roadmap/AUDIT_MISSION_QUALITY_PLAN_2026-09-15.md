@@ -141,3 +141,5 @@ Next reviewable slice: P0-B user settings store/API/UI and per-run snapshot, fol
 Owner directed “Проверяй и действуй”. #916 merged with all PR gates green; merge e4941e5c052842bd9600f941a936160fd44e71bb, post-merge Baseline 34925159315 successful; stage health independently confirms exact SHA. Frozen real-company quality acceptance remains open.
 
 P0-B foundation draft: schema, owner/service revision persistence, conflict-safe writes, immutable internal snapshots, authenticated/CSRF router tested in isolation (16 tests). Not mounted; no UI or execution enforcement yet. Next: connect snapshot to owned launch, implement P0-C reservations/time guards, then publish user settings UI. See USER_RESEARCH_SETTINGS_V0.1.md. This is progress, not completion of P0-B/C or whole mission.
+
+2026-09-15T07:56:45.410907+00:00: P0-C draft adds atomic durable reservations, single-dispatch claim, settlement, unknown-price guards and sticky warning/hard-limit states. Missing LLM usage hooks repaired. 1453 local tests pass, 1 xfail, 6 subtests. This is admission foundation; runtime quote authority, deadlines and UI integration remain gates in #917.

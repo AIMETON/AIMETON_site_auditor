@@ -24,6 +24,7 @@ class ResearchControl:
     llm_calls: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    llm_usage_reports: int = 0
     completed_chunks: int = 0
     documents_attempted: int = 0
     frontier_size: int = 0
@@ -34,6 +35,8 @@ class ResearchControl:
                 "llm_budget": "uncapped" if self.deep else "standard",
                 "stop_requested": self.stop_requested, "llm_calls": self.llm_calls,
                 "prompt_tokens": self.prompt_tokens, "completion_tokens": self.completion_tokens,
+                "llm_usage_reports": self.llm_usage_reports,
+                "llm_usage_unknown": max(0, self.llm_calls - self.llm_usage_reports),
                 "completed_chunks": self.completed_chunks,
                 "documents_attempted": self.documents_attempted, "frontier_size": self.frontier_size, "monetary_cost": "not_reported"}
 
@@ -99,9 +102,19 @@ def record_llm_start() -> None:
 def record_llm_usage(body: dict) -> None:
     control = current_research()
     if control:
-        usage = body.get("usage") or {}
-        control.prompt_tokens += max(0, int(usage.get("prompt_tokens") or 0))
-        control.completion_tokens += max(0, int(usage.get("completion_tokens") or 0))
+        # Missing/malformed usage is unknown, never proof of a free request.
+        usage = body.get("usage") if isinstance(body, dict) else None
+        usage = usage if isinstance(usage, dict) else {}
+        prompt = usage.get("prompt_tokens")
+        completion = usage.get("completion_tokens")
+        valid_prompt = type(prompt) is int and prompt >= 0
+        valid_completion = type(completion) is int and completion >= 0
+        if valid_prompt:
+            control.prompt_tokens += prompt
+        if valid_completion:
+            control.completion_tokens += completion
+        if valid_prompt and valid_completion:
+            control.llm_usage_reports += 1
         control.checkpoint("usage", control.snapshot())
 
 

@@ -47,3 +47,49 @@ existing deep consent and provider policy are unchanged by this draft.
 16 focused tests passed: invalid values, exact money, owner/service isolation,
 restart persistence, concurrent saves, immutable snapshots, auth/CSRF and HTTP 409.
 No paid live calls. This is foundation evidence, not completed P0-B/C acceptance.
+
+## P0-C admission accounting checkpoint — 2026-09-15T07:56:45.410907+00:00
+
+`research_budget.py` adds a durable internal reservation ledger in the existing runtime
+SQLite database. This extends the accounting concern; it is not a second provider
+controller. Existing `ai_cost_accounting.py` remains the post-hoc attempted/billed/
+accepted-cost projection, not an admission authority.
+
+A run binds an immutable settings payload and snapshot digest. Atomic reservations
+count settled actual usage plus outstanding upper bounds. Money stays Decimal/string;
+SQL floating point is not used. A unique owner/run/request key prevents double
+reservation, and an atomic claim permits only one dispatch. Each billable retry needs
+a new request key and reservation. A claimed request retains its bound after a timeout
+or crash: absence of a receipt is not proof of zero billing. Only unsent work can
+release a reservation. Complete receipts settle idempotently. A provider exceeding
+its promised upper bound records the actual bill and stops future admission; this
+incident is not hidden by clamping the bill to the limit.
+
+Unknown prices pause admission by default. Explicit allow_unpriced is only compatible
+with no monetary cap; unknown totals are null, never zero. Token caps require a known
+token upper bound. Warning thresholds support notify/continue or pause; hard thresholds
+pause/stop before admission. Pause/stop state survives restart. This ledger does not
+provide a resume API yet. Its totals are committed exposure, not an invoice view.
+
+The ledger is NOT attached to live provider calls yet. Its quote parameters are an
+internal contract, not a user-accessible way to assert a tariff. Before activation,
+the existing provider adapters must supply authoritative, currency-matched bounds
+covering all chargeable input/output/reasoning/cache/tool units and search fees,
+with immutable tariff provenance. A string tariff reference alone is not verification.
+No hard-cap guarantee is made for production by this draft.
+
+Inspection found missing research counters in legacy monolithic synthesis, legacy
+split synthesis, the search observer and Hunter query planning. These adapters now
+call the existing per-run accounting hooks before I/O and record provider usage before
+output parsing. Existing strict synthesis/chat hooks remain. Missing, malformed or
+partial usage is exposed as `llm_usage_unknown`; counters of observed tokens remain
+separate. This is telemetry coverage, not money settlement or complete service-wide
+accounting: a bound ResearchControl is still required, and company launch wiring is
+pending.
+
+Validation: 1453 tests passed, 1 expected failure, 6 subtests passed. New tests cover
+parallel admission, exact decimal limits, restart, single dispatch, idempotent billing,
+unknown receipts/prices, owner isolation, warnings/stops, bound violations and usage
+before schema rejection. No paid live calls. #916 stage deploy run 34925242984 completed
+successfully; stage health previously returned merge e4941e5c052842bd9600f941a936160fd44e71bb.
+These are separate code/test/deployment observations; live fact-recall acceptance is open.

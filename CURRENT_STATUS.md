@@ -1,3 +1,11 @@
+<!-- Research settings implementation checkpoint 2026-09-15T07:56:45.410907+00:00 -->
+P0-B/C draft #917 now includes durable reservation/claim/settlement accounting and
+missing per-run usage hooks in legacy synthesis and advisory LLM paths. Full local
+suite: 1453 passed, 1 xfailed, 6 subtests. Provider integration, authoritative tariff
+bounds, time guards, settings UI and activation remain open; no production budget
+cap is claimed. See docs/architecture/USER_RESEARCH_SETTINGS_V0.1.md. #916 stage
+deploy 34925242984 is confirmed successful.
+
 # AIMETON Site Auditor · Current Status
 
 _Last updated: 2026-07-30_
