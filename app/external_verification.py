@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.research_execution import active_settings
+
 import asyncio
 import hashlib
 import re
@@ -383,7 +385,7 @@ async def verify_external_sources(
         else:
             await asyncio.wait_for(
                 asyncio.gather(*(bounded(item) for item in candidates)),
-                timeout=timeout_seconds,
+                timeout=None if active_settings() else timeout_seconds,
             )
     except TimeoutError:
         for item in candidates:

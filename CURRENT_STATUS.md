@@ -1,3 +1,11 @@
+<!-- User execution integration candidate 2026-09-15T09:20:34.513355+00:00 -->
+Local verification: 1471 tests passed, 1 xfailed, 6 subtests.
+Next slice after merged/deployed #917 connects saved per-service preferences to
+site/company audit launches, immutable effective snapshots, wall-clock deadlines,
+search retries and settings UI. Unsupported monetary/token/pause guarantees block
+before execution. See docs/architecture/USER_RESEARCH_EXECUTION_V0.1.md. Company
+async lifecycle, complete partial-result recovery and tariff enforcement remain open.
+
 <!-- Research settings implementation checkpoint 2026-09-15T07:56:45.410907+00:00 -->
 P0-B/C draft #917 now includes durable reservation/claim/settlement accounting and
 missing per-run usage hooks in legacy synthesis and advisory LLM paths. Full local

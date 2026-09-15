@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.research_execution import research_timed, operation_timeout
+
 import asyncio
 import json
 import os
@@ -193,6 +195,7 @@ def _record_shadow_observer_evidence(
     )
 
 
+@research_timed("llm")
 async def evaluate_search_wave_shadow_with_model(
     telemetry: SearchWaveTelemetry,
     model: ResolvedObserverModel,
@@ -248,7 +251,7 @@ JSON schema:
 
     record_llm_start()
     try:
-        async with httpx.AsyncClient(timeout=_observer_timeout_seconds() + 5.0) as client:
+        async with httpx.AsyncClient(timeout=operation_timeout("llm", _observer_timeout_seconds() + 5.0)) as client:
             response = await client.post(
                 f"{model.base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {model.api_key}"},

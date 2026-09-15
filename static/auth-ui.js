@@ -29,6 +29,7 @@
   function showLogin(message = '') {
     state.user = null;
     state.phase = 'anonymous';
+    window.dispatchEvent(new CustomEvent('aimeton:auth-changed'));
     elements.login.hidden = false;
     elements.workspace.hidden = true;
     elements.identity.hidden = true;
@@ -45,6 +46,7 @@
   function showWorkspace(user) {
     state.user = user;
     state.phase = 'authenticated';
+    window.dispatchEvent(new CustomEvent('aimeton:auth-changed'));
     elements.login.hidden = true;
     elements.workspace.hidden = false;
     elements.identity.hidden = false;

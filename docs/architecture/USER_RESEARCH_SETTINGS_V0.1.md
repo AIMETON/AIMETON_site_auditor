@@ -93,3 +93,7 @@ unknown receipts/prices, owner isolation, warnings/stops, bound violations and u
 before schema rejection. No paid live calls. #916 stage deploy run 34925242984 completed
 successfully; stage health previously returned merge e4941e5c052842bd9600f941a936160fd44e71bb.
 These are separate code/test/deployment observations; live fact-recall acceptance is open.
+
+## Execution integration update — 2026-09-15T09:20:34.513355+00:00
+
+#917 was merged as b74ce39f50bafc852a41809032b7ca852ce3043c and deployed to stage. The next implementation mounts the preference API and adds UI/owned snapshots/applied timeouts. This supersedes the earlier unmounted draft status for that candidate; monetary/token gates remain blocked. See [USER_RESEARCH_EXECUTION_V0.1.md](USER_RESEARCH_EXECUTION_V0.1.md) for exact supported behaviour and remaining acceptance.

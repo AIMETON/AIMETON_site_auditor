@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.research_execution import research_timed, operation_timeout
+
 import asyncio
 import re
 import ipaddress
@@ -114,6 +116,7 @@ def _ensure_rendered_size(html: str) -> None:
         raise FetchError("Отрендеренная страница превышает допустимый размер")
 
 
+@research_timed("request")
 async def _fetch_via_httpx(
     url: str,
     *,
@@ -122,7 +125,7 @@ async def _fetch_via_httpx(
     """Return status, final URL and HTML while validating every redirect hop."""
     async with httpx.AsyncClient(
         follow_redirects=False,
-        timeout=20,
+        timeout=operation_timeout("request", 20),
         headers=BROWSER_HEADERS,
         transport=transport,
     ) as client:
@@ -159,6 +162,7 @@ async def _fetch_via_httpx(
     raise FetchError("Слишком много перенаправлений")
 
 
+@research_timed("request")
 async def _fetch_via_browser(url: str) -> tuple[str, str, str]:
     """Render a public page in Chromium without bypassing authorization or CAPTCHA."""
     try:
@@ -201,7 +205,7 @@ async def _fetch_via_browser(url: str) -> tuple[str, str, str]:
                     await route.abort()
 
             await page.route("**/*", guard_route)
-            response = await page.goto(url, wait_until="domcontentloaded", timeout=25_000)
+            response = await page.goto(url, wait_until="domcontentloaded", timeout=operation_timeout("request", 25) * 1000)
             final_url = page.url
             await asyncio.to_thread(_validate_public_url, final_url)
 
@@ -240,7 +244,7 @@ async def fetch_site(url: str) -> dict[str, str]:
         status, final_url, html = await _fetch_via_httpx(normalized_url)
     except FetchError:
         raise
-    except httpx.HTTPError:
+    except (httpx.HTTPError, TimeoutError):
         httpx_failed = True
 
     title, text = ("", "")

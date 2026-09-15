@@ -191,3 +191,18 @@ button:not(:disabled):hover { opacity: .85; }
   form { flex-direction: column; }
   .company-card { flex-direction: column; }
 }
+
+/* Research preferences are a vertical form on desktop as well as mobile. */
+#researchSettingsPanel { margin: 16px 0; background: white; }
+#researchSettingsPanel summary { cursor: pointer; font-weight: 700; padding: 8px 0; }
+#researchSettingsForm { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 16px; }
+#researchSettingsPanel label { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+#researchSettingsPanel input, #researchSettingsPanel select { box-sizing: border-box; width: 100%; min-width: 0; }
+#researchSettingsPanel select { padding: 12px; border: 1px solid #bcc8d8; border-radius: 12px; background: white; font-size: 16px; }
+#researchSettingsForm fieldset { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; border: 1px solid #dde4ed; border-radius: 12px; padding: 16px; }
+#researchSettingsForm fieldset p { grid-column: 1 / -1; }
+#researchSettingsMessage { overflow-wrap: anywhere; }
+@media (max-width: 650px) {
+  #researchSettingsForm, #researchSettingsForm fieldset { grid-template-columns: minmax(0, 1fr); }
+  #researchSettingsForm button { white-space: normal; }
+}

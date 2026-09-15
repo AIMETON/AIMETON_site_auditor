@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.research_execution import active_settings, check_execution
+
 import asyncio
 import hashlib
 import json
@@ -378,7 +380,11 @@ class SearchGateway:
         degradation = None
         results: list[SearchItem] = []
         calls_made = 0
-        for retry in range(policy.retries + 1):
+        settings = active_settings()
+        retries = settings.retry_count if settings else policy.retries
+        timeout = settings.request_timeout_seconds if settings else policy.timeout_seconds
+        for retry in range(retries + 1):
+            check_execution()
             if retry > 0:
                 retry_blocked = await self._reserve_cost(
                     request,
@@ -390,7 +396,7 @@ class SearchGateway:
                 if retry_blocked:
                     error_reason = retry_blocked
                     break
-                backoff_seconds = min(
+                backoff_seconds = settings.retry_backoff_seconds if settings else min(
                     policy.retry_backoff_max_seconds,
                     policy.retry_backoff_base_seconds * (2 ** (retry - 1)),
                 )
@@ -398,13 +404,18 @@ class SearchGateway:
                     await self._sleep(backoff_seconds)
             try:
                 calls_made += 1
-                results = await provider.search(request, timeout_seconds=policy.timeout_seconds)
+                async with asyncio.timeout(timeout if settings else None):
+                    results = await provider.search(request, timeout_seconds=timeout)
                 degradation = provider.consume_degradation(request)
                 error_reason = None
                 break
             except ProviderError as exc:
                 error_reason = exc.reason
-                if not exc.retryable or retry >= policy.retries:
+                if not exc.retryable or retry >= retries:
+                    break
+            except TimeoutError:
+                error_reason = FallbackReason.TIMEOUT
+                if retry >= retries:
                     break
             except Exception:
                 error_reason = FallbackReason.PROVIDER_ERROR
@@ -534,6 +545,11 @@ class SearchGateway:
 
     async def search(self, request: SearchRequest, policy: SearchPolicy | None = None) -> SearchResponse:
         policy = policy or SearchPolicy()
+        if active_settings():
+            # A controlled run owns cancellation/accounting. Do not shield or share
+            # its provider task with an unrelated mission's consent and deadline.
+            check_execution()
+            return await self._search_impl(request, policy)
         if policy.strategy is SearchStrategy.SHADOW_COMPARE:
             return await self._search_impl(request, policy)
 

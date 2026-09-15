@@ -1,4 +1,4 @@
-"""Draft preference API. Mount only with execution integration and user UI."""
+"""Owner-scoped preferences with explicit supported execution capabilities."""
 import os
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException

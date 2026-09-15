@@ -179,9 +179,9 @@
       ]);
       renderReporter(events, status.state, status.updated_at);
       const usage = status.research;
-      document.querySelector('#researchUsage').textContent = usage?.deep_research
-        ? `Бюджет LLM: без общего лимита. Документов: ${usage.documents_attempted || 0}; вызовов: ${usage.llm_calls}; токенов: ${usage.prompt_tokens + usage.completion_tokens}; обработано порций: ${usage.completed_chunks}.${usage.stop_requested ? ' Останавливаем исследование…' : ''}` : '';
-      document.querySelector('#stopResearch').hidden = !usage?.deep_research || TERMINAL.has(status.state);
+      document.querySelector('#researchUsage').textContent = (usage?.deep_research || usage?.settings_revision !== undefined && usage?.settings_revision !== null)
+        ? `Стоимость не подтверждена. Документов: ${usage.documents_attempted || 0}; вызовов: ${usage.llm_calls}; токенов: ${usage.prompt_tokens + usage.completion_tokens}; обработано порций: ${usage.completed_chunks}.${usage.progress_warning ? ' Исследование продолжается; можно дождаться результата или остановить.' : ''}${usage.stop_requested ? ' Останавливаем исследование…' : ''}` : '';
+      document.querySelector('#stopResearch').hidden = !(usage?.deep_research || usage?.settings_revision !== undefined && usage?.settings_revision !== null) || TERMINAL.has(status.state);
       if (TERMINAL.has(status.state)) {
         clearInterval(pollTimer);
         clearInterval(elapsedTimer);
@@ -214,7 +214,7 @@
       method: 'POST',
       credentials: 'same-origin',
       headers: researchHeaders(),
-      body: JSON.stringify({ url,
+      body: JSON.stringify({ url, ...await researchSettingsForLaunch("site-audit"),
         deep_research: document.querySelector('#deepResearch').checked,
         unlimited_llm_budget: document.querySelector('#deepResearch').checked }),
     });

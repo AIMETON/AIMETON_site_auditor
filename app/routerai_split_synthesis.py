@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.research_execution import research_timed, operation_timeout
+
 import asyncio
 import json
 import os
@@ -76,6 +78,7 @@ def _fallback_quote(text: str, limit: int = 320) -> str:
     return compact[:limit] if compact else "Текст страницы не извлечён."
 
 
+@research_timed("llm")
 async def _request_json(
     phase: str,
     model_type: type[TModel],

@@ -55,7 +55,9 @@ class SettingsRecord(BaseModel):
     updated_at: str | None
     settings: ResearchSettings
     # Do not imply saving a preference changes running/provider behaviour.
-    execution_enabled: Literal[False] = False
+    execution_enabled: bool = False
+    execution_block_reason: str | None = None
+    execution_scope: str = "timeouts_and_search_retries;budget_thresholds_blocked"
 
 
 class SettingsConflict(ValueError):
@@ -80,9 +82,16 @@ class ResearchSettingsRepository:
     def _read(db, owner_id: int, service: Service) -> SettingsRecord:
         row = db.execute("""SELECT revision, updated_at, payload FROM user_research_settings
             WHERE owner_id=? AND service=? ORDER BY revision DESC LIMIT 1""", (owner_id, service)).fetchone()
+        settings = ResearchSettings.model_validate_json(row[2]) if row else ResearchSettings()
+        from app.research_execution import compile_policy, PolicyUnavailable
+        reason = None
+        try:
+            compile_policy(settings)
+        except PolicyUnavailable as exc:
+            reason = str(exc)
         return SettingsRecord(owner_id=owner_id, service=service, revision=row[0] if row else 0,
-                              updated_at=row[1] if row else None,
-                              settings=ResearchSettings.model_validate_json(row[2]) if row else ResearchSettings())
+                              updated_at=row[1] if row else None, settings=settings,
+                              execution_enabled=reason is None, execution_block_reason=reason)
 
     def get(self, owner_id: int, service: Service) -> SettingsRecord:
         with sqlite3.connect(self.path) as db:
@@ -103,7 +112,8 @@ class ResearchSettingsRepository:
             return self._read(db, owner_id, service)
 
     def snapshot(self, owner_id: int, service: Service, mission_id: str, run_id: str,
-                 *, overrides: dict | None = None) -> dict:
+                 *, overrides: dict | None = None, expected_revision: int | None = None,
+                 enforce: bool = False) -> dict:
         """Internal operation: caller must resolve mission ownership before use.
 
         No public snapshot API until run ownership/enforcement is connected.
@@ -119,16 +129,22 @@ class ResearchSettingsRepository:
                 WHERE owner_id=? AND mission_id=? AND run_id=?""", (owner_id, mission_id, run_id)).fetchone()
             if previous:
                 saved = json.loads(previous[0])
-                if saved["service"] != service or saved["overrides"] != (overrides or {}):
+                if (saved["service"] != service or saved["overrides"] != (overrides or {})
+                    or (expected_revision is not None and saved["settings_revision"] != expected_revision)
+                    or (saved["enforcement_state"] == "active") != enforce):
                     raise SettingsConflict("run_snapshot_conflict")
                 return {**saved, "digest": previous[1]}
             record = self._read(db, owner_id, service)
+            if expected_revision is not None and record.revision != expected_revision:
+                raise SettingsConflict("settings_revision_conflict")
             selected = ResearchSettings.model_validate({**record.settings.model_dump(), **(overrides or {})})
+            from app.research_execution import compile_policy
+            effective = compile_policy(selected) if enforce else None
             payload = {"owner_id": owner_id, "service": service, "mission_id": mission_id,
                        "run_id": run_id, "settings_revision": record.revision,
                        "created_at": datetime.now(UTC).isoformat(), "overrides": overrides or {},
                        "requested": selected.model_dump(mode="json"),
-                       "effective": None, "enforcement_state": "pending_integration"}
+                       "effective": effective, "enforcement_state": "active" if enforce else "pending_integration"}
             encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
             digest = "sha256:" + hashlib.sha256(encoded.encode()).hexdigest()
             db.execute("INSERT INTO research_settings_snapshots VALUES (?, ?, ?, ?, ?)",
