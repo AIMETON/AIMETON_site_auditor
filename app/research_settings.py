@@ -42,8 +42,6 @@ class ResearchSettings(BaseModel):
                                (self.token_warning, self.token_limit)):
             if warning is not None and limit is not None and warning > limit:
                 raise ValueError("warning_exceeds_limit")
-        if self.cost_limit_amount is not None and self.unknown_price_action == "allow_unpriced":
-            raise ValueError("hard_cost_limit_requires_known_price")
         return self
 
 
@@ -57,7 +55,7 @@ class SettingsRecord(BaseModel):
     # Do not imply saving a preference changes running/provider behaviour.
     execution_enabled: bool = False
     execution_block_reason: str | None = None
-    execution_scope: str = "timeouts_and_search_retries;budget_thresholds_blocked"
+    execution_scope: str = "timeouts_and_search_retries;spending_account_only"
 
 
 class SettingsConflict(ValueError):

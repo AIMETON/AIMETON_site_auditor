@@ -1,5 +1,32 @@
 # User research execution — supported time policy v0.1
 
+## Owner correction: account for spending, continue execution
+
+Checkpoint: 2026-09-15T14:20:07.784980+00:00. Part of #915; supersedes the monetary/token admission
+gates introduced in #918. The owner explicitly provides a debugging budget and
+requires accounting and notifications, not automatic restrictions on paid debugging.
+
+New audit snapshots use spending_policy=account_only. Saved cost/token thresholds
+(including legacy fields named limit) are advisory planning values. Their presence,
+legacy pause preferences and unknown price do not block audit launch or subsequent
+LLM calls. Effective policy explicitly reports both monetary/token enforcement=false,
+notify_continue and allow_unpriced; requested revisions remain immutable.
+
+Token threshold status uses observed token totals and appears in run checkpoints;
+the async audit UI reports reaching a threshold while continuing. Missing usage
+remains unknown. Monetary totals are still not_reported, monetary threshold status
+is unknown; this change does not claim complete billing reconciliation. Completing
+provider monetary accounting remains work to do, never a prerequisite for debugging.
+The separate reservation-ledger foundation is not activated as an audit gate.
+User-selected timeouts, explicit stop, ownership/CSRF and provider access controls
+retain their existing purpose. No new spending permission prompt is introduced.
+
+Validation: regression coverage includes authenticated audit acquisition with saved
+cost/token planning values, a subsequent LLM call after crossing the token threshold,
+legacy unknown-price pause compatibility, immutable effective policy and UI launch.
+
+## Historical record (policy above takes precedence)
+
 Checkpoint: 2026-09-15T09:20:34.513355+00:00. Part of #915. Implementation candidate after merged #917.
 
 ## Applied behaviour

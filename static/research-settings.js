@@ -11,8 +11,6 @@
   }
 
   function explain(reason) {
-    if (reason?.startsWith('budget_enforcement_unavailable')) return 'Запуск заблокирован: сквозной денежный и токеновый лимит пока недоступен. Сохранённые пороги не будут молча проигнорированы.';
-    if (reason?.startsWith('price_unknown')) return 'Запуск заблокирован: точная стоимость неизвестна. Для продолжения без денежного лимита требуется ваше явное разрешение.';
     if (reason?.startsWith('deadline_pause_resume_unavailable')) return 'Возобновление после паузы ещё недоступно. Для общего тайм-аута выберите остановку.';
     if (reason === 'settings_revision_conflict') return 'Настройки изменены в другом окне. Загрузите их заново.';
     return reason || 'Не удалось выполнить запрос.';
