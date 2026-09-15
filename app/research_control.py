@@ -8,6 +8,7 @@ import sqlite3
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from decimal import Decimal
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -32,6 +33,9 @@ class ResearchControl:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     llm_usage_reports: int = 0
+    search_attempts: int = 0
+    search_price_unknown: int = 0
+    search_estimates: dict[str, Decimal] = field(default_factory=dict)
     completed_chunks: int = 0
     documents_attempted: int = 0
     frontier_size: int = 0
@@ -49,7 +53,11 @@ class ResearchControl:
                 if getattr(self.settings, name) is not None:
                     thresholds[name] = "unknown"
         return {"spending_policy": "account_only", "monetary_limit_enforced": False,
-                "token_limit_enforced": False, "spending_thresholds": thresholds}
+                "token_limit_enforced": False, "spending_thresholds": thresholds,
+                "search_attempts": self.search_attempts,
+                "search_price_unknown": self.search_price_unknown,
+                "search_cost_estimate_by_currency": {key: str(value) for key, value in self.search_estimates.items()},
+                "search_cost_basis": "configured_tariff_per_dispatched_attempt"}
 
     def snapshot(self) -> dict:
         return {**self.spending_status(), "run_id": self.run_id, "deep_research": self.deep,
@@ -153,6 +161,27 @@ def bind_settings_snapshot(control, mission_id: str, analysis_id: str) -> None:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     control.settings_digest = saved["digest"]
     control.checkpoint("settings", saved)
+
+
+def record_search_attempt(provider) -> None:
+    """Persist a tariff estimate before dispatch, including failed/cancelled attempts.
+
+    This is not a billing receipt. Cache hits and denied/reserved-only work do not
+    call this hook. Unknown pricing remains separate from known zero-cost work.
+    """
+    control = current_research()
+    if control is None:
+        return
+    control.search_attempts += 1
+    amount, currency = provider.cost_amount, provider.cost_currency
+    known = (isinstance(amount, Decimal) and amount.is_finite() and amount >= 0
+             and isinstance(currency, str) and bool(currency)
+             and (not provider.paid or amount > 0))
+    if known:
+        control.search_estimates[currency] = control.search_estimates.get(currency, Decimal(0)) + amount
+    else:
+        control.search_price_unknown += 1
+    control.checkpoint("search_usage", control.snapshot())
 
 
 def record_llm_start() -> None:

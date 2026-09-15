@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.research_execution import active_settings, check_execution
+from app.research_control import record_search_attempt
 
 import asyncio
 import hashlib
@@ -403,6 +404,7 @@ class SearchGateway:
                 if backoff_seconds > 0:
                     await self._sleep(backoff_seconds)
             try:
+                record_search_attempt(provider)
                 calls_made += 1
                 async with asyncio.timeout(timeout if settings else None):
                     results = await provider.search(request, timeout_seconds=timeout)
