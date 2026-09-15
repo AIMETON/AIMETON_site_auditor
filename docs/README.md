@@ -66,3 +66,5 @@
 - [Document Preflight v0.1](architecture/DOCUMENT-PREFLIGHT-V0.1.md) — предварительный отбор больших документов перед полной LLM-обработкой.
 
 - [Hunter HTTP 500 — 2026-09-13](incidents/HUNTER-HTTP-500-2026-09-13.md) — воспроизведение и корректирующий кандидат для поиска клиентов.
+
+- [Настройки исследования: серверная основа](architecture/USER_RESEARCH_SETTINGS_V0.1.md) — #915, draft P0-B: schema/revisions/snapshots/API; UI и enforcement ещё не подключены.

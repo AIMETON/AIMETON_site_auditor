@@ -135,3 +135,9 @@ Tracking: #915. Shared uncovered DOM text traversal now feeds scraper and docume
 Six new cases fail on base SHA and pass on candidate. Full suite before the final equal-chunk regression addition: 1404 passed, 1 xfailed, 6 subtests. Final focused extraction/document suite: 25 passed. App import and diff check verified separately. CI and deployed real-company acceptance remain pending. JSON-LD, guarded dynamic rendering, traversal integration and user settings are not implemented in this slice.
 
 Next reviewable slice: P0-B user settings store/API/UI and per-run snapshot, followed by P0-C end-to-end enforcement. No aggregate budget change is activated by P0-A.
+
+### Continuation — 2026-09-15T03:33:54.995917+00:00
+
+Owner directed “Проверяй и действуй”. #916 merged with all PR gates green; merge e4941e5c052842bd9600f941a936160fd44e71bb, post-merge Baseline 34925159315 successful; stage health independently confirms exact SHA. Frozen real-company quality acceptance remains open.
+
+P0-B foundation draft: schema, owner/service revision persistence, conflict-safe writes, immutable internal snapshots, authenticated/CSRF router tested in isolation (16 tests). Not mounted; no UI or execution enforcement yet. Next: connect snapshot to owned launch, implement P0-C reservations/time guards, then publish user settings UI. See USER_RESEARCH_SETTINGS_V0.1.md. This is progress, not completion of P0-B/C or whole mission.

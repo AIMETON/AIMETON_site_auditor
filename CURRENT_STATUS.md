@@ -2,6 +2,12 @@
 
 _Last updated: 2026-07-30_
 
+## Audit recovery continuation — 2026-09-15T03:33:54.995917+00:00
+
+PR #916 merged as e4941e5c052842bd9600f941a936160fd44e71bb after all three PR checks passed. Post-merge Baseline CI 34925159315 succeeded. Stage health independently returned this exact deployment SHA on 2026-09-15; this is deployment identity evidence, not a real-company recall acceptance.
+
+Next P0-B draft adds server preference schema/revisions/snapshots and isolated authenticated API, with 16 focused tests passing. Router is not mounted: UI, effective policy and enforcement remain required before delivery. Details: [user settings](docs/architecture/USER_RESEARCH_SETTINGS_V0.1.md). Full mission #915 remains open.
+
 ## Audit quality recovery / #915 — 2026-09-15T02:39:46Z
 
 Owner requested a detailed plan and implementation start. Plan: [Audit Mission Quality](docs/roadmap/AUDIT_MISSION_QUALITY_PLAN_2026-09-15.md). P0-A candidate recovers overlooked DOM text in both extraction paths and splits oversized blocks without dropping tails. Six regression cases failed on base and now pass. Full suite: 1404 passed, 1 xfailed, 6 subtests before final equal-chunk test; final focused suite: 25 passed. Deployment/live acceptance remains open. User-owned persistent time/cost settings and their runtime enforcement are P0-B/C, not shipped here. Strict domain fallback remains protected; guarded dynamic support is a separate planned step.
