@@ -2,6 +2,10 @@
 
 _Last updated: 2026-07-30_
 
+## Audit quality recovery / #915 — 2026-09-15T02:39:46Z
+
+Owner requested a detailed plan and implementation start. Plan: [Audit Mission Quality](docs/roadmap/AUDIT_MISSION_QUALITY_PLAN_2026-09-15.md). P0-A candidate recovers overlooked DOM text in both extraction paths and splits oversized blocks without dropping tails. Six regression cases failed on base and now pass. Full suite: 1404 passed, 1 xfailed, 6 subtests before final equal-chunk test; final focused suite: 25 passed. Deployment/live acceptance remains open. User-owned persistent time/cost settings and their runtime enforcement are P0-B/C, not shipped here. Strict domain fallback remains protected; guarded dynamic support is a separate planned step.
+
 ## Hunter stop-responsiveness corrective candidate — 2026-09-14T02:54:18Z
 
 PR #907 merged as `3377b758fd48763a83bbcd9a407c417353434f3c`.

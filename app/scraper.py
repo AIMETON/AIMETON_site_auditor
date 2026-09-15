@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 import httpx
 from bs4 import BeautifulSoup
 
+from app.html_text_coverage import uncovered_text_runs
+
 MAX_BYTES = 1_500_000
 MAX_RENDERED_BYTES = 3_000_000
 MIN_TEXT_LEN = 80
@@ -91,7 +93,7 @@ def _validate_public_url(url: str) -> None:
 
 def extract_visible_text(html: str) -> tuple[str, str]:
     soup = BeautifulSoup(html, "html.parser")
-    for tag in soup(["script", "style", "noscript", "svg"]):
+    for tag in soup(["script", "style", "noscript", "svg", "template"]):
         tag.decompose()
     title = soup.title.get_text(" ", strip=True) if soup.title else ""
     chunks = []
@@ -99,6 +101,10 @@ def extract_visible_text(html: str) -> tuple[str, str]:
         text = " ".join(el.get_text(" ", strip=True).split())
         if len(text) >= 3:
             chunks.append(text)
+    chunks.extend(text for _, text in uncovered_text_runs(
+        soup.body or soup,
+        frozenset({"head", "title", "h1", "h2", "h3", "p", "li", "a", "button"}),
+    ))
     deduped = list(dict.fromkeys(chunks))
     return title, "\n".join(deduped)
 

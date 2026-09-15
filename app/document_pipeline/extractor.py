@@ -7,6 +7,8 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
+from app.html_text_coverage import uncovered_text_runs
+
 from app.document_pipeline.models import (
     BlockKind,
     ContentRegion,
@@ -25,6 +27,18 @@ def normalize_text(value: str) -> str:
 
 def digest_text(value: str) -> str:
     return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
+
+
+def _text_blocks(*, locator: str, kind: BlockKind, text: str,
+                 region: ContentRegion = ContentRegion.BODY) -> list[ExtractedBlock]:
+    """Fit the block contract without dropping the end of a large DOM element."""
+    if len(text) <= 20_000:
+        return [ExtractedBlock(locator=locator, kind=kind, text=text, region=region)]
+    return [
+        ExtractedBlock(locator=f"{locator}/part[{offset // 20_000 + 1}]",
+                       kind=kind, text=text[offset:offset + 20_000], region=region)
+        for offset in range(0, len(text), 20_000)
+    ]
 
 
 @dataclass(frozen=True)
@@ -57,7 +71,7 @@ def extract_html(html: str, *, base_url: str) -> Extraction:
     blocks: list[ExtractedBlock] = []
     title = normalize_text(soup.title.get_text(" ", strip=True)) if soup.title else ""
     if title:
-        blocks.append(ExtractedBlock(locator="head/title", kind=BlockKind.TITLE, text=title))
+        blocks.extend(_text_blocks(locator="head/title", kind=BlockKind.TITLE, text=title))
 
     counters: dict[tuple[ContentRegion, str], int] = {}
     root = soup.body or soup
@@ -76,8 +90,8 @@ def extract_html(html: str, *, base_url: str) -> Extraction:
             if tag == "li"
             else BlockKind.PARAGRAPH
         )
-        blocks.append(
-            ExtractedBlock(
+        blocks.extend(
+            _text_blocks(
                 locator=(
                     f"{_region_prefix(region)}/{tag}[{counters[counter_key]}]"
                 ),
@@ -101,8 +115,8 @@ def extract_html(html: str, *, base_url: str) -> Extraction:
                 value = normalize_text(cell.get_text(" ", strip=True))
                 cells.append(value)
                 if value:
-                    blocks.append(
-                        ExtractedBlock(
+                    blocks.extend(
+                        _text_blocks(
                             locator=(
                                 f"{prefix}/table[{table_index}]/row[{row_index}]"
                                 f"/cell[{cell_index}]"
@@ -122,6 +136,17 @@ def extract_html(html: str, *, base_url: str) -> Extraction:
                     rows=rows,
                 )
             )
+
+    uncovered_counters: dict[ContentRegion, int] = {}
+    for element, text in uncovered_text_runs(
+        root, frozenset({"head", "title", "h1", "h2", "h3", "h4", "p", "li", "dt", "dd", "th", "td"}),
+    ):
+        region = _region_for(element)
+        uncovered_counters[region] = uncovered_counters.get(region, 0) + 1
+        blocks.extend(_text_blocks(
+            locator=f"{region.value}/text[{uncovered_counters[region]}]",
+            kind=BlockKind.PARAGRAPH, region=region, text=text,
+        ))
 
     links: list[ExtractedLink] = []
     link_counters: dict[ContentRegion, int] = {}
@@ -145,6 +170,10 @@ def extract_html(html: str, *, base_url: str) -> Extraction:
     unique_blocks: list[ExtractedBlock] = []
     seen: set[tuple[ContentRegion, BlockKind, str]] = set()
     for block in blocks:
+        # Equal chunks at different offsets still belong to the original corpus.
+        if "/part[" in block.locator:
+            unique_blocks.append(block)
+            continue
         key = (block.region, block.kind, block.text)
         if key in seen:
             continue
