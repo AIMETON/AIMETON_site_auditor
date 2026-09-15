@@ -4,6 +4,7 @@
 
 - [Исследовательские основания развития всей поисково-разведывательной системы](research/AIMETON_Site_Auditor_full_system_search_research.md) — история рассуждений и причин архитектурных решений: выводы тестирования KIMI, переход от расширенного поиска к 12 РПТК, фрактальности, многоплоскостности, свойствам мишеней, сценариям, федеративным провайдерам, Evidence/Entity Graph и адаптивному усушению ветвей.
 - [Evidence Memory и первый RAG-контур](research/AIMETON_Evidence_Memory_OpenRAG_research.md) — отдельное исследование подсистемы памяти, причины выбора архитектуры и путь от Document RAG к операционной онтологии AIMETON.
+- [NotFair → AIMETON: SEO/GEO skill-паттерны](research/NOTFAIR_SEO_GEO_SKILL_ADAPTATION_2026-09-15.md) — #920: выборочная адаптация `intent → skill → evidence → deterministic checks → result/eval`, GEO/SEO/competitor/drift зерна, goal-loop как измерительная дисциплина; `NO FORK`, hosted NotFair MCP не является зависимостью ядра.
 - [Semantic Verifier P0 — offline calibration scaffold](research/VERIFIER-P0-OFFLINE.md) — provider-neutral контракт, Golden-5 candidate fixtures, fail-closed границы semantic verifier и условия перехода к live logprob backend.
 - [Semantic Verifier P0 — backend capability qualification](research/VERIFIER-BACKEND-CAPABILITY-P0.md) — gate `contract_candidate → runtime_qualified`, RouterAI как первый кандидат и измеримые требования к token-level `logprobs/top_logprobs` без права обхода hard/evidence/policy gates.
 - [Semantic Verifier P0 — live Golden-5 calibration](research/VERIFIER-P0-LIVE-CALIBRATION.md) — подтверждённый RouterAI runtime backend, pinned AIMETON fork, budget-aware live harness и измерительный gate перед дальнейшей продуктовой интеграцией.
@@ -11,6 +12,7 @@
 ## Главный план развития
 
 - [Качество аудита и управляемое исполнение миссии](roadmap/AUDIT_MISSION_QUALITY_PLAN_2026-09-15.md) — #915: полнота краулинга, единые runs двух аудитов, пользовательские настройки тайм-аутов и расходов; P0-A в реализации.
+- [SEO/GEO Intelligence Plan](roadmap/SEO_GEO_INTELLIGENCE_PLAN_2026-09-15.md) — #920: зависимый продуктовый слой поверх стабильного corpus/evidence: read-only SEO/GEO/competitor/SXO/schema → connected GSC/GA4 → drift → коммерческий пилот; Ads mutations только за отдельным approval/budget gate.
 
 - [Audit Research Profile Loop v0.1](architecture/AUDIT-RESEARCH-PROFILE-LOOP-V0.1.md) — кандидат восстановления полноты аудита и уточняющего поиска из диалога; локальные проверки и открытая stage-приёмка.
 
