@@ -1,5 +1,33 @@
 # User research execution — supported time policy v0.1
 
+## Recovery of research accounting after process restart
+
+Checkpoint: 2026-09-16T06:27:41.834941+00:00. Part of #915, P0-D accounting continuity.
+The async analysis identifier and research run identifier were distinct. #923 persisted
+spending checkpoints but REST/MCP status read usage only from in-memory controls.
+After restart the durable analysis remained visible while its counters disappeared.
+
+New async site/refinement launches persist an immutable analysis-to-run/owner binding
+before scheduling provider work. Each research checkpoint atomically also writes a
+public status snapshot. LLM dispatch now checkpoints the started call before awaiting
+a response, so a crash cannot erase that observed call merely because usage is absent.
+REST/MCP's shared status projection reads the latest saved snapshot when live controls
+are unavailable; recovery is marked with accounting_recovered and checkpoint time.
+UI labels recovered counters and hides the non-functional stop control for such runs.
+Readback never resumes providers, recreates consent, changes audit state or implies a
+confirmed bill. No spending admission gate is added. Only existing public counter
+fields are exposed, not owner IDs, settings payloads or provider contents.
+
+Old unbound runs cannot be reliably associated retrospectively and remain without
+recovered counters; no guessed association or invented zero is returned. Missing or
+corrupt accounting does not hide the durable analysis status. This is a recovery of
+last observed accounting, not billing reconciliation or durable worker resume.
+Company async execution, partial reports and complete monetary reconciliation remain
+open plan items. Tests cover actual launch binding with/without saved settings, loss
+of process dictionaries, interrupted LLM calls, currency estimates, immutable binding,
+run isolation and unavailable/corrupt accounting.
+
+
 ## Search spending observations
 
 Checkpoint: 2026-09-15T14:24:16.262759+00:00. Continuation of #915 after #921.

@@ -48,7 +48,7 @@ async def test_deep_extraction_processes_beyond_fast_path_and_retains_many_peopl
     assert control.completed_chunks == 85
     assert not deep_research_enabled()
     with sqlite3.connect(tmp_path / "runtime.db") as db:
-        assert db.execute("SELECT COUNT(*) FROM research_run_checkpoints").fetchone()[0] == 86
+        assert db.execute("SELECT COUNT(*) FROM research_run_checkpoints WHERE chunk_key != 'status'").fetchone()[0] == 86
 
 
 @pytest.mark.asyncio

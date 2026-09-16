@@ -82,10 +82,56 @@ class ResearchControl:
             db.execute("INSERT OR REPLACE INTO research_run_checkpoints VALUES (?, ?, ?, ?, ?)",
                 (self.run_id, key, self.owner_id, datetime.now(timezone.utc).isoformat(),
                  json.dumps(payload, ensure_ascii=False)))
+            # A dedicated snapshot avoids choosing between incompatible checkpoint
+            # payloads or relying on wall-clock ordering after a restart.
+            db.execute("INSERT OR REPLACE INTO research_run_checkpoints VALUES (?, ?, ?, ?, ?)",
+                (self.run_id, "status", self.owner_id, datetime.now(timezone.utc).isoformat(),
+                 json.dumps(self.snapshot(), ensure_ascii=False)))
 
 
 _CURRENT: ContextVar[ResearchControl | None] = ContextVar("research_control", default=None)
 CONTROLS: dict[str, ResearchControl] = {}
+
+
+def bind_analysis_control(control: ResearchControl | None, analysis_id: str) -> None:
+    """Persist the analysis/run association before scheduling any provider work."""
+    if control is None:
+        return
+    control.checkpoint("bound", control.snapshot())
+    path = os.getenv("AIMETON_RUNTIME_DB", "data/runtime-core.sqlite3")
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE IF NOT EXISTS research_analysis_runs "
+                   "(analysis_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, owner_id INTEGER)")
+        db.execute("INSERT OR IGNORE INTO research_analysis_runs VALUES (?, ?, ?)",
+                   (analysis_id, control.run_id, control.owner_id))
+        existing = db.execute("SELECT run_id, owner_id FROM research_analysis_runs WHERE analysis_id=?",
+                              (analysis_id,)).fetchone()
+        if existing != (control.run_id, control.owner_id):
+            raise SettingsConflict("analysis_research_binding_conflict")
+    CONTROLS[analysis_id] = control
+
+
+def recovered_research_snapshot(analysis_id: str) -> dict | None:
+    """Read last observed counters only; never resume work or reconstruct consent."""
+    path = Path(os.getenv("AIMETON_RUNTIME_DB", "data/runtime-core.sqlite3")).resolve()
+    try:
+        with sqlite3.connect(path.as_uri() + "?mode=ro", uri=True) as db:
+            row = db.execute("""SELECT c.payload, c.created_at
+                FROM research_analysis_runs a JOIN research_run_checkpoints c
+                ON c.run_id=a.run_id AND c.owner_id IS a.owner_id
+                WHERE a.analysis_id=? AND c.chunk_key='status'""", (analysis_id,)).fetchone()
+        if row is None:
+            return None
+        saved = json.loads(row[0])
+        if not isinstance(saved, dict):
+            return None
+        # Only fields already exposed by live status; never checkpoint settings,
+        # owner identifiers, provider bodies, prompts or arbitrary added payloads.
+        allowed = ResearchControl(settings=ResearchSettings()).snapshot().keys()
+        return {**{key: saved[key] for key in allowed if key in saved},
+                "accounting_recovered": True, "accounting_checkpoint_at": row[1]}
+    except (sqlite3.Error, ValueError, OSError):
+        return None
 
 
 def current_research() -> ResearchControl | None:
@@ -192,6 +238,7 @@ def record_llm_start() -> None:
         if control.stop_requested:
             raise ResearchStopped("research_stopped_by_user")
         control.llm_calls += 1
+        control.checkpoint("llm_started", control.snapshot())
 
 
 def record_llm_usage(body: dict) -> None:
