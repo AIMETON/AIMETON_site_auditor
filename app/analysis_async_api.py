@@ -23,7 +23,7 @@ from app.mission_orchestrator import (
     record_legacy_site_turn,
 )
 from app.models import AnalyzeRequest, ChatRequest
-from app.research_control import CONTROLS, authorize_research, bind_research, deep_research_enabled, bind_settings_snapshot
+from app.research_control import CONTROLS, authorize_research, bind_research, deep_research_enabled, bind_settings_snapshot, bind_analysis_control, recovered_research_snapshot
 from app.public_llm_status import (
     project_public_llm_input_metrics,
     project_public_llm_outcome,
@@ -491,6 +491,9 @@ def _status_from_projection(projection: AnalysisProjection) -> dict[str, Any]:
             }
         )
     payload["progress"] = progress
+    research = recovered_research_snapshot(projection.analysis_id)
+    if research is not None:
+        payload["research"] = research
     return payload
 
 
@@ -520,6 +523,10 @@ def get_analysis_status_payload(analysis_id: str) -> dict[str, Any]:
 
     if analysis_id in CONTROLS:
         payload["research"] = CONTROLS[analysis_id].snapshot()
+    else:
+        research = recovered_research_snapshot(analysis_id)
+        if research is not None:
+            payload["research"] = research
     with _LOCK:
         if _ANALYSES.get(analysis_id, {}).get("dialogue_reply"):
             payload["dialogue_reply"] = _ANALYSES[analysis_id]["dialogue_reply"]
@@ -872,8 +879,7 @@ async def start_analysis(req: AnalyzeRequest, background_tasks: BackgroundTasks,
         _append_event(started.analysis_id, phase="settings_conflict", event_code="mission.failed", state="failed",
                       icon_key="alert-triangle", message="Настройки изменились; повторите запуск.")
         raise
-    if control:
-        CONTROLS[started.analysis_id] = control
+    bind_analysis_control(control, started.analysis_id)
     background_tasks.add_task(
         _run_analysis,
         source_url=str(req.url),
@@ -948,6 +954,6 @@ async def start_deep_refinement(req: ChatRequest, background_tasks: BackgroundTa
         raise HTTPException(status_code=422, detail="deep_refinement_requires_search_and_budget_consent")
     control = authorize_research(req, request, use_saved_settings=False)
     started = create_analysis_runtime(req.analysis.url, entry_point=EntryPoint.LEGACY_ADAPTER)
-    CONTROLS[started.analysis_id] = control
+    bind_analysis_control(control, started.analysis_id)
     background_tasks.add_task(_run_dialogue_research, req, started)
     return started
