@@ -202,13 +202,14 @@
     const latest = lastEvent();
     const mission = state.mission || {};
     const running = !state.result;
+    const partial = state.result?.research_status?.result_quality === 'partial';
     root.innerHTML = `
       <div class="baw-shell">
         <section class="baw-runtime ${running ? '' : 'baw-runtime--done'}">
           <div class="baw-runtime__head">
             <div>
               <p class="baw-kicker">AIMETON · живая миссия</p>
-              <h2>${running ? 'Исследование бизнеса выполняется' : 'Исследование завершено'}</h2>
+              <h2>${partial ? 'Исследование не завершено — сохранён частичный отчёт' : running ? 'Исследование бизнеса выполняется' : 'Исследование завершено'}</h2>
               <p class="baw-muted">${mission.mission_id ? `Миссия ${esc(mission.mission_id)}` : 'Миссия создаётся'}</p>
             </div>
             <span class="baw-state">${esc(state.runtimeState || 'queued')}</span>
@@ -239,7 +240,8 @@
     renderWorkspace();
   });
 
-  window.addEventListener('aimeton:analysis-complete', event => {
+  for (const eventName of ['aimeton:analysis-complete', 'aimeton:analysis-partial']) {
+  window.addEventListener(eventName, event => {
     state.mission = event.detail?.mission || state.mission;
     state.runtimeState = event.detail?.state || state.runtimeState;
     state.result = event.detail?.result || null;
@@ -247,4 +249,5 @@
     root.hidden = false;
     renderWorkspace();
   });
+  }
 })();

@@ -27,7 +27,7 @@ def test_workspace_bridge_keeps_backend_states_and_real_event_payload() -> None:
         assert state in script
 
     assert "events: latestEvents.map" in script
-    assert "result: status.result" in script
+    assert "result: availableResult" in script
     assert "terminal: TERMINAL.has(state)" in script
     assert "percentage" not in script.lower()
     assert "progress_percent" not in script.lower()

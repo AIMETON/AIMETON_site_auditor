@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.research_execution import active_settings, run_controlled, ResearchInterrupted
+from app.research_execution import active_settings, run_controlled, ResearchInterrupted, check_execution
 
 import asyncio
 import os
@@ -155,6 +155,7 @@ def _persist_projection(record: dict[str, Any]) -> None:
             updated_at=str(record["updated_at"]),
             runtime_instance_id=str(record["runtime_instance_id"]),
             result=record.get("result"),
+            partial_result=record.get("partial_result"),
         )
     except Exception:
         # Durability is additive. A projection failure must not regress the
@@ -470,6 +471,7 @@ def _status_from_projection(projection: AnalysisProjection) -> dict[str, Any]:
         "created_at": projection.created_at,
         "updated_at": projection.updated_at,
         "result": projection.result,
+        "partial_result": projection.partial_result,
     }
     progress = _trace_runtime_snapshot(projection.mission_id, projection.analysis_id)
     if interrupted:
@@ -510,6 +512,7 @@ def get_analysis_status_payload(analysis_id: str) -> dict[str, Any]:
                 "created_at": record["created_at"],
                 "updated_at": record["updated_at"],
                 "result": record["result"],
+                "partial_result": record.get("partial_result"),
                 "interrupted_by_runtime_restart": False,
                 "resume_required": False,
             }
@@ -716,6 +719,22 @@ async def _run_analysis_body(
         )
         page = await fetch_site(source_url)
         final_url = page["final_url"]
+        # Persist a local, explicitly preliminary report before any external await.
+        partial = heuristic_analysis(final_url, page["title"], page["text"])
+        partial.mission_id, partial.analysis_id = mission_id, analysis_id
+        partial.research_status.update(result_quality="partial", checkpoint_stage="site_acquired")
+        partial.readiness.provider_states["external_enrichment"] = "not_completed"
+        partial.readiness.release_blockers.append("audit_not_completed")
+        partial.risks_and_assumptions.insert(0,
+            "Частичный предварительный отчёт по странице сайта. Внешнее исследование и проверка выводов не завершены.")
+        with _LOCK:
+            _ANALYSES[analysis_id]["partial_result"] = partial.model_dump(mode="json")
+            partial_snapshot = dict(_ANALYSES[analysis_id])
+        _persist_projection(partial_snapshot)
+        check_execution()
+        control = CONTROLS.get(analysis_id)
+        if control and control.stop_requested:
+            raise ResearchInterrupted(control.stop_reason or "stopped_by_user")
         _append_event(
             analysis_id,
             phase="site_fetch_completed",
@@ -767,6 +786,10 @@ async def _run_analysis_body(
             detail=_heartbeat_detail(_trace_runtime_snapshot(mission_id, analysis_id)),
             next_action="Зафиксировать итоговый результат миссии.",
         )
+        check_execution()
+        control = CONTROLS.get(analysis_id)
+        if control and control.stop_requested:
+            raise ResearchInterrupted(control.stop_reason or "stopped_by_user")
         record_legacy_site_turn(
             orchestrator,
             mission_id,
@@ -840,7 +863,7 @@ async def _run_analysis(*, source_url: str, mission_id: str, analysis_id: str) -
         record_legacy_site_turn(get_mission_orchestrator(), mission_id, final_url=source_url, succeeded=False)
         _append_event(analysis_id, phase=exc.reason, event_code="mission.failed", state="failed",
                       icon_key="clock", message="Исследование остановлено по настройкам пользователя.",
-                      detail=exc.reason, next_action="Исследование не завершено; измените настройки для нового запуска.")
+                      detail=exc.reason, next_action="Исследование не завершено; доступный частичный отчёт сохранён отдельно.")
 
 
 def schedule_analysis_runtime(

@@ -1,6 +1,6 @@
 (() => {
   const ACTIVE_KEY = 'aimeton_active_analysis_v1';
-  const TERMINAL = new Set(['completed', 'degraded', 'blocked', 'failed']);
+  const TERMINAL = new Set(['completed', 'failed']);
   const form = document.querySelector('#form');
   const statusNode = document.querySelector('#status');
   const button = document.querySelector('#analyzeBtn');
@@ -182,25 +182,26 @@
       document.querySelector('#researchUsage').textContent = (usage?.deep_research || usage?.settings_revision !== undefined && usage?.settings_revision !== null)
         ? `${usage.accounting_recovered ? 'Восстановлены сохранённые счётчики. ' : ''}Стоимость не подтверждена.${Object.keys(usage.search_cost_estimate_by_currency || {}).length ? ' Оценка поиска по тарифам: ' + Object.entries(usage.search_cost_estimate_by_currency).map(([currency, amount]) => `${amount} ${currency}`).join(', ') + '.' : ''} Документов: ${usage.documents_attempted || 0}; вызовов: ${usage.llm_calls}; токенов: ${usage.prompt_tokens + usage.completion_tokens}; обработано порций: ${usage.completed_chunks}.${Object.values(usage.spending_thresholds || {}).includes('reached') ? ' Плановый порог токенов достигнут; исследование продолжается.' : ''}${usage.progress_warning ? ' Исследование продолжается; можно дождаться результата или остановить.' : ''}${usage.stop_requested ? ' Останавливаем исследование…' : ''}` : '';
       document.querySelector('#stopResearch').hidden = !(usage?.deep_research || usage?.settings_revision !== undefined && usage?.settings_revision !== null) || TERMINAL.has(status.state) || !!usage?.accounting_recovered;
-      if (TERMINAL.has(status.state)) {
+      if (TERMINAL.has(status.state) || status.interrupted_by_runtime_restart) {
         clearInterval(pollTimer);
         clearInterval(elapsedTimer);
         pollTimer = null;
         elapsedTimer = null;
         button.disabled = false;
         rememberActive(null);
-        if (status.result) {
-          analysis = status.result;
+        const availableResult = status.result || status.partial_result;
+        if (availableResult) {
+          analysis = availableResult;
           activeAnalysisId = ensureAnalysisId(analysis);
           setChatSession([]);
           renderChatSession();
           render();
           saveToHistory(analysis);
-          emitWorkspaceEvent('aimeton:analysis-complete', {
+          emitWorkspaceEvent(status.result ? 'aimeton:analysis-complete' : 'aimeton:analysis-partial', {
             mission: current ? { ...current } : null,
             state: status.state,
             updated_at: status.updated_at,
-            result: status.result,
+            result: availableResult,
           });
         }
       }
@@ -225,9 +226,9 @@
     rememberActive({ ...payload, started_at: startedAt });
     emitWorkspaceEvent('aimeton:analysis-started', { mission: { ...payload } });
     renderReporter([], payload.state, new Date().toISOString());
-    await poll();
     pollTimer = setInterval(poll, 1200);
     elapsedTimer = setInterval(refreshClockAndHeartbeat, 1000);
+    await poll();
   }
 
   document.querySelector('#stopResearch').onclick = async () => {

@@ -20,6 +20,7 @@ class AnalysisProjection:
     updated_at: str
     runtime_instance_id: str
     result: dict[str, Any] | None
+    partial_result: dict[str, Any] | None = None
 
 
 class AnalysisRuntimeProjectionStore:
@@ -76,6 +77,10 @@ class AnalysisRuntimeProjectionStore:
                 """
             )
 
+            columns = {row[1] for row in db.execute("PRAGMA table_info(runtime_analysis_projection)")}
+            if "partial_result_json" not in columns:
+                db.execute("ALTER TABLE runtime_analysis_projection ADD COLUMN partial_result_json TEXT")
+
     def upsert(
         self,
         *,
@@ -88,19 +93,21 @@ class AnalysisRuntimeProjectionStore:
         updated_at: str,
         runtime_instance_id: str,
         result: dict[str, Any] | None,
+        partial_result: dict[str, Any] | None = None,
     ) -> None:
         rendered = (
             json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
             if result is not None
             else None
         )
+        partial_rendered = json.dumps(partial_result, ensure_ascii=False) if partial_result is not None else None
         with self._lock, self._connect() as db:
             db.execute(
                 """
                 INSERT INTO runtime_analysis_projection(
                     analysis_id, mission_id, source_url, state, phase,
-                    created_at, updated_at, runtime_instance_id, result_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, updated_at, runtime_instance_id, result_json, partial_result_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(analysis_id) DO UPDATE SET
                     mission_id=excluded.mission_id,
                     source_url=excluded.source_url,
@@ -108,7 +115,8 @@ class AnalysisRuntimeProjectionStore:
                     phase=excluded.phase,
                     updated_at=excluded.updated_at,
                     runtime_instance_id=excluded.runtime_instance_id,
-                    result_json=excluded.result_json
+                    result_json=excluded.result_json,
+                    partial_result_json=COALESCE(excluded.partial_result_json, runtime_analysis_projection.partial_result_json)
                 """,
                 (
                     analysis_id,
@@ -120,6 +128,7 @@ class AnalysisRuntimeProjectionStore:
                     updated_at,
                     runtime_instance_id,
                     rendered,
+                    partial_rendered,
                 ),
             )
 
@@ -147,7 +156,7 @@ class AnalysisRuntimeProjectionStore:
             row = db.execute(
                 """
                 SELECT analysis_id, mission_id, source_url, state, phase,
-                       created_at, updated_at, runtime_instance_id, result_json
+                       created_at, updated_at, runtime_instance_id, result_json, partial_result_json
                 FROM runtime_analysis_projection
                 WHERE analysis_id = ?
                 """,
@@ -166,6 +175,7 @@ class AnalysisRuntimeProjectionStore:
             updated_at=row["updated_at"],
             runtime_instance_id=row["runtime_instance_id"],
             result=result,
+            partial_result=json.loads(row["partial_result_json"]) if row["partial_result_json"] else None,
         )
 
     def events(self, analysis_id: str) -> list[dict[str, Any]]:

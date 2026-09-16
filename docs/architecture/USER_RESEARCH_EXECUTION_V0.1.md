@@ -1,5 +1,34 @@
 # User research execution — supported time policy v0.1
 
+## Partial site report survives interruption
+
+Checkpoint: 2026-09-16T16:28:30.112378+00:00. Part of #915, P0-D.
+Async site audit now saves a local heuristic report immediately after site acquisition,
+before awaiting external enrichment. The existing durable analysis projection gains
+an additive nullable partial_result_json column; old databases migrate in place.
+REST/MCP shared status exposes partial_result separately from result. Mission/analysis
+IDs and final fetched URL are retained; readiness stays preliminary and explicitly
+blocks client release with audit_not_completed. The report identifies its stage as
+site_acquired and quality as partial, with a visible explanation of incomplete research.
+
+Timeout, requested stop, subsequent error or process restart retain that checkpoint.
+A stop observed before final commit cannot publish the completed result. Success still
+returns result normally. Failed/interrupted runs do not become completed just because
+a partial report exists. UI shows partial reports under a separate analysis-partial
+event and heading, retains export/history metadata and stops polling a confirmed
+restart interruption. Transient degraded/blocked phases no longer end UI polling.
+The initial polling timer is registered before the first awaited poll, avoiding a
+new timer after a terminal response has already cleared it.
+
+Scope is the local site-acquisition report, not a merger of all in-flight external
+evidence/chunk checkpoints or a reconstruction of raw page text. Failures before
+acquisition still have no partial report. Sync company/site responses and durable
+provider resume remain outside this slice. No extra provider calls, spending caps
+or permission gates are introduced. Tests cover timeout, stop, error, success,
+restart, old-schema migration and real workspace partial/completed event rendering.
+Full local suite: 1486 passed, 1 xfailed, 6 subtests. Live deployment is checked separately.
+
+
 ## Recovery of research accounting after process restart
 
 Checkpoint: 2026-09-16T06:27:41.834941+00:00. Part of #915, P0-D accounting continuity.
