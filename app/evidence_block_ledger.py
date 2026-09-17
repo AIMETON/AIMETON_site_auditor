@@ -176,7 +176,23 @@ def build_evidence_ledger(records: Iterable[IntelligenceSource]) -> EvidenceLedg
 
 
 def compact_source_list_in_place(sources: list[IntelligenceSource]) -> int:
-    """Remove transitional block children from a public/document source list."""
+    """Keep one public source per verified primary document.
+
+    Transitional block children are removed. Verified parents are also collapsed by
+    fetched content digest/canonical final URL, while non-evidence discovery candidates
+    remain visible for lifecycle diagnostics.
+    """
     before = len(sources)
-    sources[:] = [source for source in sources if not is_block_child(source)]
+    compacted: list[IntelligenceSource] = []
+    seen_evidence_documents: set[str] = set()
+    for source in sources:
+        if is_block_child(source):
+            continue
+        if source.lifecycle_state == "evidence":
+            key = _document_key(source)
+            if key in seen_evidence_documents:
+                continue
+            seen_evidence_documents.add(key)
+        compacted.append(source)
+    sources[:] = compacted
     return before - len(sources)
