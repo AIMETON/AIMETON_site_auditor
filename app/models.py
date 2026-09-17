@@ -11,6 +11,27 @@ class AgentRecommendation(BaseModel):
     priority: Literal["Высокий", "Средний", "Низкий"] = "Средний"
 
 
+class EvidenceBlock(BaseModel):
+    """One retained, locatable block nested under a primary evidence document."""
+
+    id: str = Field(description="Stable block identifier inside the parent document")
+    evidence_quote: str = Field(description="Retained verbatim block text or bounded fragment")
+    evidence_locator: str
+    evidence_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    query_kind: str = "unknown"
+    relevance: Literal["high", "medium", "low", "none"] = "medium"
+    entity_relation: Literal[
+        "target", "affiliate", "counterparty", "competitor", "publisher",
+        "mentioned_only", "unknown",
+    ] = "target"
+    role: Literal[
+        "primary_fact", "corroboration", "context", "navigation_noise",
+        "publisher_metadata", "related_entity", "advertising",
+    ] = "context"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reason: str = ""
+
+
 class EvidenceSource(BaseModel):
     id: str = Field(description="Короткий идентификатор источника, например S1")
     title: str
@@ -39,6 +60,7 @@ class EvidenceSource(BaseModel):
         pattern=r"^sha256:[0-9a-f]{64}$",
     )
     fetch_path: Literal["static", "crawl4ai", "browser", "cache"] | None = None
+    evidence_blocks: list[EvidenceBlock] = Field(default_factory=list)
 
 
 class EconomicSignal(BaseModel):

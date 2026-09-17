@@ -63,6 +63,22 @@
     else root.appendChild(section);
   }
 
+  function renderEvidenceBlocks(source) {
+    const blocks = Array.isArray(source.evidence_blocks) ? source.evidence_blocks : [];
+    if (!blocks.length) return '';
+    return `
+      <details style="margin-top:8px">
+        <summary>Релевантные evidence-блоки: ${blocks.length}</summary>
+        <ol style="margin-top:8px">
+          ${blocks.map((block) => `<li style="margin-bottom:10px">
+            <small><strong>${esc(block.id)}</strong> · ${esc(block.query_kind || 'unknown')} · ${esc(block.entity_relation || 'unknown')} · ${esc(block.relevance || 'unknown')}</small>
+            <blockquote style="margin:6px 0">${esc(block.evidence_quote || '')}</blockquote>
+            <small>Locator: ${esc(block.evidence_locator || '—')} · ${esc(block.reason || '')}</small>
+          </li>`).join('')}
+        </ol>
+      </details>`;
+  }
+
   function renderSources() {
     renderExtendedProfile();
     const root = document.querySelector('#resultInner');
@@ -79,12 +95,16 @@
       });
     });
 
+    const blockCount = sources.reduce(
+      (total, source) => total + (Array.isArray(source.evidence_blocks) ? source.evidence_blocks.length : 0),
+      0
+    );
     const section = document.createElement('section');
     section.className = 'panel';
     section.dataset.aimetonSources = 'true';
     section.innerHTML = `
       <h3>Источники и доказательства</h3>
-      <p><small>Ссылки предназначены для ручного фактчекинга. Поисковый сниппет является сигналом до проверки первоисточника.</small></p>
+      <p><small>${sources.length} первичных документов · ${blockCount} релевантных evidence-блоков. Ссылки предназначены для ручного фактчекинга. Поисковый сниппет является сигналом до проверки первоисточника.</small></p>
       <ol>
         ${sources.map((source) => {
           const linked = signalRefs.get(source.id) || [];
@@ -94,6 +114,7 @@
             <a href="${esc(source.url)}" target="_blank" rel="noopener noreferrer">${esc(source.url)}</a><br>
             <small>Проверено: ${esc(checked)} · Тип: ${esc(source.source_type || 'не указан')} · Уровень: ${esc(source.evidence_level || 'не указан')}</small>
             <blockquote style="margin:8px 0">${esc(source.evidence_quote || 'Цитата не указана')}</blockquote>
+            ${renderEvidenceBlocks(source)}
             ${linked.length ? `<small><strong>Подтверждает сигналы:</strong> ${linked.map(esc).join('; ')}</small>` : ''}
           </li>`;
         }).join('')}

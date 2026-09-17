@@ -9,9 +9,13 @@ from app.search_gateway import SearchDiagnostics
 
 from app.adaptive_external_sources import collect_external_sources_adaptive
 from app.dadata_report_bridge import enrich_identity_with_dadata
+from app.evidence_source_projection import (
+    collapse_source_ids,
+    collapse_verified_evidence,
+    merge_document_sources,
+)
 from app.external_sources import (
     extract_identity_anchors,
-    source_type,
     to_llm_sources,
     query_plan,
 )
@@ -19,7 +23,7 @@ from app.external_verification import verify_external_sources
 from app.heuristics import heuristic_analysis
 from app.identity_anchor_guard import guard_identity_anchors
 from app.routerai_runtime import run_bounded_routerai_analysis as analyze_with_routerai
-from app.models import EvidenceSource, IntelligenceSource, SiteAnalysis
+from app.models import IntelligenceSource, SiteAnalysis
 from app.research_control import deep_research_enabled, current_research
 from app.search_result_triage import SearchTriageSummary, triage_search_candidates
 from datetime import datetime, timezone
@@ -27,6 +31,15 @@ from datetime import datetime, timezone
 
 def _host(url: str) -> str:
     return (urlparse(url).hostname or "").lower()
+
+
+def _remap_analysis_source_ids(analysis: SiteAnalysis) -> None:
+    for fact in analysis.company_facts:
+        fact.source_ids = collapse_source_ids(fact.source_ids)
+    for signal in analysis.economic_signals:
+        signal.source_ids = collapse_source_ids(signal.source_ids)
+    for cell in analysis.business_machine_4x4:
+        cell.source_ids = collapse_source_ids(cell.source_ids)
 
 
 async def _run_verified_enriched_site_analysis(
@@ -181,33 +194,14 @@ async def _run_verified_enriched_site_analysis(
             analysis.company_facts.append(fact)
             existing_fact_keys.add(key)
 
-    known_ids = {source.id for source in analysis.sources}
-    for source in verified:
-        if not source.evidence_quote or source.id in known_ids:
-            continue
-        analysis.sources.append(
-            EvidenceSource(
-                id=source.id,
-                title=source.document_title or source.title,
-                url=source.document_url or source.url,
-                accessed_at=source.document_accessed_at or source.accessed_at,
-                evidence_quote=source.evidence_quote,
-                source_type=source_type(source.source_class),
-                evidence_level=source.evidence_level,
-                document_url=source.document_url,
-                document_title=source.document_title,
-                document_accessed_at=source.document_accessed_at,
-                document_digest=source.document_digest,
-                evidence_locator=source.evidence_locator,
-                evidence_digest=source.evidence_digest,
-                fetch_path=source.fetch_path,
-            )
-        )
-        known_ids.add(source.id)
+    document_evidence = collapse_verified_evidence(verified)
+    analysis.sources = merge_document_sources(analysis.sources, document_evidence)
+    _remap_analysis_source_ids(analysis)
 
     discovery_count = sum(1 for source in external_sources if source.lifecycle_state == "discovery_hint")
     candidate_count = sum(1 for source in external_sources if source.lifecycle_state == "source_candidate")
-    evidence_count = sum(1 for source in external_sources if source.lifecycle_state == "evidence")
+    evidence_count = len(document_evidence)
+    evidence_blocks = sum(len(source.evidence_blocks) for source in document_evidence)
     anchor_parts = [
         f"domain={anchors.domain}" if anchors.domain else None,
         f"region={anchors.primary_region}" if anchors.primary_region else None,
@@ -224,7 +218,7 @@ async def _run_verified_enriched_site_analysis(
     analysis.risks_and_assumptions.append(
         "Контур внешних источников после fast triage: "
         f"discovery_hint={discovery_count}, source_candidate={candidate_count}, "
-        f"verified_evidence={evidence_count}."
+        f"verified_documents={evidence_count}, retained_blocks={evidence_blocks}."
     )
     analysis.risks_and_assumptions.append(
         "Поисковые сниппеты не считаются evidence; fast model управляет только приоритетом fetch. "
@@ -271,7 +265,9 @@ async def _run_verified_enriched_site_analysis(
         "discovery_hints": discovery_count,
         "source_candidates": candidate_count,
         "evidence_records": evidence_count,
-        "verified_documents": len({s.document_url or s.url for s in verified}),
+        "evidence_blocks_retained": evidence_blocks,
+        "transitional_extraction_records": len(verified),
+        "verified_documents": evidence_count,
         "unverified_documents": discovery_count + candidate_count,
         "preflight_excluded_documents": sum(s.preflight_decision == "exclude" for s in external_sources),
         "official_input_chars": len(text),
@@ -280,7 +276,7 @@ async def _run_verified_enriched_site_analysis(
     if evidence_count:
         analysis.readiness.evidence_quality = max(
             analysis.readiness.evidence_quality,
-            min(1.0, 0.25 + 0.08 * len({s.document_url or s.url for s in verified})),
+            min(1.0, 0.25 + 0.08 * evidence_count),
         )
     if current_research():
         analysis.research_status.update(current_research().snapshot())
