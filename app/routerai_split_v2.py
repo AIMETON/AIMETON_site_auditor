@@ -10,7 +10,15 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field
 
 from app.research_control import deep_research_enabled, current_research, ResearchStopped
-from app.models import BusinessMachineCell, CompanyFact, EconomicSignal, SiteAnalysis
+from app.models import (
+    ActionPackage,
+    BusinessMachineCell,
+    CommercialOpportunity,
+    CompanyFact,
+    EconomicSignal,
+    SiteAnalysis,
+)
+from app.profile_consolidation import consolidate_merged_profile
 from app.routerai_evidence_ledger import persist_merged_evidence_ledger
 from app.routerai_profile_extraction import extract_profile_parallel
 from app.routerai_split_synthesis import (
@@ -123,6 +131,33 @@ def _expand_commercial(
     )
 
 
+def _unavailable_commercial() -> CommercialSynthesis:
+    """Compatibility payload for a profile whose commercial reasoning did not finish.
+
+    SiteAnalysis currently requires a numeric score and an ActionPackage. Zero here is
+    not a low-opportunity verdict: research_status.commercial_score_available=false is
+    authoritative and UI/export layers must render the score as not calculated.
+    """
+    return CommercialSynthesis.model_construct(
+        commercial_opportunity=CommercialOpportunity(
+            opportunity_type="Коммерческая оценка не рассчитана",
+            problem_hypothesis="Коммерческий reasoning не завершён; извлечённые факты сохранены.",
+            recommended_solution="Повторить коммерческий synthesis по сохранённому консолидированному профилю.",
+            expected_value="Не рассчитана",
+            score=0,
+            qualification="Недостаточно данных",
+        ),
+        agents=[],
+        action_package=ActionPackage(
+            decision_maker_hypothesis="Не рассчитано",
+            contact_reason="Не рассчитано",
+            demo_scenario=[],
+            first_message="Не рассчитано",
+            next_action="Повторить коммерческий reasoning без повторного поиска и extraction.",
+        ),
+    )
+
+
 def _merge_km_results(
     requests: list[tuple[tuple[str, ...], BaseModel]],
 ) -> BusinessMachineSynthesis:
@@ -183,11 +218,11 @@ async def analyze_with_routerai_split_v2(
     text: str,
     external_sources: list[dict] | None = None,
 ) -> SiteAnalysis:
-    """Coverage-preserving extraction → durable ledger → staged reasoning → assembly."""
+    """Coverage-preserving extraction → durable ledger → consolidation → reasoning."""
     external_sources = external_sources or []
     accessed_at = datetime.now(timezone.utc).isoformat()
 
-    merged = await extract_profile_parallel(
+    raw_merged = await extract_profile_parallel(
         request_json=_request_json,
         strict_request_json=request_json_strict,
         url=url,
@@ -196,34 +231,59 @@ async def analyze_with_routerai_split_v2(
         external_sources=external_sources,
         accessed_at=accessed_at,
     )
-    # Durability is an admission gate for mission-bound reasoning. Direct calls have no
-    # trace identity and intentionally skip persistence.
-    persist_merged_evidence_ledger(merged)
-
+    # Persist the full raw extraction before any reasoning-oriented cleanup. The raw
+    # evidence ledger remains the audit source of truth; consolidation is a projection.
+    persist_merged_evidence_ledger(raw_merged)
+    merged, consolidation = consolidate_merged_profile(
+        raw_merged,
+        external_sources=external_sources,
+    )
     profile = _full_reasoning_profile(merged)
     try:
         if current_research() and current_research().stop_requested:
             raise ResearchStopped("research_stopped_by_user")
-        return await asyncio.wait_for(
+        result = await asyncio.wait_for(
             _reason_and_assemble(url, title, text, external_sources, profile, accessed_at),
             timeout=None if deep_research_enabled() or active_settings() else 30.0,
         )
+        result.research_status.update({
+            "profile_consolidation": consolidation.safe_dict(),
+            "commercial_reasoning_state": "succeeded",
+            "commercial_score_available": True,
+        })
+        return result
     except Exception as exc:
-        # Extraction has already completed and been persisted. A reasoning
-        # failure must not discard its facts or pretend the provider succeeded.
-        from app.heuristics import heuristic_analysis
-        fallback = heuristic_analysis(url, title, text)
+        # Extraction is durable. Never turn a reasoning failure into a heuristic score
+        # that looks like a successful commercial decision.
         result = _assemble_site_analysis(
-            url=url, title=title, text=text, external_sources=external_sources,
-            profile=profile, km=BusinessMachineSynthesis(),
-            commercial=CommercialSynthesis(
-                commercial_opportunity=fallback.commercial_opportunity,
-                agents=fallback.agents, action_package=fallback.action_package,
-            ), accessed_at=accessed_at,
+            url=url,
+            title=title,
+            text=text,
+            external_sources=external_sources,
+            profile=profile,
+            km=BusinessMachineSynthesis(),
+            commercial=_unavailable_commercial(),
+            accessed_at=accessed_at,
         )
-        result.readiness.provider_states["routerai"] = "reasoning_failed_extraction_preserved"
+        stopped = isinstance(exc, ResearchStopped)
+        result.readiness.provider_states["routerai"] = (
+            "reasoning_stopped_extraction_preserved"
+            if stopped
+            else "reasoning_failed_extraction_preserved"
+        )
+        result.readiness.analysis_state = "preliminary_hypothesis"
+        result.readiness.commercial_priority = 0
+        if "commercial_reasoning_incomplete" not in result.readiness.release_blockers:
+            result.readiness.release_blockers.append("commercial_reasoning_incomplete")
+        result.research_status.update({
+            "profile_consolidation": consolidation.safe_dict(),
+            "commercial_reasoning_state": "stopped" if stopped else "failed",
+            "commercial_score_available": False,
+            "commercial_reasoning_error_type": type(exc).__name__,
+        })
         result.risks_and_assumptions.append(
-            f"Факты извлечены; коммерческий синтез не завершён ({type(exc).__name__})."
+            f"Факты извлечены и консолидированы; коммерческий synthesis не завершён ({type(exc).__name__}). "
+            "Числовая коммерческая оценка недоступна."
         )
         return result
 
