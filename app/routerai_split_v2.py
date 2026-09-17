@@ -19,6 +19,7 @@ from app.models import (
     SiteAnalysis,
 )
 from app.profile_consolidation import consolidate_merged_profile
+from app.reasoning_dossier import ReasoningDossier, build_reasoning_dossier
 from app.routerai_evidence_ledger import persist_merged_evidence_ledger
 from app.routerai_profile_extraction import extract_profile_parallel
 from app.routerai_split_synthesis import (
@@ -181,35 +182,44 @@ def _full_reasoning_profile(merged) -> FullReasoningProfile:
     )
 
 
-def _km_quadrant_prompt(quadrant: str, codes: tuple[str, ...], profile_context: str) -> str:
+def _dossier_status(dossier: ReasoningDossier) -> dict[str, int]:
+    metrics = dossier.safe_metrics()
+    return {f"reasoning_dossier_{key}": value for key, value in metrics.items()}
+
+
+def _km_quadrant_prompt(quadrant: str, codes: tuple[str, ...], dossier_context: str) -> str:
     canon = "; ".join(f"{code} {_KM_LABELS[code]}" for code in codes)
     return f"""Построй только квадрант {quadrant} канонической бизнес-модели AIMETON / КМ
-из полного извлечённого профиля ниже. Разрешены только коды: {canon}.
+из bounded reasoning dossier ниже. Разрешены только коды: {canon}.
 Верни не более четырёх ячеек. Для каждой ячейки укажи finding, status,
-confidence, source_ids и sales_relevance. Не создавай факты сверх профиля.
-Если данных нет, используй status=\"Нет данных\" и не компенсируй пробелы
+confidence, source_ids и sales_relevance. Не создавай факты сверх dossier.
+Поля fact_counts_by_field и omitted_fact_counts_by_field показывают полноту проекции:
+не интерпретируй omitted как отсутствие фактов в полном evidence ledger.
+Если данных в dossier нет, используй status=\"Нет данных\" и не компенсируй пробелы
 фантазией. Coverage metadata — только агрегаты полноты, не факты компании.
 Пиши кратко. Не включай ячейки других квадрантов.
 
-FULL EXTRACTED PROFILE:\n{profile_context}
+BOUNDED REASONING DOSSIER:\n{dossier_context}
 """
 
 
-def _km_cell_prompt(code: str, profile_context: str) -> str:
+def _km_cell_prompt(code: str, dossier_context: str) -> str:
     return f"""Построй только одну каноническую ячейку {code} {_KM_LABELS[code]}
-бизнес-модели AIMETON / КМ из полного извлечённого профиля ниже.
+бизнес-модели AIMETON / КМ из bounded reasoning dossier ниже.
 Разрешён только код {code}. Верни не более одной ячейки. Укажи finding, status,
-confidence, source_ids и sales_relevance. Не создавай факты сверх профиля.
-Если данных нет, используй status=\"Нет данных\" и не компенсируй пробелы
+confidence, source_ids и sales_relevance. Не создавай факты сверх dossier.
+Поля fact_counts_by_field и omitted_fact_counts_by_field показывают полноту проекции:
+не интерпретируй omitted как отсутствие фактов в полном evidence ledger.
+Если данных в dossier нет, используй status=\"Нет данных\" и не компенсируй пробелы
 фантазией. Coverage metadata — только агрегаты полноты, не факты компании.
 Пиши кратко. Не включай другие коды.
 
-FULL EXTRACTED PROFILE:\n{profile_context}
+BOUNDED REASONING DOSSIER:\n{dossier_context}
 """
 
 
 async def analyze_with_routerai_split_v2(url: str, title: str, text: str, external_sources: list[dict] | None = None) -> SiteAnalysis:
-    """Coverage-preserving extraction → durable ledger → consolidation → reasoning."""
+    """Coverage-preserving extraction → durable ledger → consolidation → bounded reasoning."""
     external_sources = external_sources or []
     accessed_at = datetime.now(timezone.utc).isoformat()
 
@@ -225,17 +235,20 @@ async def analyze_with_routerai_split_v2(url: str, title: str, text: str, extern
     persist_merged_evidence_ledger(raw_merged)
     merged, consolidation = consolidate_merged_profile(raw_merged, external_sources=external_sources)
     profile = _full_reasoning_profile(merged)
+    dossier = build_reasoning_dossier(profile)
+    dossier_status = _dossier_status(dossier)
     try:
         if current_research() and current_research().stop_requested:
             raise ResearchStopped("research_stopped_by_user")
         result = await asyncio.wait_for(
-            _reason_and_assemble(url, title, text, external_sources, profile, accessed_at),
+            _reason_and_assemble(url, title, text, external_sources, profile, dossier, accessed_at),
             timeout=None if deep_research_enabled() or active_settings() else 30.0,
         )
         result.research_status.update({
             "profile_consolidation": consolidation.safe_dict(),
             "commercial_reasoning_state": "succeeded",
             "commercial_score_available": True,
+            **dossier_status,
         })
         return result
     except Exception as exc:
@@ -257,6 +270,7 @@ async def analyze_with_routerai_split_v2(url: str, title: str, text: str, extern
             "commercial_reasoning_state": "stopped" if stopped else "failed",
             "commercial_score_available": False,
             "commercial_reasoning_error_type": type(exc).__name__,
+            **dossier_status,
         })
         result.risks_and_assumptions.append(
             f"Факты извлечены и консолидированы; коммерческий synthesis не завершён ({type(exc).__name__}). "
@@ -265,18 +279,21 @@ async def analyze_with_routerai_split_v2(url: str, title: str, text: str, extern
         return result
 
 
-async def _reason_and_assemble(url, title, text, external_sources, profile, accessed_at):
-    profile_context = json.dumps(profile.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":"))
+async def _reason_and_assemble(url, title, text, external_sources, profile, dossier, accessed_at):
+    dossier_context = json.dumps(
+        dossier.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")
+    )
 
-    opportunity_prompt = f"""Ты — AI-продажник AIMETON. На основе только полного
-извлечённого профиля выбери одну наиболее доказанную коммерческую AI-возможность.
+    opportunity_prompt = f"""Ты — AI-продажник AIMETON. На основе только bounded
+reasoning dossier выбери одну наиболее доказанную коммерческую AI-возможность.
 Сначала учитывай подтверждённые экономические сигналы и пробелы. Определи проблему,
 реалистичное AIMETON-решение, ожидаемую ценность, score и qualification. Не формируй
 агентов, demo или текст первого контакта на этом этапе. Оценка 80+ допустима только
 при прямом подтверждении проблемы, масштаба и реалистичного пилота. Не обещай
-неподтверждённый эффект. Coverage metadata используй только для понимания полноты.
+неподтверждённый эффект. omitted counters означают только то, что повторяющиеся
+низкоприоритетные факты остались в полном ledger вне reasoning context.
 
-FULL EXTRACTED PROFILE:\n{profile_context}
+BOUNDED REASONING DOSSIER:\n{dossier_context}
 """
 
     km_specs: list[tuple[str, tuple[str, ...], type[BaseModel], str, int]] = []
@@ -286,13 +303,13 @@ FULL EXTRACTED PROFILE:\n{profile_context}
                 km_specs.append((
                     f"km_reasoning_{code.replace('-', '_')}",
                     (code,), CompactBusinessMachineCell,
-                    _km_cell_prompt(code, profile_context), 700,
+                    _km_cell_prompt(code, dossier_context), 700,
                 ))
         else:
             km_specs.append((
                 f"km_reasoning_{quadrant}",
                 codes, CompactBusinessMachineQuadrant,
-                _km_quadrant_prompt(quadrant, codes, profile_context), 1200,
+                _km_quadrant_prompt(quadrant, codes, dossier_context), 1200,
             ))
 
     km_tasks = [
@@ -338,10 +355,10 @@ FULL EXTRACTED PROFILE:\n{profile_context}
     execution_prompt = f"""Собери компактный пакет исполнения для уже выбранной
 коммерческой возможности. Не переоценивай и не заменяй выбранную возможность.
 Верни 3–5 конкретных AI-агентов/инструментов и пакет первого контакта. Каждый пункт
-должен быть совместим с фактами полного профиля; ничего не выдумывай. Это
-структурирование уже принятого решения, глубокое рассуждение не требуется.
+должен быть совместим с bounded dossier; ничего не выдумывай. Это структурирование
+уже принятого решения, глубокое рассуждение не требуется.
 
-FULL EXTRACTED PROFILE:\n{profile_context}
+BOUNDED REASONING DOSSIER:\n{dossier_context}
 
 SELECTED OPPORTUNITY:\n{opportunity_context}
 """
