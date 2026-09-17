@@ -1,6 +1,7 @@
 from app.evidence_source_projection import (
     collapse_source_ids,
     collapse_verified_evidence,
+    deduplicate_verified_documents,
     evidence_parent_id,
     merge_document_sources,
 )
@@ -69,6 +70,42 @@ def test_duplicate_block_digest_is_not_rendered_twice():
     assert len(projected) == 1
     assert len(projected[0].evidence_blocks) == 1
     assert projected[0].evidence_blocks[0].evidence_quote == "same"
+
+
+def test_postfetch_same_final_url_keeps_one_document_and_unique_blocks():
+    first = _source("H1", quote="anchor", digest="sha256:" + "1" * 64)
+    first.document_digest = "sha256:" + "a" * 64
+    first_block = _source("H1-b1-0", quote="requisites", digest="sha256:" + "2" * 64)
+    first_block.document_digest = first.document_digest
+
+    duplicate = _source("H2", quote="same page", digest="sha256:" + "3" * 64)
+    duplicate.url = "https://search.example/redirect"
+    duplicate.document_url = "https://registry.example/company?utm_source=search"
+    duplicate.document_digest = "sha256:" + "b" * 64
+    duplicate_block = _source("H2-b4-0", quote="director", digest="sha256:" + "4" * 64, kind="ownership")
+    duplicate_block.url = duplicate.url
+    duplicate_block.document_url = duplicate.document_url
+    duplicate_block.document_digest = duplicate.document_digest
+
+    deduped, count = deduplicate_verified_documents([first, first_block, duplicate, duplicate_block])
+
+    assert count == 1
+    assert [item.id for item in deduped] == ["H1", "H1-b1-0", "H1-b4-0"]
+    assert deduped[-1].query_kind == "ownership"
+    assert deduped[-1].evidence_quote == "director"
+
+
+def test_postfetch_mirror_digest_collapses_different_final_urls():
+    first = _source("H1", quote="anchor", digest="sha256:" + "5" * 64)
+    mirror = _source("H9", quote="mirror", digest="sha256:" + "6" * 64)
+    mirror.url = "https://mirror.example/card"
+    mirror.document_url = "https://mirror.example/card"
+    mirror.document_digest = first.document_digest
+
+    deduped, count = deduplicate_verified_documents([first, mirror])
+
+    assert count == 1
+    assert [item.id for item in deduped] == ["H1"]
 
 
 def test_public_ledger_drops_existing_child_cards_and_keeps_other_sources():
