@@ -6,28 +6,35 @@
   }
 
   function compactHistoryEntry(data) {
-    const scoreAvailable = commercialScoreAvailable(data);
+    const scoreAvailable = data?.commercial_score_available === false
+      ? false
+      : commercialScoreAvailable(data);
     const opportunity = data?.commercial_opportunity || {};
+    const compactScore = data?.compact_history_version === 1
+      ? data.commercial_score
+      : opportunity.score;
     return {
-      saved_at: new Date().toISOString(),
-      ui_analysis_id: ensureAnalysisId(data),
+      saved_at: data?.saved_at || new Date().toISOString(),
+      ui_analysis_id: data?.ui_analysis_id || ensureAnalysisId(data),
       analysis_id: data?.analysis_id || null,
       mission_id: data?.mission_id || null,
       url: data?.url || '',
       company_name: data?.company_name || '',
       business_summary: String(data?.business_summary || '').slice(0, 600),
       commercial_score_available: scoreAvailable,
-      commercial_score: scoreAvailable && Number.isFinite(Number(opportunity.score))
-        ? Number(opportunity.score)
+      commercial_score: scoreAvailable && Number.isFinite(Number(compactScore))
+        ? Number(compactScore)
         : null,
-      qualification: scoreAvailable ? (opportunity.qualification || '') : 'Оценка не рассчитана',
-      result_quality: data?.research_status?.result_quality || null,
+      qualification: scoreAvailable
+        ? (data?.qualification || opportunity.qualification || '')
+        : 'Оценка не рассчитана',
+      result_quality: data?.result_quality || data?.research_status?.result_quality || null,
       compact_history_version: 1,
     };
   }
 
   function persistHistory(entries) {
-    let compact = entries.slice(0, HISTORY_LIMIT);
+    let compact = entries.map(compactHistoryEntry).slice(0, HISTORY_LIMIT);
     while (compact.length) {
       try {
         localStorage.setItem(HIST_KEY, JSON.stringify(compact));
@@ -54,7 +61,7 @@
       .filter(Boolean);
     history = history.filter(item => item.url !== entry.url);
     history.unshift(entry);
-    persistHistory(history);
+    const persisted = persistHistory(history);
 
     if (replacedIds.length) {
       try {
@@ -66,7 +73,7 @@
       }
     }
     renderHistory();
-    return true;
+    return persisted;
   };
 
   const originalSetChatSession = setChatSession;
@@ -142,7 +149,7 @@
         return;
       }
     } else if (item.commercial_opportunity) {
-      // Read old browser history without migrating the full legacy payload back into storage.
+      // Old full browser entries remain readable until the next compact persistence pass.
       restored = item;
     }
     if (!restored) return;
