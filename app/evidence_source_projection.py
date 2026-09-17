@@ -17,6 +17,19 @@ def evidence_parent_id(source_id: str) -> str:
     return match.group("parent") if match else source_id
 
 
+def collapse_source_ids(source_ids: list[str]) -> list[str]:
+    """Remap transitional block ids to stable document ids without duplicates."""
+    result: list[str] = []
+    seen: set[str] = set()
+    for source_id in source_ids:
+        parent_id = evidence_parent_id(source_id)
+        if parent_id in seen:
+            continue
+        seen.add(parent_id)
+        result.append(parent_id)
+    return result
+
+
 def _block_from_child(source: IntelligenceSource) -> EvidenceBlock | None:
     if not source.evidence_quote or not source.evidence_locator or not source.evidence_digest:
         return None
@@ -102,3 +115,53 @@ def collapse_verified_evidence(
             )
         )
     return projected
+
+
+def merge_document_sources(
+    existing: list[EvidenceSource],
+    projected: list[EvidenceSource],
+) -> list[EvidenceSource]:
+    """Remove transitional child cards and merge document evidence by stable id."""
+    result: list[EvidenceSource] = []
+    positions: dict[str, int] = {}
+
+    for source in existing:
+        parent_id = evidence_parent_id(source.id)
+        if parent_id != source.id:
+            continue
+        if parent_id in positions:
+            continue
+        positions[parent_id] = len(result)
+        result.append(source)
+
+    for source in projected:
+        position = positions.get(source.id)
+        if position is None:
+            positions[source.id] = len(result)
+            result.append(source)
+            continue
+        current = result[position]
+        block_by_digest = {
+            block.evidence_digest: block
+            for block in current.evidence_blocks
+        }
+        for block in source.evidence_blocks:
+            block_by_digest.setdefault(block.evidence_digest, block)
+        result[position] = current.model_copy(update={
+            "title": source.title or current.title,
+            "url": source.url or current.url,
+            "accessed_at": source.accessed_at or current.accessed_at,
+            "evidence_quote": source.evidence_quote or current.evidence_quote,
+            "source_type": source.source_type,
+            "evidence_level": source.evidence_level,
+            "document_url": source.document_url or current.document_url,
+            "document_title": source.document_title or current.document_title,
+            "document_accessed_at": source.document_accessed_at or current.document_accessed_at,
+            "document_digest": source.document_digest or current.document_digest,
+            "evidence_locator": source.evidence_locator or current.evidence_locator,
+            "evidence_digest": source.evidence_digest or current.evidence_digest,
+            "fetch_path": source.fetch_path or current.fetch_path,
+            "evidence_blocks": list(block_by_digest.values()),
+        })
+
+    return result
