@@ -177,12 +177,16 @@ async def test_audit_passes_only_verified_evidence_to_llm(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_rollback_monolith_refuses_destructive_long_input(monkeypatch):
+async def test_large_input_uses_full_split_even_when_small_input_monolith_is_selected(monkeypatch):
     from app import routerai_runtime as runtime
-    from app.routerai_evidence_units import EvidenceCoverageOverflow
     monkeypatch.setenv("ROUTERAI_SPLIT_SYNTHESIS", "false")
     async def forbidden(*args):
         raise AssertionError("Provider must not receive prefix-cut input")
     monkeypatch.setattr(runtime, "analyze_with_routerai", forbidden)
-    with pytest.raises(EvidenceCoverageOverflow, match="legacy_monolith_cannot_cover_input"):
-        await runtime.run_bounded_routerai_analysis("https://example.org", "Example", "x" * 30001)
+    seen = []
+    async def split(url, title, text, sources):
+        seen.append(text)
+        return heuristic_analysis(url, title, text)
+    monkeypatch.setattr(runtime, "analyze_with_routerai_split_v2", split)
+    await runtime.run_bounded_routerai_analysis("https://example.org", "Example", "x" * 30001)
+    assert seen == ["x" * 30001]
