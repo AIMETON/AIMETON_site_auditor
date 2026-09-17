@@ -21,6 +21,7 @@ from app.identity_anchor_guard import guard_identity_anchors
 from app.routerai_runtime import run_bounded_routerai_analysis as analyze_with_routerai
 from app.models import EvidenceSource, IntelligenceSource, SiteAnalysis
 from app.research_control import deep_research_enabled, current_research
+from app.search_result_triage import SearchTriageSummary, triage_search_candidates
 from datetime import datetime, timezone
 
 
@@ -37,10 +38,9 @@ async def _run_verified_enriched_site_analysis(
 ) -> SiteAnalysis:
     """Analyze crawled first-party evidence plus verified external primary documents.
 
-    Search results remain discovery hints until the document pipeline fetches the
-    primary URL and confirms the resolved company identity in fetched content.
-    DaData may corroborate/normalize INN/OGRN as a non-authoritative registry
-    mirror before adaptive exact -> relaxed external discovery.
+    Search results remain discovery hints until the fast triage selects fetch-worthy
+    candidates and the document pipeline confirms primary identity. DaData may
+    corroborate/normalize INN/OGRN as a non-authoritative registry mirror.
     """
     deep = deep_research_enabled()
     if current_research() and current_research().stop_requested:
@@ -54,6 +54,7 @@ async def _run_verified_enriched_site_analysis(
     )
 
     planned_queries = research_queries if research_queries is not None else query_plan(company_hint, anchors=anchors)
+    search_triage = SearchTriageSummary(total=0, selected=0, rejected=0)
     try:
         external_sources, notes, diagnostics = await collect_external_sources_adaptive(
             company_hint,
@@ -63,11 +64,30 @@ async def _run_verified_enriched_site_analysis(
             anchors=anchors,
             query_overrides=research_queries,
         )
+        if deep and not any(item.url == url for item in external_sources):
+            external_sources.insert(0, IntelligenceSource(
+                id="OFFICIAL", title=title or url, url=url,
+                accessed_at=datetime.now(timezone.utc).isoformat(), source_class="official",
+                query_kind="official", classification_state="classified",
+            ))
+        external_sources, search_triage = await triage_search_candidates(
+            external_sources,
+            company_name=company_hint,
+            anchors=anchors,
+            official_url=url,
+        )
+        notes.append(
+            "Fast search triage: "
+            f"total={search_triage.total}, selected={search_triage.selected}, "
+            f"rejected={search_triage.rejected}, model_used={search_triage.model_used}."
+        )
     except Exception as exc:
         external_sources = []
-        notes = [f"Внешний поиск недоступен ({type(exc).__name__}); профиль неполный."]
+        notes = [f"Внешний поиск/triage недоступен ({type(exc).__name__}); профиль неполный."]
         diagnostics = SearchDiagnostics(state="unavailable")
     if deep and not any(item.url == url for item in external_sources):
+        # First-party acquisition must not disappear because a cheap triage model or
+        # search provider was unavailable.
         external_sources.insert(0, IntelligenceSource(
             id="OFFICIAL", title=title or url, url=url,
             accessed_at=datetime.now(timezone.utc).isoformat(), source_class="official",
@@ -78,7 +98,7 @@ async def _run_verified_enriched_site_analysis(
         company_name=company_hint,
         anchors=anchors,
         max_documents=None if deep else 24,
-        preserve_blocks=True,
+        preserve_blocks=deep,
         include_official=True,
     )
 
@@ -103,16 +123,35 @@ async def _run_verified_enriched_site_analysis(
                 more, more_notes, more_diagnostics = await collect_external_sources_adaptive(
                     company_hint, url, max_sources=None if deep else 12, anchors=anchors, query_overrides=follow_plan,
                 )
+                more, follow_triage = await triage_search_candidates(
+                    more,
+                    company_name=company_hint,
+                    anchors=anchors,
+                    official_url=url,
+                )
                 for item in more:
                     item.id = "R-" + item.id
                 more_verified = await verify_external_sources(
                     more, company_name=company_hint, anchors=anchors, max_documents=None if deep else 8,
-                    preserve_blocks=True, timeout_seconds=25,
+                    preserve_blocks=deep, timeout_seconds=25,
                 )
                 external_sources.extend(more)
                 verified.extend(more_verified)
                 notes.extend(more_notes)
+                notes.append(
+                    "Fast registry follow-up triage: "
+                    f"total={follow_triage.total}, selected={follow_triage.selected}, rejected={follow_triage.rejected}."
+                )
                 diagnostics = SearchDiagnostics.aggregate([diagnostics, more_diagnostics])
+                search_triage = search_triage.model_copy(update={
+                    "total": search_triage.total + follow_triage.total,
+                    "selected": search_triage.selected + follow_triage.selected,
+                    "rejected": search_triage.rejected + follow_triage.rejected,
+                    "deterministic_selected": search_triage.deterministic_selected + follow_triage.deterministic_selected,
+                    "model_selected": search_triage.model_selected + follow_triage.model_selected,
+                    "model_used": search_triage.model_used or follow_triage.model_used,
+                    "model_unavailable": search_triage.model_unavailable or follow_triage.model_unavailable,
+                })
             except Exception as exc:
                 notes.append(f"Уточняющая проверка реквизитов не завершена ({type(exc).__name__}).")
 
@@ -183,13 +222,14 @@ async def _run_verified_enriched_site_analysis(
         + "."
     )
     analysis.risks_and_assumptions.append(
-        "Контур внешних источников: "
+        "Контур внешних источников после fast triage: "
         f"discovery_hint={discovery_count}, source_candidate={candidate_count}, "
         f"verified_evidence={evidence_count}."
     )
     analysis.risks_and_assumptions.append(
-        "Поисковые сниппеты не считаются evidence; внешний источник включается в доказательную базу "
-        "только после загрузки первичного документа и подтверждения identity."
+        "Поисковые сниппеты не считаются evidence; fast model управляет только приоритетом fetch. "
+        "Внешний источник включается в доказательную базу только после загрузки primary document, "
+        "подтверждения primary identity и block-level evidence triage."
     )
     analysis.risks_and_assumptions.append(
         f"Search gateway state={diagnostics.state}; attempts={len(diagnostics.attempts)}."
@@ -223,6 +263,11 @@ async def _run_verified_enriched_site_analysis(
         **analysis.research_status,
         "stage": "intermediate_report",
         "search_state": diagnostics.state,
+        "search_results_triaged": search_triage.total,
+        "search_results_selected": search_triage.selected,
+        "search_results_rejected": search_triage.rejected,
+        "search_triage_model_used": search_triage.model_used,
+        "search_triage_model_unavailable": search_triage.model_unavailable,
         "discovery_hints": discovery_count,
         "source_candidates": candidate_count,
         "evidence_records": evidence_count,

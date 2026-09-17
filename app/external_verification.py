@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from app.document_pipeline import get_document_pipeline
 from app.document_preflight import screen_document
 from app.document_pipeline.models import FetchPolicy
+from app.evidence_triage import triage_document_blocks
 from app.models import IntelligenceSource
 from app.research_control import current_research, deep_research_enabled
 from app.search_gateway.gateway import canonical_url
@@ -55,6 +56,21 @@ EVIDENCE_LEVEL_BY_CLASS = {
     "affiliation": "weak_signal",
 }
 
+_RELATED_MARKERS = (
+    "похожие компании",
+    "похожие организации",
+    "одноименные компании",
+    "одноимённые компании",
+    "одноименные организации",
+    "одноимённые организации",
+    "связанные организации",
+    "другие компании",
+    "другие организации",
+    "рекомендуем также",
+    "смотрите также",
+)
+_RELATED_LOCATORS = ("aside", "sidebar", "related", "recommend", "similar")
+
 
 def _identifier(prefix: str, value: str) -> str:
     digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:24]
@@ -67,6 +83,10 @@ def _host(url: str) -> str:
 
 def _digits(value: str | None) -> str:
     return re.sub(r"\D", "", value or "")
+
+
+def _fold(value: str | None) -> str:
+    return " ".join(str(value or "").split()).casefold()
 
 
 def _source_kind(source_class: str) -> SourceKind:
@@ -103,20 +123,76 @@ def _anchor_values(anchors: Any) -> tuple[list[str], list[str], list[str]]:
     return strong_text, phone_digits, cities
 
 
+def _entity_names(company_name: str, anchors: Any) -> list[str]:
+    values = [getattr(anchors, "legal_name", None), company_name]
+    result: list[str] = []
+    for value in values:
+        normalized = _fold(str(value or "").strip(" .,-—|"))
+        if len(normalized) < 3 or normalized in result:
+            continue
+        result.append(normalized)
+    return result
+
+
+def _is_related_context(text: str, locator: str = "") -> bool:
+    folded = _fold(text)
+    locator_folded = _fold(locator)
+    return (
+        any(marker in folded for marker in _RELATED_MARKERS)
+        or any(marker in locator_folded for marker in _RELATED_LOCATORS)
+    )
+
+
+def _strong_anchor_in_primary_context(
+    value: str,
+    *,
+    blocks: list[Any],
+    entity_names: list[str],
+    document_title: str,
+) -> bool:
+    pattern = re.compile(r"(?<!\d)" + re.escape(value) + r"(?!\d)")
+    title_folded = _fold(document_title)
+    title_matches_entity = any(name in title_folded for name in entity_names)
+    for index, block in enumerate(blocks):
+        block_text = str(getattr(block, "text", "") or "")
+        if not pattern.search(block_text):
+            continue
+        locator = str(getattr(block, "locator", "") or "")
+        start, end = max(0, index - 1), min(len(blocks), index + 2)
+        window = " ".join(str(getattr(item, "text", "") or "") for item in blocks[start:end])
+        if _is_related_context(window, locator):
+            continue
+        window_folded = _fold(window)
+        if title_matches_entity or any(name in window_folded for name in entity_names):
+            return True
+        # A compact primary-content block with one strong target id is acceptable
+        # unless it looks like a related/sidebar listing. This preserves registry
+        # cards where company name and requisites are rendered in separate blocks.
+        locator_folded = _fold(locator)
+        if not any(token in locator_folded for token in ("footer", "aside", "sidebar")) and len(window) <= 4_000:
+            strong_ids = re.findall(r"(?<!\d)(?:\d{10}|\d{12}|\d{13}|\d{15})(?!\d)", window)
+            if strong_ids.count(value) == 1 and len(set(strong_ids)) <= 2:
+                return True
+    return False
+
+
 def document_matches_entity(
     text: str,
     *,
     company_name: str,
     anchors: Any,
     document_url: str,
+    blocks: list[Any] | None = None,
+    document_title: str = "",
 ) -> tuple[bool, str]:
-    """Require document-level identity evidence before promoting a search hint.
+    """Require primary-entity evidence before promoting a fetched document.
 
-    Strong registration identifiers or phone numbers are sufficient. Otherwise
-    the document must mention both the company name and a known city. First-party
-    documents on the already resolved official domain are accepted directly.
+    A target INN/OGRN appearing in a sidebar, related-company list, footer or other
+    mentioned-entity context is not sufficient. First-party documents on the resolved
+    official domain remain trusted. Third-party strong identifiers require primary
+    document context; name+region remains only a weaker fallback.
     """
-    normalized = " ".join(text.split()).casefold()
+    normalized = _fold(text)
     official_domain = str(getattr(anchors, "domain", "") or "").lower()
     if official_domain:
         host = _host(document_url)
@@ -124,17 +200,47 @@ def document_matches_entity(
             return True, "official_domain_match"
 
     strong_text, phone_digits, cities = _anchor_values(anchors)
-    for value in strong_text:
-        if re.search(r"(?<!\d)" + re.escape(value) + r"(?!\d)", normalized):
-            return True, "registration_identifier_match"
+    entity_names = _entity_names(company_name, anchors)
+    block_list = list(blocks or [])
+    if block_list:
+        for value in strong_text:
+            if _strong_anchor_in_primary_context(
+                value,
+                blocks=block_list,
+                entity_names=entity_names,
+                document_title=document_title,
+            ):
+                return True, "registration_identifier_primary_context_match"
+    else:
+        for value in strong_text:
+            for match in re.finditer(r"(?<!\d)" + re.escape(value) + r"(?!\d)", text):
+                context = text[max(0, match.start() - 600): match.end() + 600]
+                if _is_related_context(context):
+                    continue
+                if any(name in _fold(context) for name in entity_names):
+                    return True, "registration_identifier_context_match"
 
-    document_digits = _digits(text)
-    for phone in phone_digits:
-        if len(phone) >= 10 and phone[-10:] in document_digits:
-            return True, "phone_match"
+    # Phone numbers are useful corroboration, but a number anywhere on a directory
+    # page no longer proves that the whole document's primary entity is the target.
+    if block_list:
+        for index, block in enumerate(block_list):
+            block_text = str(getattr(block, "text", "") or "")
+            locator = str(getattr(block, "locator", "") or "")
+            if _is_related_context(block_text, locator):
+                continue
+            digits = _digits(block_text)
+            if not any(len(phone) >= 10 and phone[-10:] in digits for phone in phone_digits):
+                continue
+            start, end = max(0, index - 1), min(len(block_list), index + 2)
+            window = " ".join(str(getattr(item, "text", "") or "") for item in block_list[start:end])
+            if any(name in _fold(window) for name in entity_names):
+                return True, "phone_and_entity_context_match"
 
-    company = " ".join(company_name.split()).casefold()
-    if company and company in normalized and any(city in normalized for city in cities):
+    # Weak fallback. Prefer resolved legal_name when present; a long SEO title is not
+    # treated as a canonical company name simply because it mentions a city.
+    legal_name = _fold(getattr(anchors, "legal_name", None))
+    fallback_names = [legal_name] if legal_name else [name for name in entity_names if len(name) <= 100]
+    if fallback_names and any(name in normalized for name in fallback_names) and any(city in normalized for city in cities):
         return True, "name_and_region_match"
 
     return False, "identity_not_confirmed"
@@ -142,22 +248,27 @@ def document_matches_entity(
 
 def _best_quote_block(fetched, *, company_name: str, anchors: Any):
     strong_text, phone_digits, cities = _anchor_values(anchors)
-    company = " ".join(company_name.split()).casefold()
+    entity_names = _entity_names(company_name, anchors)
 
     def score(block) -> tuple[int, int]:
-        text = block.text.casefold()
+        text = str(block.text).casefold()
         digits = _digits(block.text)
+        locator = str(getattr(block, "locator", "") or "")
         value = 0
         if any(item.casefold() in text for item in strong_text):
             value += 100
         if any(phone[-10:] in digits for phone in phone_digits if len(phone) >= 10):
             value += 80
-        if company and company in text:
+        if any(name in text for name in entity_names):
             value += 40
         if any(city in text for city in cities):
             value += 30
-        if block.locator == "head/title":
+        if locator == "head/title":
             value -= 50
+        if _is_related_context(str(block.text), locator):
+            value -= 250
+        if any(marker in _fold(locator) for marker in ("footer", "aside", "sidebar")):
+            value -= 100
         return value, min(len(block.text), 2_000)
 
     candidates = [block for block in fetched.blocks if len(block.text.strip()) >= 20]
@@ -176,12 +287,7 @@ async def verify_external_sources(
     include_official: bool = False,
     timeout_seconds: float | None = 60,
 ) -> list[IntelligenceSource]:
-    """Fetch and verify high-value discovery hints before exposing them as evidence.
-
-    Search snippets never satisfy verification. A source is promoted only after
-    its primary document is fetched and the fetched body confirms the resolved
-    entity using official-domain, registration-id, phone, or name+region anchors.
-    """
+    """Fetch, identity-check and triage discovery hints before exposing evidence."""
     official_domain = str(getattr(anchors, "domain", "") or "").lower()
     candidates = sorted(
         (
@@ -270,10 +376,12 @@ async def verify_external_sources(
             company_name=company_name,
             anchors=anchors,
             document_url=str(fetched.document.url),
+            blocks=list(getattr(fetched, "blocks", [])),
+            document_title=str(getattr(fetched.document, "title", "") or ""),
         )
         if not matches:
             source_item.verification_note = (
-                "Первичный документ загружен, но identity конкретной компании не подтверждена; "
+                "Первичный документ загружен, но primary identity конкретной компании не подтверждена; "
                 "источник не повышен до evidence."
             )
             return
@@ -330,14 +438,38 @@ async def verify_external_sources(
             "weak_signal",
         )
         source_item.verification_note = (
-            f"Первичный документ загружен; identity подтверждена ({match_reason}); "
+            f"Первичный документ загружен; primary identity подтверждена ({match_reason}); "
             "цитата закреплена locator+digest."
         )
         verified.append(source_item)
         if preserve_blocks:
-            # The identity quote is an anchor, not a summary of the document.
-            # Preserve every fetched block as independently locatable evidence.
-            for block_index, evidence_block in enumerate(fetched.blocks):
+            source_is_official = bool(
+                official_domain
+                and (
+                    _host(str(fetched.document.url)) == official_domain
+                    or _host(str(fetched.document.url)).endswith(f".{official_domain}")
+                )
+            )
+            triage = await triage_document_blocks(
+                list(fetched.blocks),
+                company_name=company_name,
+                anchors=anchors,
+                document_url=str(fetched.document.url),
+                document_title=str(getattr(fetched.document, "title", "") or ""),
+                source_query_kind=source_item.query_kind,
+                source_is_official=source_is_official,
+            )
+            if control:
+                control.checkpoint(f"triage/{source_item.id}", {
+                    "url": url,
+                    "blocks_total": len(triage.decisions),
+                    "blocks_kept": len(triage.kept),
+                    "model_used": triage.model_used,
+                    "model_unavailable": triage.model_unavailable,
+                })
+            for decision in triage.kept:
+                block_index = int(decision.block_id[1:])
+                evidence_block = fetched.blocks[block_index]
                 for offset in range(0, len(evidence_block.text), 4000):
                     fragment = evidence_block.text[offset:offset + 4000]
                     if not fragment.strip():
@@ -347,9 +479,14 @@ async def verify_external_sources(
                     )
                     record = source_item.model_copy(deep=True)
                     record.id = f"{source_item.id}-b{block_index}-{offset}"
+                    record.query_kind = decision.query_kind
                     record.evidence_quote = promotion.evidence.quote
                     record.evidence_locator = promotion.evidence.locator
                     record.evidence_digest = promotion.evidence.digest
+                    record.verification_note = (
+                        source_item.verification_note
+                        + f" Evidence triage: {decision.entity_relation}/{decision.query_kind}; {decision.reason}."
+                    )
                     verified.append(record)
 
     semaphore = asyncio.Semaphore(4)
