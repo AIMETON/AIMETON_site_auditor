@@ -9,10 +9,10 @@ from app.search_gateway import SearchDiagnostics
 
 from app.adaptive_external_sources import collect_external_sources_adaptive
 from app.dadata_report_bridge import enrich_identity_with_dadata
+from app.evidence_block_ledger import build_evidence_ledger, compact_source_list_in_place
 from app.external_sources import (
     extract_identity_anchors,
     source_type,
-    to_llm_sources,
     query_plan,
 )
 from app.external_verification import verify_external_sources
@@ -155,12 +155,19 @@ async def _run_verified_enriched_site_analysis(
             except Exception as exc:
                 notes.append(f"Уточняющая проверка реквизитов не завершена ({type(exc).__name__}).")
 
+    # Transitional verifier output still contains block-shaped child records. Collapse
+    # them into an explicit nested ledger before any expensive extraction or UI assembly.
+    ledger = build_evidence_ledger(verified)
+    verified = ledger.documents
+    compact_source_list_in_place(external_sources)
+    extraction_records = ledger.extraction_records()
+
     try:
         analysis = await analyze_with_routerai(
             url,
             title,
             text,
-            to_llm_sources(verified),
+            extraction_records,
         )
     except Exception as exc:
         analysis = heuristic_analysis(url, title, text)
@@ -224,7 +231,11 @@ async def _run_verified_enriched_site_analysis(
     analysis.risks_and_assumptions.append(
         "Контур внешних источников после fast triage: "
         f"discovery_hint={discovery_count}, source_candidate={candidate_count}, "
-        f"verified_evidence={evidence_count}."
+        f"verified_documents={evidence_count}, retained_blocks={ledger.block_count}."
+    )
+    analysis.risks_and_assumptions.append(
+        "Evidence ledger отделяет первичный документ от вложенных evidence blocks; "
+        "block records раскрываются только на внутренней границе extraction и сохраняют parent source id."
     )
     analysis.risks_and_assumptions.append(
         "Поисковые сниппеты не считаются evidence; fast model управляет только приоритетом fetch. "
@@ -271,7 +282,13 @@ async def _run_verified_enriched_site_analysis(
         "discovery_hints": discovery_count,
         "source_candidates": candidate_count,
         "evidence_records": evidence_count,
-        "verified_documents": len({s.document_url or s.url for s in verified}),
+        "evidence_records_raw": ledger.raw_evidence_records,
+        "evidence_child_records_compacted": ledger.child_records_compacted,
+        "evidence_blocks_retained": ledger.block_count,
+        "duplicate_verified_documents_removed": ledger.duplicate_documents_removed,
+        "duplicate_evidence_blocks_removed": ledger.duplicate_blocks_removed,
+        "extraction_evidence_records": len(extraction_records),
+        "verified_documents": len(verified),
         "unverified_documents": discovery_count + candidate_count,
         "preflight_excluded_documents": sum(s.preflight_decision == "exclude" for s in external_sources),
         "official_input_chars": len(text),
@@ -280,7 +297,7 @@ async def _run_verified_enriched_site_analysis(
     if evidence_count:
         analysis.readiness.evidence_quality = max(
             analysis.readiness.evidence_quality,
-            min(1.0, 0.25 + 0.08 * len({s.document_url or s.url for s in verified})),
+            min(1.0, 0.25 + 0.08 * len(verified)),
         )
     if current_research():
         analysis.research_status.update(current_research().snapshot())
