@@ -8,9 +8,10 @@ from typing import Annotated, Any, Awaitable, Callable, Literal
 from pydantic import BaseModel, Field
 
 from app.models import CompanyFact, EconomicSignal
-from app.research_control import current_research, deep_research_enabled
+from app.research_control import ResearchControl, bind_research, current_research, deep_research_enabled
 from app.routerai_evidence_units import (
     DEFAULT_EVIDENCE_CHUNK_CHARS,
+    DEFAULT_MAX_FAST_PATH_UNITS,
     EvidenceCoverage,
     EvidenceCoverageOverflow,
     chunk_sources,
@@ -274,12 +275,10 @@ async def extract_profile_parallel(
     accessed_at: str,
 ) -> MergedProfileExtraction:
     """Coverage-preserving map→merge extraction followed by compact reasoning."""
-    deep = deep_research_enabled()
+    chunked = deep_research_enabled()
     control = current_research()
     processed_units = 0
     incomplete_reasons = []
-    if deep:
-        control.checkpoint("corpus", {"url": url, "title": title, "text": text, "sources": external_sources})
     unrouted = [
         source for source in external_sources
         if str(source.get("query_kind") or "unknown") not in _ALL_ROUTED_KINDS
@@ -295,9 +294,15 @@ async def extract_profile_parallel(
         "signals": project_sources(external_sources, _SIGNAL_KINDS, _SLICE_SOURCE_KEYS),
     }
     units_by_slice = {
-        name: evidence_units(text, projected, **({"max_units": None} if deep else {}))
+        name: evidence_units(text, projected, max_units=None)
         for name, projected in projected_by_slice.items()
     }
+
+    # A large corpus is a scheduling decision, not a reason to abandon synthesis.
+    chunked = chunked or any(len(units) > DEFAULT_MAX_FAST_PATH_UNITS for units in units_by_slice.values())
+    if chunked:
+        control = control or ResearchControl()
+        control.checkpoint("corpus", {"url": url, "title": title, "text": text, "sources": external_sources})
 
     def deterministic_request(phase, model_type, **kwargs):
         if strict_request_json is not None:
@@ -329,7 +334,7 @@ async def extract_profile_parallel(
         include_accessed_at: bool = False,
     ) -> list[BaseModel]:
         nonlocal processed_units
-        if deep:
+        if chunked:
             output = []
             deep_model = _DEEP_MODELS[model_type]
 
@@ -344,10 +349,11 @@ async def extract_profile_parallel(
                     async with control.semaphore:
                         if control.stop_requested:
                             return []
-                        item = await deterministic_request(
-                            phase, deep_model, system=system, prompt=prompt,
-                            max_tokens=8192, timeout_seconds=120.0,
-                        )
+                        with bind_research(control):
+                            item = await deterministic_request(
+                                phase, deep_model, system=system, prompt=prompt,
+                                max_tokens=8192, timeout_seconds=120.0,
+                            )
                 except Exception as exc:
                     if getattr(exc, "error_type", None) != "OutputTruncated":
                         raise
@@ -513,7 +519,7 @@ business_effect и реальные source_ids. Не повторяй профи
         for projected in projected_by_slice.values()
     )
     unit_count = sum(len(units) for units in units_by_slice.values())
-    complete = not deep or (processed_units == unit_count and not incomplete_reasons)
+    complete = not chunked or (processed_units == unit_count and not incomplete_reasons)
     if not complete:
         risks.append("Углублённое извлечение неполное: остановлено пользователем или ошибкой; сохранены обработанные порции.")
     coverage = EvidenceCoverage(
@@ -525,7 +531,7 @@ business_effect и реальные source_ids. Не повторяй профи
         source_chunks_total=source_chunk_count,
         source_chunks_processed=source_chunk_count if complete else 0,
         extraction_units_total=unit_count,
-        extraction_units_processed=unit_count if not deep else processed_units,
+        extraction_units_processed=unit_count if not chunked else processed_units,
         complete=complete,
     )
 

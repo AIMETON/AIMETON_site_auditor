@@ -1,5 +1,41 @@
 # План восстановления качества и управляемого исполнения аудита
 
+## Large evidence corpus: schedule chunks instead of rejecting coverage
+
+Checkpoint: 2026-09-17T01:01:01.022541+00:00. Part of #915; follows #929 live validation.
+On deployed 8b6676f6baa9268c9a2a348f63c8bb823f6ed675, the Selectel run
+mission_4228d36e7e604167b320ece9c0035a06 / analysis_aead1caf8da948a2b11ac37f0b82b106
+exposed partial_result while running, then completed with a degraded final report:
+4068 source/evidence entries, 8 company facts, 27 finished queries, 81 finished
+provider calls (8 failed). RouterAI failed after 0.4 seconds; the report records
+EvidenceCoverageOverflow. Estimated input was 4,968,872 characters. This is proof
+of partial-report delivery, not successful full company synthesis. The public trace
+does not distinguish the exact overflow branch; code had both a 16-unit extraction
+gate and a large-input monolith gate, and regression tests cover both.
+
+The new scheduling behaviour plans all evidence units. Above the fast-path size,
+ordinary extraction uses the existing checkpointed chunk processor, loss-preserving
+output schemas, output-truncation subdivision and shared concurrency of four. A
+large monolith input routes to split synthesis even when monolith is selected for
+small inputs. No prefix trimming, evidence dropping or paid-operation permission
+gate is added. Automatic scheduling does not set deep_research consent or widen
+the search frontier. Existing controls are reused; calls without one get a locally
+scoped accounting control for extraction checkpoints, not a new owned mission.
+
+User-selected deadlines and explicit stop remain effective. Legacy aggregate
+deadlines for runs without saved settings still apply: this change removes the
+size rejection, not all remaining lifecycle/time constraints. A deadline or provider
+failure can still leave incomplete extraction. Full live synthesis of the Selectel
+corpus on the new scheduler remains a separate acceptance task. Monetary totals
+remain unconfirmed; provider call counts are not invoices.
+
+The large status response was 4,070,180 uncompressed bytes; existing zstd negotiation
+transferred 424,919 bytes. No truncation or duplicate compression layer was needed.
+Validation: 1488 passed, 1 xfailed, 6 subtests locally. Tests cover late official-text
+and external-source facts, complete unit accounting, concurrency and routing away
+from an undersized monolith.
+
+
 ## Partial site report survives interruption
 
 Checkpoint: 2026-09-16T16:28:30.112378+00:00. Part of #915, P0-D.
