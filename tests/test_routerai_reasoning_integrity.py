@@ -45,8 +45,9 @@ async def test_reasoning_failure_preserves_clean_profile_without_heuristic_score
     def persist(value):
         persisted.append(value)
 
-    async def fail(url, title, text, external_sources, profile, accessed_at):
+    async def fail(url, title, text, external_sources, profile, dossier, accessed_at):
         seen["profile"] = profile
+        seen["dossier"] = dossier
         raise RuntimeError("provider_failed")
 
     monkeypatch.setattr(split, "extract_profile_parallel", extract)
@@ -62,7 +63,8 @@ async def test_reasoning_failure_preserves_clean_profile_without_heuristic_score
 
     assert persisted == [raw]
     assert len(persisted[0].company_facts) == 3  # durable raw ledger is untouched
-    assert len(seen["profile"].company_facts) == 1  # reasoning receives consolidated profile
+    assert len(seen["profile"].company_facts) == 1  # consolidated profile remains complete
+    assert seen["dossier"].selected_facts == 1
     assert [fact.value for fact in result.company_facts] == ["ООО «Алекс Дент»"]
     assert result.commercial_opportunity.score == 0
     assert result.commercial_opportunity.qualification == "Недостаточно данных"
@@ -72,6 +74,9 @@ async def test_reasoning_failure_preserves_clean_profile_without_heuristic_score
     assert result.research_status["commercial_score_available"] is False
     assert result.research_status["profile_consolidation"]["semantic_duplicates_merged"] == 1
     assert result.research_status["profile_consolidation"]["placeholders_removed"] == 1
+    assert result.research_status["reasoning_dossier_total_facts"] == 1
+    assert result.research_status["reasoning_dossier_selected_facts"] == 1
+    assert result.research_status["reasoning_dossier_omitted_facts"] == 0
     assert result.readiness.provider_states["routerai"] == "reasoning_failed_extraction_preserved"
     assert result.readiness.commercial_priority == 0
     assert "commercial_reasoning_incomplete" in result.readiness.release_blockers
