@@ -9,7 +9,11 @@ from app.search_gateway import SearchDiagnostics
 
 from app.adaptive_external_sources import collect_external_sources_adaptive
 from app.dadata_report_bridge import enrich_identity_with_dadata
-from app.evidence_source_projection import collapse_verified_evidence
+from app.evidence_source_projection import (
+    collapse_source_ids,
+    collapse_verified_evidence,
+    merge_document_sources,
+)
 from app.external_sources import (
     extract_identity_anchors,
     to_llm_sources,
@@ -27,6 +31,15 @@ from datetime import datetime, timezone
 
 def _host(url: str) -> str:
     return (urlparse(url).hostname or "").lower()
+
+
+def _remap_analysis_source_ids(analysis: SiteAnalysis) -> None:
+    for fact in analysis.company_facts:
+        fact.source_ids = collapse_source_ids(fact.source_ids)
+    for signal in analysis.economic_signals:
+        signal.source_ids = collapse_source_ids(signal.source_ids)
+    for cell in analysis.business_machine_4x4:
+        cell.source_ids = collapse_source_ids(cell.source_ids)
 
 
 async def _run_verified_enriched_site_analysis(
@@ -182,12 +195,8 @@ async def _run_verified_enriched_site_analysis(
             existing_fact_keys.add(key)
 
     document_evidence = collapse_verified_evidence(verified)
-    known_ids = {source.id for source in analysis.sources}
-    for source in document_evidence:
-        if source.id in known_ids:
-            continue
-        analysis.sources.append(source)
-        known_ids.add(source.id)
+    analysis.sources = merge_document_sources(analysis.sources, document_evidence)
+    _remap_analysis_source_ids(analysis)
 
     discovery_count = sum(1 for source in external_sources if source.lifecycle_state == "discovery_hint")
     candidate_count = sum(1 for source in external_sources if source.lifecycle_state == "source_candidate")
