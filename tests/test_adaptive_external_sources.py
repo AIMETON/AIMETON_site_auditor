@@ -16,7 +16,7 @@ from app.search_gateway.models import (
 )
 
 
-def _success(url: str = "https://example.org/found") -> SearchResponse:
+def _response(url: str, *, state: GatewayState = GatewayState.SUCCESS) -> SearchResponse:
     return SearchResponse(
         results=[
             SearchItem(
@@ -27,12 +27,16 @@ def _success(url: str = "https://example.org/found") -> SearchResponse:
             )
         ],
         diagnostics=SearchDiagnostics(
-            state=GatewayState.SUCCESS,
+            state=state,
             selected_provider="fake",
             attempts=[],
             total_cost_by_currency={"USD": Decimal("0")},
         ),
     )
+
+
+def _success(url: str = "https://example.org/found") -> SearchResponse:
+    return _response(url)
 
 
 def _empty() -> SearchResponse:
@@ -96,6 +100,32 @@ async def test_exact_success_does_not_issue_relaxed_fallback(monkeypatch) -> Non
 
 
 @pytest.mark.asyncio
+async def test_degraded_exact_with_results_does_not_duplicate_search_wave(monkeypatch) -> None:
+    calls: list[str] = []
+
+    class FakeGateway:
+        async def search(self, request, _policy):
+            calls.append(request.query)
+            return _response(f"https://example.org/{len(calls)}", state=GatewayState.DEGRADED)
+
+    monkeypatch.setattr(adaptive, "get_search_gateway", lambda: FakeGateway())
+    monkeypatch.setattr(adaptive, "resolve_hunter_search_policy", lambda: SimpleNamespace(policy=SearchPolicy()))
+
+    sources, notes, diagnostics = await adaptive.collect_external_sources_adaptive(
+        "Тестовая компания",
+        "https://example.org/",
+        region="Красноярск",
+        max_sources=100,
+        anchors=IdentityAnchors(domain="example.org", cities=("Красноярск",)),
+    )
+
+    assert len(calls) == 20
+    assert sources
+    assert not any("relaxed fallback" in note for note in notes)
+    assert diagnostics.state is GatewayState.DEGRADED
+
+
+@pytest.mark.asyncio
 async def test_empty_exact_query_runs_one_relaxed_fallback(monkeypatch) -> None:
     calls: list[str] = []
 
@@ -123,3 +153,35 @@ async def test_empty_exact_query_runs_one_relaxed_fallback(monkeypatch) -> None:
     assert any("query_variant=relaxed" in source.verification_note for source in sources)
     assert any("relaxed fallback" in note for note in notes)
     assert diagnostics.state is GatewayState.DEGRADED
+
+
+@pytest.mark.asyncio
+async def test_tracking_variants_collapse_to_one_discovery_source(monkeypatch) -> None:
+    class FakeGateway:
+        async def search(self, request, _policy):
+            return SearchResponse(
+                results=[
+                    SearchItem(url="https://example.org/card?utm_source=a", title="A", snippet="x", provider="fake"),
+                    SearchItem(url="https://example.org/card?gclid=123", title="A", snippet="x", provider="fake"),
+                ],
+                diagnostics=SearchDiagnostics(
+                    state=GatewayState.SUCCESS,
+                    selected_provider="fake",
+                    attempts=[],
+                    total_cost_by_currency={},
+                ),
+            )
+
+    monkeypatch.setattr(adaptive, "get_search_gateway", lambda: FakeGateway())
+    monkeypatch.setattr(adaptive, "resolve_hunter_search_policy", lambda: SimpleNamespace(policy=SearchPolicy()))
+
+    sources, notes, _ = await adaptive.collect_external_sources_adaptive(
+        "Тестовая компания",
+        "https://example.org/",
+        max_sources=100,
+        anchors=IdentityAnchors(domain="example.org"),
+        query_overrides=[("registry", "company registry")],
+    )
+
+    assert len(sources) == 1
+    assert any("canonical URL dedup" in note for note in notes)

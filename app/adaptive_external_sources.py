@@ -22,6 +22,7 @@ from app.search_gateway import (
     get_search_gateway,
     search_policy_from_env,
 )
+from app.search_gateway.gateway import canonical_url
 
 
 VERTICAL_TERMS: dict[SourceKind, str] = {
@@ -85,7 +86,10 @@ def relaxed_query(
 
 
 def _should_relax(response) -> bool:
-    return not response.results or str(response.diagnostics.state) != "success"
+    # A degraded provider state is observability, not proof that the returned
+    # results are unusable. Progressive coverage decides whether another search
+    # wave is needed; do not automatically duplicate a productive exact wave.
+    return not response.results
 
 
 async def collect_external_sources_adaptive(
@@ -96,7 +100,7 @@ async def collect_external_sources_adaptive(
     anchors: IdentityAnchors | None = None,
     query_overrides: list[tuple[SourceKind, str]] | None = None,
 ) -> tuple[list[IntelligenceSource], list[str], SearchDiagnostics]:
-    """Run exact queries first and one relaxed fallback only where needed."""
+    """Run exact queries first and one relaxed fallback only for an empty exact result."""
     anchors = anchors or IdentityAnchors()
     notes: list[str] = []
     plan = query_overrides if query_overrides is not None else query_plan(company_name, region, anchors)
@@ -172,12 +176,17 @@ async def collect_external_sources_adaptive(
 
     accessed_at = datetime.now(timezone.utc).isoformat()
     seen: set[str] = set()
+    duplicate_urls = 0
     sources: list[IntelligenceSource] = []
     for item in raw:
         url = str(item.get("url") or "").strip()
-        if not url or url in seen:
+        if not url:
             continue
-        seen.add(url)
+        dedup_key = canonical_url(url)
+        if dedup_key in seen:
+            duplicate_urls += 1
+            continue
+        seen.add(dedup_key)
         title = str(item.get("title") or url)[:300]
         snippet = str(item.get("content") or item.get("snippet") or "")[:900]
         query_kind: SourceKind = item.get("_query_kind") or "unknown"
@@ -206,4 +215,6 @@ async def collect_external_sources_adaptive(
         if max_sources is not None and len(sources) >= max_sources:
             break
 
+    if duplicate_urls:
+        notes.append(f"Discovery canonical URL dedup: duplicates={duplicate_urls}.")
     return sources, notes, SearchDiagnostics.aggregate(diagnostics)
