@@ -45,6 +45,15 @@ def _document_groups(
     return order, groups
 
 
+def _next_child_index(records: list[IntelligenceSource], parent_id: str) -> int:
+    indexes = []
+    for item in records:
+        match = _CHILD_ID.match(item.id)
+        if match and match.group("parent") == parent_id:
+            indexes.append(int(match.group("block")))
+    return max(indexes, default=-1) + 1
+
+
 def deduplicate_verified_documents(
     verified: list[IntelligenceSource],
 ) -> tuple[list[IntelligenceSource], int]:
@@ -61,6 +70,8 @@ def deduplicate_verified_documents(
     kept_order: list[str] = []
     kept_groups: dict[str, list[IntelligenceSource]] = {}
     block_digests: dict[str, set[str]] = {}
+    used_ids: dict[str, set[str]] = {}
+    next_child_index: dict[str, int] = {}
     duplicate_documents = 0
 
     for parent_id in order:
@@ -78,6 +89,8 @@ def deduplicate_verified_documents(
                 for item in records
                 if item.id != parent_id and item.evidence_digest
             }
+            used_ids[parent_id] = {item.id for item in records}
+            next_child_index[parent_id] = _next_child_index(records, parent_id)
             survivor_by_url[final_url] = parent_id
             if digest:
                 survivor_by_digest[digest] = parent_id
@@ -86,6 +99,7 @@ def deduplicate_verified_documents(
         duplicate_documents += 1
         survivor_records = kept_groups[survivor]
         known_digests = block_digests[survivor]
+        survivor_ids = used_ids[survivor]
         for item in records:
             if item.id == parent_id or not item.evidence_digest or item.evidence_digest in known_digests:
                 continue
@@ -93,8 +107,17 @@ def deduplicate_verified_documents(
             if match is None:
                 continue
             clone = item.model_copy(deep=True)
-            clone.id = f"{survivor}-b{match.group('block')}-{match.group('offset')}"
+            proposed_id = f"{survivor}-b{match.group('block')}-{match.group('offset')}"
+            if proposed_id in survivor_ids:
+                block_index = next_child_index[survivor]
+                proposed_id = f"{survivor}-b{block_index}-0"
+                while proposed_id in survivor_ids:
+                    block_index += 1
+                    proposed_id = f"{survivor}-b{block_index}-0"
+                next_child_index[survivor] = block_index + 1
+            clone.id = proposed_id
             survivor_records.append(clone)
+            survivor_ids.add(proposed_id)
             known_digests.add(item.evidence_digest)
 
     result: list[IntelligenceSource] = []
