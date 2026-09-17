@@ -12,6 +12,7 @@ from app.dadata_report_bridge import enrich_identity_with_dadata
 from app.evidence_source_projection import (
     collapse_source_ids,
     collapse_verified_evidence,
+    deduplicate_verified_documents,
     merge_document_sources,
 )
 from app.external_sources import (
@@ -168,6 +169,13 @@ async def _run_verified_enriched_site_analysis(
             except Exception as exc:
                 notes.append(f"Уточняющая проверка реквизитов не завершена ({type(exc).__name__}).")
 
+    verified, postfetch_duplicate_documents = deduplicate_verified_documents(verified)
+    if postfetch_duplicate_documents:
+        notes.append(
+            "Post-fetch document dedup before RouterAI extraction: "
+            f"duplicates={postfetch_duplicate_documents}."
+        )
+
     try:
         analysis = await analyze_with_routerai(
             url,
@@ -266,6 +274,7 @@ async def _run_verified_enriched_site_analysis(
         "source_candidates": candidate_count,
         "evidence_records": evidence_count,
         "evidence_blocks_retained": evidence_blocks,
+        "postfetch_duplicate_documents": postfetch_duplicate_documents,
         "transitional_extraction_records": len(verified),
         "verified_documents": evidence_count,
         "unverified_documents": discovery_count + candidate_count,
