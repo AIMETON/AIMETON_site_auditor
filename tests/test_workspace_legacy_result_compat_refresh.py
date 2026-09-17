@@ -37,6 +37,7 @@ def test_history_persists_only_compact_index_and_restores_from_durable_status() 
     assert "economic_signals:" not in compact
     assert "agents:" not in compact
     assert "action_package:" not in compact
+    assert "entries.map(compactHistoryEntry)" in script
     assert "localStorage.setItem(HIST_KEY, JSON.stringify(compact))" in script
     assert "/api/analyze/${encodeURIComponent(item.analysis_id)}" in script
     assert "status.result || status.partial_result" in script
