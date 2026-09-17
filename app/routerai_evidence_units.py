@@ -55,11 +55,16 @@ def project_sources(
     kinds: set[str],
     keys: tuple[str, ...],
 ) -> list[dict[str, Any]]:
-    """Project relevant source fields without semantic truncation."""
+    """Project only semantically routed sources without truncation.
+
+    Evidence lifecycle expresses trust, not relevance. A verified document/block must
+    still match the vertical's query_kind; otherwise registry/review/catalog evidence
+    is multiplied into unrelated identity/management/operations prompts.
+    """
     selected: list[dict[str, Any]] = []
     for source in sources:
         kind = str(source.get("query_kind") or "unknown")
-        if kind not in kinds and source.get("lifecycle_state") != "evidence":
+        if kind not in kinds:
             continue
         selected.append(
             {

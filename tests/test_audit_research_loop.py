@@ -41,27 +41,46 @@ def test_scraper_keeps_late_facts_and_aggregation_preserves_pages():
     assert text in combined and combined.endswith("ПОСЛЕДНЯЯ_СТРАНИЦА")
 
 
-def test_verified_evidence_projection_keeps_tail_and_reaches_all_verticals():
+def test_verified_evidence_projection_keeps_tail_and_respects_vertical_routing():
     quote = "x" * 1500 + "ПОЗДНИЙ_ФАКТ"
     record = {"id": "R1", "lifecycle_state": "evidence", "evidence_quote": quote,
               "query_kind": "registry", "evidence_digest": "sha256:" + "a" * 64}
     compact = compact_routerai_sources([record])
     assert compact[0]["snippet"] == quote
-    assert project_sources(compact, {"other"}, ("id", "snippet"))[0]["snippet"] == quote
+    assert project_sources(compact, {"other"}, ("id", "snippet")) == []
+    assert project_sources(compact, {"registry"}, ("id", "snippet"))[0]["snippet"] == quote
+
+
+def test_target_identifier_in_related_company_section_does_not_verify_foreign_page():
+    blocks = [
+        NS(text='ООО "ТЭМ" ИНН 2510011331 ОГРН 1022500819999', locator='main/company-card'),
+        NS(text='Похожие компании: ООО "АЛЕКС ДЕНТ" ИНН 2462215501', locator='aside/related'),
+    ]
+    text = "\n".join(block.text for block in blocks)
+    matched, reason = verification.document_matches_entity(
+        text,
+        company_name="Алекс Дент",
+        anchors=IdentityAnchors(inn="2462215501"),
+        document_url="https://catalog.example/tem",
+        blocks=blocks,
+        document_title='ООО "ТЭМ" — реквизиты',
+    )
+    assert not matched
+    assert reason == "identity_not_confirmed"
 
 
 @pytest.mark.asyncio
-async def test_verification_preserves_every_block_and_rejects_wrong_entity(monkeypatch):
+async def test_verification_preserves_relevant_block_and_rejects_publisher_footer(monkeypatch):
     text = "ИНН 7707083893 " + "x" * 9000 + " ПОЗДНИЙ_ПРОДУКТ"
     block = NS(text=text, locator="body/p[1]")
-    fetched = NS(normalized_text=text, blocks=[block],
+    footer = NS(text='Правообладатель каталога ООО "ЗУН", ИНН 9999999999', locator="footer/legal")
+    fetched = NS(normalized_text=text + "\n" + footer.text, blocks=[block, footer],
         document=NS(url="https://registry.example/company", title="Example", accessed_at=datetime.now(timezone.utc)),
         normalized_content_digest="sha256:" + "a" * 64, diagnostics=NS(path=NS(value="static")))
     class Pipeline:
         async def fetch_hint(self, hint, source, policy):
             return fetched
         def promote_quote(self, document, *, locator, quote):
-            assert quote in block.text and locator == block.locator
             return NS(evidence=NS(quote=quote, locator=locator,
                 digest="sha256:" + hashlib.sha256(quote.encode()).hexdigest()))
     monkeypatch.setattr(verification, "get_document_pipeline", lambda: Pipeline())
@@ -69,10 +88,11 @@ async def test_verification_preserves_every_block_and_rejects_wrong_entity(monke
     sources[0].classification_state = "ambiguous"  # discovery ambiguity is resolved against the fetched document
     verified = await verification.verify_external_sources(sources, company_name="Example",
         anchors=IdentityAnchors(inn="7707083893"), preserve_blocks=True)
-    pieces = [item for item in verified if "-b" in item.id]
+    pieces = [item for item in verified if "-b0-" in item.id]
     assert "".join(p.evidence_quote for p in sorted(pieces, key=lambda p: int(p.id.rsplit('-', 1)[1]))) == text
     assert all(p.evidence_digest and p.evidence_locator for p in pieces)
-    assert len(sources) == len(verified)
+    assert not any("-b1-" in item.id for item in verified)
+    assert not any("ООО \"ЗУН\"" in (item.evidence_quote or "") for item in verified)
     rejected = [source("H2")]
     assert await verification.verify_external_sources(rejected, company_name="Other",
         anchors=IdentityAnchors(inn="1234567890"), preserve_blocks=True) == []
@@ -173,6 +193,7 @@ async def test_audit_passes_only_verified_evidence_to_llm(monkeypatch):
     result = await audit._run_verified_enriched_site_analysis("https://example.org", "Example", "x" * 46000 + "ПОЗДНИЙ_ФАКТ")
     assert result.research_status["discovery_hints"] == 1
     assert result.research_status["evidence_records"] == 1
+    assert result.research_status["search_results_selected"] == 2
     assert result.readiness.client_release_eligible is False
 
 
