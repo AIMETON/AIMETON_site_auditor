@@ -10,7 +10,15 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field
 
 from app.research_control import deep_research_enabled, current_research, ResearchStopped
-from app.models import BusinessMachineCell, CompanyFact, EconomicSignal, SiteAnalysis
+from app.models import (
+    ActionPackage,
+    BusinessMachineCell,
+    CommercialOpportunity,
+    CompanyFact,
+    EconomicSignal,
+    SiteAnalysis,
+)
+from app.profile_consolidation import consolidate_merged_profile
 from app.routerai_evidence_ledger import persist_merged_evidence_ledger
 from app.routerai_profile_extraction import extract_profile_parallel
 from app.routerai_split_synthesis import (
@@ -41,17 +49,11 @@ class FullReasoningProfile(BaseModel):
 
 
 class CompactBusinessMachineQuadrant(BaseModel):
-    business_machine_4x4: list[BusinessMachineCell] = Field(
-        default_factory=list,
-        max_length=4,
-    )
+    business_machine_4x4: list[BusinessMachineCell] = Field(default_factory=list, max_length=4)
 
 
 class CompactBusinessMachineCell(BaseModel):
-    business_machine_4x4: list[BusinessMachineCell] = Field(
-        default_factory=list,
-        max_length=1,
-    )
+    business_machine_4x4: list[BusinessMachineCell] = Field(default_factory=list, max_length=1)
 
 
 class CompactCommercialOpportunity(BaseModel):
@@ -110,22 +112,51 @@ _KM_LABELS = {
 }
 
 
-def _expand_commercial(
-    opportunity: CompactCommercialOpportunity,
-    execution: CompactCommercialExecution,
-) -> CommercialSynthesis:
-    return CommercialSynthesis.model_validate(
+def _expand_commercial(opportunity: CompactCommercialOpportunity, execution: CompactCommercialExecution) -> CommercialSynthesis:
+    return CommercialSynthesis.model_validate({
+        "commercial_opportunity": opportunity.model_dump(mode="python"),
+        "agents": [item.model_dump(mode="python") for item in execution.agents],
+        "action_package": execution.action_package.model_dump(mode="python"),
+    })
+
+
+def _unavailable_commercial() -> CommercialSynthesis:
+    """Compatibility payload for a profile whose commercial reasoning did not finish.
+
+    SiteAnalysis currently requires a numeric score and at least three agent records.
+    They are explicit unavailable-state placeholders, not recommendations. The
+    authoritative state is research_status.commercial_score_available=false.
+    """
+    placeholder_agents = [
         {
-            "commercial_opportunity": opportunity.model_dump(mode="python"),
-            "agents": [item.model_dump(mode="python") for item in execution.agents],
-            "action_package": execution.action_package.model_dump(mode="python"),
+            "name": "AI-рекомендация не рассчитана",
+            "purpose": "Коммерческий reasoning не завершён",
+            "benefit": "Подтверждённая рекомендация отсутствует",
+            "priority": "Низкий",
         }
+        for _ in range(3)
+    ]
+    return CommercialSynthesis.model_construct(
+        commercial_opportunity=CommercialOpportunity(
+            opportunity_type="Коммерческая оценка не рассчитана",
+            problem_hypothesis="Коммерческий reasoning не завершён; извлечённые факты сохранены.",
+            recommended_solution="Повторить коммерческий synthesis по сохранённому консолидированному профилю.",
+            expected_value="Не рассчитана",
+            score=0,
+            qualification="Недостаточно данных",
+        ),
+        agents=placeholder_agents,
+        action_package=ActionPackage(
+            decision_maker_hypothesis="Не рассчитано",
+            contact_reason="Не рассчитано",
+            demo_scenario=[],
+            first_message="Не рассчитано",
+            next_action="Повторить коммерческий reasoning без повторного поиска и extraction.",
+        ),
     )
 
 
-def _merge_km_results(
-    requests: list[tuple[tuple[str, ...], BaseModel]],
-) -> BusinessMachineSynthesis:
+def _merge_km_results(requests: list[tuple[tuple[str, ...], BaseModel]]) -> BusinessMachineSynthesis:
     cells: list[BusinessMachineCell] = []
     seen: set[str] = set()
     for allowed_codes, result in requests:
@@ -177,17 +208,12 @@ FULL EXTRACTED PROFILE:\n{profile_context}
 """
 
 
-async def analyze_with_routerai_split_v2(
-    url: str,
-    title: str,
-    text: str,
-    external_sources: list[dict] | None = None,
-) -> SiteAnalysis:
-    """Coverage-preserving extraction → durable ledger → staged reasoning → assembly."""
+async def analyze_with_routerai_split_v2(url: str, title: str, text: str, external_sources: list[dict] | None = None) -> SiteAnalysis:
+    """Coverage-preserving extraction → durable ledger → consolidation → reasoning."""
     external_sources = external_sources or []
     accessed_at = datetime.now(timezone.utc).isoformat()
 
-    merged = await extract_profile_parallel(
+    raw_merged = await extract_profile_parallel(
         request_json=_request_json,
         strict_request_json=request_json_strict,
         url=url,
@@ -196,44 +222,51 @@ async def analyze_with_routerai_split_v2(
         external_sources=external_sources,
         accessed_at=accessed_at,
     )
-    # Durability is an admission gate for mission-bound reasoning. Direct calls have no
-    # trace identity and intentionally skip persistence.
-    persist_merged_evidence_ledger(merged)
-
+    persist_merged_evidence_ledger(raw_merged)
+    merged, consolidation = consolidate_merged_profile(raw_merged, external_sources=external_sources)
     profile = _full_reasoning_profile(merged)
     try:
         if current_research() and current_research().stop_requested:
             raise ResearchStopped("research_stopped_by_user")
-        return await asyncio.wait_for(
+        result = await asyncio.wait_for(
             _reason_and_assemble(url, title, text, external_sources, profile, accessed_at),
             timeout=None if deep_research_enabled() or active_settings() else 30.0,
         )
+        result.research_status.update({
+            "profile_consolidation": consolidation.safe_dict(),
+            "commercial_reasoning_state": "succeeded",
+            "commercial_score_available": True,
+        })
+        return result
     except Exception as exc:
-        # Extraction has already completed and been persisted. A reasoning
-        # failure must not discard its facts or pretend the provider succeeded.
-        from app.heuristics import heuristic_analysis
-        fallback = heuristic_analysis(url, title, text)
         result = _assemble_site_analysis(
             url=url, title=title, text=text, external_sources=external_sources,
             profile=profile, km=BusinessMachineSynthesis(),
-            commercial=CommercialSynthesis(
-                commercial_opportunity=fallback.commercial_opportunity,
-                agents=fallback.agents, action_package=fallback.action_package,
-            ), accessed_at=accessed_at,
+            commercial=_unavailable_commercial(), accessed_at=accessed_at,
         )
-        result.readiness.provider_states["routerai"] = "reasoning_failed_extraction_preserved"
+        stopped = isinstance(exc, ResearchStopped)
+        result.readiness.provider_states["routerai"] = (
+            "reasoning_stopped_extraction_preserved" if stopped else "reasoning_failed_extraction_preserved"
+        )
+        result.readiness.analysis_state = "preliminary_hypothesis"
+        result.readiness.commercial_priority = 0
+        if "commercial_reasoning_incomplete" not in result.readiness.release_blockers:
+            result.readiness.release_blockers.append("commercial_reasoning_incomplete")
+        result.research_status.update({
+            "profile_consolidation": consolidation.safe_dict(),
+            "commercial_reasoning_state": "stopped" if stopped else "failed",
+            "commercial_score_available": False,
+            "commercial_reasoning_error_type": type(exc).__name__,
+        })
         result.risks_and_assumptions.append(
-            f"Факты извлечены; коммерческий синтез не завершён ({type(exc).__name__})."
+            f"Факты извлечены и консолидированы; коммерческий synthesis не завершён ({type(exc).__name__}). "
+            "Числовая коммерческая оценка недоступна."
         )
         return result
 
 
 async def _reason_and_assemble(url, title, text, external_sources, profile, accessed_at):
-    profile_context = json.dumps(
-        profile.model_dump(mode="json"),
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
+    profile_context = json.dumps(profile.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":"))
 
     opportunity_prompt = f"""Ты — AI-продажник AIMETON. На основе только полного
 извлечённого профиля выбери одну наиболее доказанную коммерческую AI-возможность.
@@ -250,25 +283,17 @@ FULL EXTRACTED PROFILE:\n{profile_context}
     for quadrant, codes in _KM_QUADRANTS:
         if quadrant == "II":
             for code in codes:
-                km_specs.append(
-                    (
-                        f"km_reasoning_{code.replace('-', '_')}",
-                        (code,),
-                        CompactBusinessMachineCell,
-                        _km_cell_prompt(code, profile_context),
-                        700,
-                    )
-                )
+                km_specs.append((
+                    f"km_reasoning_{code.replace('-', '_')}",
+                    (code,), CompactBusinessMachineCell,
+                    _km_cell_prompt(code, profile_context), 700,
+                ))
         else:
-            km_specs.append(
-                (
-                    f"km_reasoning_{quadrant}",
-                    codes,
-                    CompactBusinessMachineQuadrant,
-                    _km_quadrant_prompt(quadrant, codes, profile_context),
-                    1200,
-                )
-            )
+            km_specs.append((
+                f"km_reasoning_{quadrant}",
+                codes, CompactBusinessMachineQuadrant,
+                _km_quadrant_prompt(quadrant, codes, profile_context), 1200,
+            ))
 
     km_tasks = [
         request_json_strict(
@@ -301,18 +326,14 @@ FULL EXTRACTED PROFILE:\n{profile_context}
     for outcome in gathered:
         if isinstance(outcome, BaseException):
             raise outcome
-    km_result = _merge_km_results(
-        [
-            (codes, result)
-            for (_, codes, _, _, _), result in zip(km_specs, gathered[:-1], strict=True)
-        ]
-    )
+    km_result = _merge_km_results([
+        (codes, result)
+        for (_, codes, _, _, _), result in zip(km_specs, gathered[:-1], strict=True)
+    ])
     opportunity_result = gathered[-1]
 
     opportunity_context = json.dumps(
-        opportunity_result.model_dump(mode="json"),
-        ensure_ascii=False,
-        separators=(",", ":"),
+        opportunity_result.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")
     )
     execution_prompt = f"""Собери компактный пакет исполнения для уже выбранной
 коммерческой возможности. Не переоценивай и не заменяй выбранную возможность.
