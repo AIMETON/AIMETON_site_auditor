@@ -5,10 +5,10 @@ from datetime import datetime, timezone
 
 import httpx
 
+from app.evidence_block_ledger import build_evidence_ledger, compact_source_list_in_place
 from app.external_sources import (
     collect_external_sources,
     source_type,
-    to_llm_sources,
     verified_evidence_level,
 )
 from app.document_pipeline import get_document_pipeline
@@ -123,12 +123,15 @@ async def _analyze_site_with_sources(
         anchors=guard_identity_anchors(extract_identity_anchors(page["text"], url), page["text"]),
         preserve_blocks=True, include_official=True,
     )
+    raw_evidence = [source for source in external_sources if source.lifecycle_state == "evidence"]
+    ledger = build_evidence_ledger(raw_evidence)
+    compact_source_list_in_place(external_sources)
     try:
         analysis = await analyze_with_routerai(
             page["final_url"],
             page["title"],
             page["text"],
-            to_llm_sources([s for s in external_sources if s.lifecycle_state == "evidence"]),
+            ledger.extraction_records(),
         )
     except Exception as exc:
         analysis = heuristic_analysis(page["final_url"], page["title"], page["text"])
@@ -169,7 +172,11 @@ async def _analyze_site_with_sources(
     candidate_count = sum(1 for source in external_sources if source.lifecycle_state == "source_candidate")
     evidence_count = sum(1 for source in external_sources if source.lifecycle_state == "evidence")
     analysis.risks_and_assumptions.append(
-        f"Контур источников: discovery_hint={hint_count}, source_candidate={candidate_count}, evidence={evidence_count}."
+        f"Контур источников: discovery_hint={hint_count}, source_candidate={candidate_count}, verified_documents={evidence_count}, retained_blocks={ledger.block_count}."
+    )
+    analysis.risks_and_assumptions.append(
+        "Evidence blocks хранятся во внутреннем document ledger и раскрываются только на границе extraction; "
+        "публичный source list содержит один элемент на первичный документ."
     )
     analysis.risks_and_assumptions.append(
         "Поисковые сниппеты не являются доказательствами; evidence создаётся только после загрузки документа с URL, датой и цитатой."
