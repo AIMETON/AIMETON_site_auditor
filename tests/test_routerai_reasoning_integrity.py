@@ -66,7 +66,8 @@ async def test_reasoning_failure_preserves_clean_profile_without_heuristic_score
     assert [fact.value for fact in result.company_facts] == ["ООО «Алекс Дент»"]
     assert result.commercial_opportunity.score == 0
     assert result.commercial_opportunity.qualification == "Недостаточно данных"
-    assert result.agents == []
+    assert len(result.agents) == 3
+    assert all(agent.name == "AI-рекомендация не рассчитана" for agent in result.agents)
     assert result.research_status["commercial_reasoning_state"] == "failed"
     assert result.research_status["commercial_score_available"] is False
     assert result.research_status["profile_consolidation"]["semantic_duplicates_merged"] == 1
