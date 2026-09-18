@@ -1,0 +1,80 @@
+{
+  "case_id": "aleksdent_saved_run_2026_09",
+  "target": {
+    "company_name": "Алекс Дент",
+    "legal_name": "ООО \"АЛЕКС ДЕНТ\"",
+    "domain": "aleksdent24.ru",
+    "inn": "2462215501",
+    "city": "Красноярск"
+  },
+  "bad_run_baseline": {
+    "documents": 586,
+    "llm_calls": 680,
+    "tokens": 3551120,
+    "completed_chunks": 666,
+    "public_source_cards": 21149,
+    "unique_source_urls": 90,
+    "block_derived_source_cards": 21060,
+    "company_facts": 451
+  },
+  "foreign_primary_document": {
+    "url": "https://spark-interfax.ru/primorski-krai-spassk-dalni/ooo-tem-inn-2510011331",
+    "title": "ООО ТЭМ, Спасск-Дальний, ИНН 2510011331",
+    "blocks": [
+      {
+        "locator": "main/company-card",
+        "text": "ООО \"ТЭМ\" ИНН 2510011331 ОГРН 1022500819999"
+      },
+      {
+        "locator": "aside/related",
+        "text": "Похожие компании: ООО \"АЛЕКС ДЕНТ\" ИНН 2462215501"
+      }
+    ]
+  },
+  "directory_document": {
+    "url": "https://zoon.ru/krasnoyarsk/medical/aleks_dent/",
+    "title": "Алекс Дент, стоматология в Красноярске",
+    "target_block": {
+      "locator": "main/article",
+      "text": "Алекс Дент — стоматология в Красноярске. Услуги, цены и запись на прием."
+    },
+    "publisher_footer": {
+      "locator": "footer/legal",
+      "text": "Правообладатель сервиса ООО «ЗУН» — IT-компания."
+    }
+  },
+  "fact_distribution": {
+    "other": 184,
+    "products": 180,
+    "executives": 38,
+    "founders": 22,
+    "beneficial_owners": 10,
+    "social_accounts": 3,
+    "affiliates": 3,
+    "registration_status": 2,
+    "single_fields": [
+      "brand_name",
+      "website",
+      "phones",
+      "geography",
+      "address",
+      "headcount",
+      "legal_name",
+      "inn",
+      "ogrn"
+    ]
+  },
+  "acceptance": {
+    "max_initial_core_queries": 6,
+    "max_deep_results_per_query": 8,
+    "max_initial_discovery_results": 48,
+    "foreign_document_must_verify": false,
+    "publisher_footer_must_be_kept": false,
+    "public_sources_per_document": 1,
+    "placeholder_facts_after_consolidation": 0,
+    "publisher_sensitive_facts_after_consolidation": 0,
+    "max_reasoning_products": 40,
+    "max_reasoning_other": 20,
+    "max_reasoning_executives": 32
+  }
+}
