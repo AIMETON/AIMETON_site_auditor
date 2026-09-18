@@ -72,3 +72,5 @@
 - [Настройки исследования: серверная основа](architecture/USER_RESEARCH_SETTINGS_V0.1.md) — #915, draft P0-B: schema/revisions/snapshots/API; UI и enforcement ещё не подключены.
 
 - [User research execution v0.1](architecture/USER_RESEARCH_EXECUTION_V0.1.md) — applied time settings, preflight gates and lifecycle boundaries.
+
+- [Admin LLM Control Center v0.1](architecture/ADMIN-LLM-CONTROL-CENTER-V0.1.md) — admin runtime authority for Fast Research / Extraction / Reasoning model selection, non-secret parameters and sanitized live capability probe.
