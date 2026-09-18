@@ -22,6 +22,7 @@ class LlmRole(StrEnum):
 
 
 class LlmOutputMode(StrEnum):
+    INHERIT = "inherit"
     STRICT_SCHEMA = "strict_schema"
     JSON_OBJECT = "json_object"
 
@@ -44,10 +45,10 @@ class LlmRoleSettings(BaseModel):
 
     profile_name: str = Field(min_length=1, max_length=80)
     model_id: str | None = Field(default=None, max_length=200)
-    temperature: float = Field(default=0.1, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=8192, ge=64, le=65536)
-    timeout_seconds: float = Field(default=120.0, ge=2.0, le=600.0)
-    output_mode: LlmOutputMode = LlmOutputMode.STRICT_SCHEMA
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    max_tokens: int | None = Field(default=None, ge=64, le=65536)
+    timeout_seconds: float | None = Field(default=None, ge=2.0, le=600.0)
+    output_mode: LlmOutputMode = LlmOutputMode.INHERIT
     reasoning_mode: LlmReasoningMode = LlmReasoningMode.OFF
     reasoning_effort: LlmReasoningEffort | None = None
 
@@ -73,18 +74,20 @@ class LlmRuntimeSettings(BaseModel):
     extraction: LlmRoleSettings = Field(
         default_factory=lambda: LlmRoleSettings(
             profile_name="routerai-current",
-            temperature=0.1,
-            max_tokens=8192,
-            timeout_seconds=120.0,
+            temperature=None,
+            max_tokens=None,
+            timeout_seconds=None,
+            output_mode=LlmOutputMode.INHERIT,
             reasoning_mode=LlmReasoningMode.INHERIT,
         )
     )
     reasoning: LlmRoleSettings = Field(
         default_factory=lambda: LlmRoleSettings(
             profile_name="routerai-current",
-            temperature=0.1,
-            max_tokens=8192,
-            timeout_seconds=180.0,
+            temperature=None,
+            max_tokens=None,
+            timeout_seconds=None,
+            output_mode=LlmOutputMode.INHERIT,
             reasoning_mode=LlmReasoningMode.INHERIT,
             reasoning_effort=None,
         )
@@ -114,9 +117,9 @@ class ResolvedLlmRuntime(BaseModel):
     api_key: str
     model: str
     configured: bool
-    temperature: float
-    max_tokens: int
-    timeout_seconds: float
+    temperature: float | None
+    max_tokens: int | None
+    timeout_seconds: float | None
     output_mode: LlmOutputMode
     reasoning_mode: LlmReasoningMode
     reasoning_effort: LlmReasoningEffort | None
