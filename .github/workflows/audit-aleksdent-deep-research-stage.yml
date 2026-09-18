@@ -74,7 +74,6 @@ jobs:
           print("extraction_configured=" + str(extraction.get("configured", False)).lower())
           PY
           echo "cookie=$cookie" >> "$GITHUB_OUTPUT"
-          echo "csrf=$csrf" >> "$GITHUB_OUTPUT"
           echo "model_snapshot=$model_snapshot" >> "$GITHUB_OUTPUT"
           rm -f "$login_payload" "$RUNNER_TEMP/aleksdent-login-response.json"
 
@@ -83,9 +82,11 @@ jobs:
         shell: bash
         env:
           COOKIE: ${{ steps.preflight.outputs.cookie }}
-          CSRF: ${{ steps.preflight.outputs.csrf }}
         run: |
           set -Eeuo pipefail
+          csrf="$(awk '$6=="aimeton_csrf"{print $7}' "$COOKIE" | tail -n1)"
+          test -n "$csrf"
+          echo "::add-mask::$csrf"
           start_json="$RUNNER_TEMP/aleksdent-deep-start.json"
           status_json="$RUNNER_TEMP/aleksdent-deep-status.json"
           request_json="$RUNNER_TEMP/aleksdent-deep-request.json"
@@ -97,7 +98,7 @@ jobs:
               "unlimited_llm_budget": True,
           }))
           PY
-          curl -fsS -X POST "$STAGE_URL/api/analyze/start"             -b "$COOKIE" -H "X-CSRF-Token: $CSRF" -H 'Content-Type: application/json'             --data-binary @"$request_json" > "$start_json"
+          curl -fsS -X POST "$STAGE_URL/api/analyze/start"             -b "$COOKIE" -H "X-CSRF-Token: $csrf" -H 'Content-Type: application/json'             --data-binary @"$request_json" > "$start_json"
 
           analysis_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["analysis_id"])' "$start_json")"
           mission_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["mission_id"])' "$start_json")"
@@ -118,7 +119,7 @@ jobs:
           done
 
           if [[ "$terminal" != completed && "$terminal" != failed ]]; then
-            curl -fsS -X POST "$STAGE_URL/api/analyze/$analysis_id/stop"               -b "$COOKIE" -H "X-CSRF-Token: $CSRF" >/dev/null
+            curl -fsS -X POST "$STAGE_URL/api/analyze/$analysis_id/stop"               -b "$COOKIE" -H "X-CSRF-Token: $csrf" >/dev/null
             for _ in $(seq 1 20); do
               sleep 3
               curl -fsS -b "$COOKIE" "$STAGE_URL/api/analyze/$analysis_id" > "$status_json"
