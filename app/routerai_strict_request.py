@@ -77,7 +77,7 @@ async def request_json_strict(
     explicit_off = reasoning_enabled is False
     if explicit_off or runtime.reasoning_mode is LlmReasoningMode.OFF:
         payload["reasoning"] = {"enabled": False}
-    else:
+    elif runtime.reasoning_mode is LlmReasoningMode.ON:
         reasoning: dict[str, bool | str] = {"enabled": True}
         effort = (
             runtime.reasoning_effort.value
@@ -87,6 +87,19 @@ async def request_json_strict(
         if effort is not None:
             reasoning["effort"] = effort
         payload["reasoning"] = reasoning
+    else:
+        reasoning: dict[str, bool | str] = {}
+        if reasoning_enabled is not None:
+            reasoning["enabled"] = reasoning_enabled
+        effort = (
+            runtime.reasoning_effort.value
+            if runtime.reasoning_effort is not None
+            else reasoning_effort
+        )
+        if effort is not None:
+            reasoning["effort"] = effort
+        if reasoning:
+            payload["reasoning"] = reasoning
 
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
