@@ -16,6 +16,7 @@ from app.trace_context import current_trace_identity
 from app.research_control import current_research, deep_research_enabled
 from app.search_gateway.models import SearchResponse
 from app.models import IntelligenceSource, SourceKind
+from app.research_coverage_controller import DEFAULT_DEEP_RESULTS_PER_QUERY
 from app.search_gateway import (
     SearchDiagnostics,
     SearchRequest,
@@ -104,7 +105,7 @@ async def collect_external_sources_adaptive(
     anchors = anchors or IdentityAnchors()
     notes: list[str] = []
     plan = query_overrides if query_overrides is not None else query_plan(company_name, region, anchors)
-    per_query = 100 if deep_research_enabled() else max(2, min(5, (max_sources or 60) // max(1, len(plan)) + 1))
+    per_query = DEFAULT_DEEP_RESULTS_PER_QUERY if deep_research_enabled() else max(2, min(5, (max_sources or 60) // max(1, len(plan)) + 1))
     semaphore = asyncio.Semaphore(6)
     trace_identity = current_trace_identity()
     mission_id = trace_identity.mission_id if trace_identity else f"company-{uuid4()}"
