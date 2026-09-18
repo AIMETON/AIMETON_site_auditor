@@ -119,10 +119,11 @@
         </select></label>
         <label>Provider profile<select id="llm-profile"></select></label>
         <label>Model ID override<input id="llm-model-id" maxlength="200" autocomplete="off" placeholder="пусто = модель профиля"></label>
-        <label>Temperature<input id="llm-temperature" type="number" min="0" max="2" step="0.05" required></label>
-        <label>Output token cap<input id="llm-max-tokens" type="number" min="64" max="65536" step="1" required></label>
-        <label>Timeout, секунд<input id="llm-timeout-seconds" type="number" min="2" max="600" step="1" required></label>
+        <label>Temperature<input id="llm-temperature" type="number" min="0" max="2" step="0.05" placeholder="пусто = inherit"></label>
+        <label>Output token cap<input id="llm-max-tokens" type="number" min="64" max="65536" step="1" placeholder="пусто = phase default"></label>
+        <label>Timeout, секунд<input id="llm-timeout-seconds" type="number" min="2" max="600" step="1" placeholder="пусто = phase default"></label>
         <label>Structured output mode<select id="llm-output-mode">
+          <option value="inherit">Inherit phase policy</option>
           <option value="strict_schema">Strict JSON Schema</option>
           <option value="json_object">JSON object</option>
         </select></label>
