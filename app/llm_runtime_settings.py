@@ -27,6 +27,7 @@ class LlmOutputMode(StrEnum):
 
 
 class LlmReasoningMode(StrEnum):
+    INHERIT = "inherit"
     OFF = "off"
     ON = "on"
 
@@ -53,7 +54,7 @@ class LlmRoleSettings(BaseModel):
     @model_validator(mode="after")
     def validate_reasoning(self) -> "LlmRoleSettings":
         if self.reasoning_mode is LlmReasoningMode.OFF and self.reasoning_effort is not None:
-            raise ValueError("reasoning_effort_requires_reasoning_on")
+            raise ValueError("reasoning_effort_requires_reasoning_inherit_or_on")
         return self
 
 
@@ -75,7 +76,7 @@ class LlmRuntimeSettings(BaseModel):
             temperature=0.1,
             max_tokens=8192,
             timeout_seconds=120.0,
-            reasoning_mode=LlmReasoningMode.OFF,
+            reasoning_mode=LlmReasoningMode.INHERIT,
         )
     )
     reasoning: LlmRoleSettings = Field(
@@ -84,8 +85,8 @@ class LlmRuntimeSettings(BaseModel):
             temperature=0.1,
             max_tokens=8192,
             timeout_seconds=180.0,
-            reasoning_mode=LlmReasoningMode.ON,
-            reasoning_effort=LlmReasoningEffort.HIGH,
+            reasoning_mode=LlmReasoningMode.INHERIT,
+            reasoning_effort=None,
         )
     )
 
