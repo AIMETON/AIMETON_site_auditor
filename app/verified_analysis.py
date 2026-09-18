@@ -24,9 +24,17 @@ from app.external_verification import verify_external_sources
 from app.heuristics import heuristic_analysis
 from app.identity_anchor_guard import guard_identity_anchors
 from app.routerai_runtime import run_bounded_routerai_analysis as analyze_with_routerai
-from app.models import IntelligenceSource, SiteAnalysis
+from app.models import IntelligenceSource, SiteAnalysis, SourceKind
 from app.research_control import deep_research_enabled, current_research
 from app.search_result_triage import SearchTriageSummary, triage_search_candidates
+from app.research_coverage_controller import (
+    MAX_PROGRESSIVE_WAVES,
+    assess_coverage,
+    gap_wave,
+    initial_wave,
+    optional_wave,
+)
+from app.search_gateway.gateway import canonical_url
 from datetime import datetime, timezone
 
 
@@ -41,6 +49,84 @@ def _remap_analysis_source_ids(analysis: SiteAnalysis) -> None:
         signal.source_ids = collapse_source_ids(signal.source_ids)
     for cell in analysis.business_machine_4x4:
         cell.source_ids = collapse_source_ids(cell.source_ids)
+
+
+def _merge_search_triage(
+    left: SearchTriageSummary,
+    right: SearchTriageSummary,
+) -> SearchTriageSummary:
+    return left.model_copy(update={
+        "total": left.total + right.total,
+        "selected": left.selected + right.selected,
+        "rejected": left.rejected + right.rejected,
+        "deterministic_selected": left.deterministic_selected + right.deterministic_selected,
+        "model_selected": left.model_selected + right.model_selected,
+        "model_used": left.model_used or right.model_used,
+        "model_unavailable": left.model_unavailable or right.model_unavailable,
+    })
+
+
+def _append_unique_wave_sources(
+    existing: list[IntelligenceSource],
+    incoming: list[IntelligenceSource],
+    *,
+    prefix: str,
+) -> list[IntelligenceSource]:
+    seen = {canonical_url(str(item.url)) for item in existing}
+    selected: list[IntelligenceSource] = []
+    for item in incoming:
+        key = canonical_url(str(item.url))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        item.id = f"{prefix}-{item.id}"
+        existing.append(item)
+        selected.append(item)
+    return selected
+
+
+async def _search_verify_wave(
+    *,
+    plan: list[tuple[SourceKind, str]],
+    prefix: str,
+    company_name: str,
+    official_url: str,
+    anchors,
+    deep: bool,
+    existing_sources: list[IntelligenceSource],
+) -> tuple[list[IntelligenceSource], list[str], SearchDiagnostics, SearchTriageSummary, int]:
+    if not plan:
+        return [], [], SearchDiagnostics(state="unavailable"), SearchTriageSummary(total=0, selected=0, rejected=0), 0
+
+    sources, notes, diagnostics = await collect_external_sources_adaptive(
+        company_name,
+        official_url,
+        region=anchors.primary_region,
+        max_sources=None if deep else 12,
+        anchors=anchors,
+        query_overrides=plan,
+    )
+    sources, triage = await triage_search_candidates(
+        sources,
+        company_name=company_name,
+        anchors=anchors,
+        official_url=official_url,
+    )
+    unique_sources = _append_unique_wave_sources(
+        existing_sources,
+        sources,
+        prefix=prefix,
+    )
+    verified = await verify_external_sources(
+        unique_sources,
+        company_name=company_name,
+        anchors=anchors,
+        max_documents=None if deep else 8,
+        preserve_blocks=deep,
+        include_official=True,
+        timeout_seconds=25,
+    )
+    return verified, notes, diagnostics, triage, len(unique_sources)
 
 
 async def _run_verified_enriched_site_analysis(
@@ -67,7 +153,13 @@ async def _run_verified_enriched_site_analysis(
         anchors
     )
 
-    planned_queries = research_queries if research_queries is not None else query_plan(company_hint, anchors=anchors)
+    full_plan = research_queries if research_queries is not None else query_plan(company_hint, anchors=anchors)
+    progressive_search = bool(deep and research_queries is None)
+    initial_plan = initial_wave(full_plan) if progressive_search else research_queries
+    attempted_queries = list(initial_plan if progressive_search else full_plan)
+    search_waves_executed = 1
+    optional_wave_model_used = False
+    optional_wave_model_unavailable = False
     search_triage = SearchTriageSummary(total=0, selected=0, rejected=0)
     try:
         external_sources, notes, diagnostics = await collect_external_sources_adaptive(
@@ -76,7 +168,7 @@ async def _run_verified_enriched_site_analysis(
             region=anchors.primary_region,
             max_sources=None if deep else 100,
             anchors=anchors,
-            query_overrides=research_queries,
+            query_overrides=initial_plan if progressive_search else research_queries,
         )
         if deep and not any(item.url == url for item in external_sources):
             external_sources.insert(0, IntelligenceSource(
@@ -95,6 +187,11 @@ async def _run_verified_enriched_site_analysis(
             f"total={search_triage.total}, selected={search_triage.selected}, "
             f"rejected={search_triage.rejected}, model_used={search_triage.model_used}."
         )
+        if progressive_search:
+            notes.append(
+                "Progressive search wave 1: "
+                f"queries={len(initial_plan)}, full_plan={len(full_plan)}."
+            )
     except Exception as exc:
         external_sources = []
         notes = [f"Внешний поиск/triage недоступен ({type(exc).__name__}); профиль неполный."]
@@ -132,7 +229,7 @@ async def _run_verified_enriched_site_analysis(
                 ("finance", f'"{identifier}" site:bo.nalog.ru'),
                 ("registry", f'"{identifier}" реквизиты филиалы'),
             ]
-            planned_queries = planned_queries + follow_plan
+            attempted_queries.extend(follow_plan)
             try:
                 more, more_notes, more_diagnostics = await collect_external_sources_adaptive(
                     company_hint, url, max_sources=None if deep else 12, anchors=anchors, query_overrides=follow_plan,
@@ -143,13 +240,11 @@ async def _run_verified_enriched_site_analysis(
                     anchors=anchors,
                     official_url=url,
                 )
-                for item in more:
-                    item.id = "R-" + item.id
+                more = _append_unique_wave_sources(external_sources, more, prefix="R")
                 more_verified = await verify_external_sources(
                     more, company_name=company_hint, anchors=anchors, max_documents=None if deep else 8,
                     preserve_blocks=deep, timeout_seconds=25,
                 )
-                external_sources.extend(more)
                 verified.extend(more_verified)
                 notes.extend(more_notes)
                 notes.append(
@@ -157,17 +252,119 @@ async def _run_verified_enriched_site_analysis(
                     f"total={follow_triage.total}, selected={follow_triage.selected}, rejected={follow_triage.rejected}."
                 )
                 diagnostics = SearchDiagnostics.aggregate([diagnostics, more_diagnostics])
-                search_triage = search_triage.model_copy(update={
-                    "total": search_triage.total + follow_triage.total,
-                    "selected": search_triage.selected + follow_triage.selected,
-                    "rejected": search_triage.rejected + follow_triage.rejected,
-                    "deterministic_selected": search_triage.deterministic_selected + follow_triage.deterministic_selected,
-                    "model_selected": search_triage.model_selected + follow_triage.model_selected,
-                    "model_used": search_triage.model_used or follow_triage.model_used,
-                    "model_unavailable": search_triage.model_unavailable or follow_triage.model_unavailable,
-                })
+                search_triage = _merge_search_triage(search_triage, follow_triage)
             except Exception as exc:
                 notes.append(f"Уточняющая проверка реквизитов не завершена ({type(exc).__name__}).")
+
+    coverage = assess_coverage(
+        verified,
+        [kind for kind, _ in attempted_queries],
+    )
+
+    if (progressive_search and search_waves_executed < MAX_PROGRESSIVE_WAVES
+            and not (current_research() and current_research().stop_requested)):
+        attempted_query_text = {query for _, query in attempted_queries}
+        gaps = gap_wave(
+            full_plan,
+            coverage,
+            already_attempted=attempted_query_text,
+        )
+        if gaps:
+            search_waves_executed += 1
+            attempted_queries.extend(gaps)
+            try:
+                (
+                    gap_verified,
+                    gap_notes,
+                    gap_diagnostics,
+                    gap_triage,
+                    gap_selected,
+                ) = await _search_verify_wave(
+                    plan=gaps,
+                    prefix=f"W{search_waves_executed}",
+                    company_name=company_hint,
+                    official_url=url,
+                    anchors=anchors,
+                    deep=deep,
+                    existing_sources=external_sources,
+                )
+                verified.extend(gap_verified)
+                notes.extend(gap_notes)
+                notes.append(
+                    "Progressive mandatory gap wave: "
+                    f"queries={len(gaps)}, selected_urls={gap_selected}, "
+                    f"verified_records={len(gap_verified)}."
+                )
+                diagnostics = SearchDiagnostics.aggregate([diagnostics, gap_diagnostics])
+                search_triage = _merge_search_triage(search_triage, gap_triage)
+            except Exception as exc:
+                notes.append(
+                    f"Progressive mandatory gap wave не завершена ({type(exc).__name__})."
+                )
+            coverage = assess_coverage(
+                verified,
+                [kind for kind, _ in attempted_queries],
+            )
+
+    if (progressive_search and search_waves_executed < MAX_PROGRESSIVE_WAVES
+            and not (current_research() and current_research().stop_requested)):
+        selection = await optional_wave(
+            full_plan,
+            coverage,
+            company_name=company_hint,
+            anchors=anchors,
+            already_attempted={query for _, query in attempted_queries},
+        )
+        optional_wave_model_used = selection.model_used
+        optional_wave_model_unavailable = selection.model_unavailable
+        optional_plan = list(selection.queries)
+        if optional_plan:
+            search_waves_executed += 1
+            attempted_queries.extend(optional_plan)
+            try:
+                (
+                    optional_verified,
+                    optional_notes,
+                    optional_diagnostics,
+                    optional_triage,
+                    optional_selected,
+                ) = await _search_verify_wave(
+                    plan=optional_plan,
+                    prefix=f"W{search_waves_executed}",
+                    company_name=company_hint,
+                    official_url=url,
+                    anchors=anchors,
+                    deep=deep,
+                    existing_sources=external_sources,
+                )
+                verified.extend(optional_verified)
+                notes.extend(optional_notes)
+                notes.append(
+                    "Progressive optional recovery/enrichment wave: "
+                    f"queries={len(optional_plan)}/{selection.candidate_count}, "
+                    f"selected_urls={optional_selected}, "
+                    f"verified_records={len(optional_verified)}, "
+                    f"model_used={selection.model_used}, "
+                    f"model_unavailable={selection.model_unavailable}."
+                )
+                diagnostics = SearchDiagnostics.aggregate([diagnostics, optional_diagnostics])
+                search_triage = _merge_search_triage(search_triage, optional_triage)
+            except Exception as exc:
+                notes.append(
+                    f"Progressive optional wave не завершена ({type(exc).__name__})."
+                )
+            coverage = assess_coverage(
+                verified,
+                [kind for kind, _ in attempted_queries],
+            )
+
+    if progressive_search:
+        notes.append(
+            "Progressive search coverage: "
+            f"waves={search_waves_executed}, "
+            f"missing={','.join(coverage.missing_verticals) or 'none'}, "
+            f"searched_without_evidence={','.join(coverage.searched_without_evidence) or 'none'}."
+        )
 
     verified, postfetch_duplicate_documents = deduplicate_verified_documents(verified)
     if postfetch_duplicate_documents:
@@ -259,12 +456,21 @@ async def _run_verified_enriched_site_analysis(
         )
 
     analysis.readiness.provider_states["search"] = diagnostics.state
-    analysis.research_queries = [query for _, query in planned_queries]
+    analysis.research_queries = [query for _, query in attempted_queries]
     analysis.research_status = {
         "extraction_input_coverage_complete": False,
         **analysis.research_status,
         "stage": "intermediate_report",
         "search_state": diagnostics.state,
+        "search_progressive_enabled": progressive_search,
+        "search_waves_executed": search_waves_executed,
+        "search_queries_available": len(full_plan),
+        "search_queries_executed": len(attempted_queries),
+        "search_coverage_complete": coverage.search_complete,
+        "search_coverage_missing_verticals": ",".join(coverage.missing_verticals),
+        "search_coverage_searched_no_evidence": ",".join(coverage.searched_without_evidence),
+        "search_optional_wave_model_used": optional_wave_model_used,
+        "search_optional_wave_model_unavailable": optional_wave_model_unavailable,
         "search_results_triaged": search_triage.total,
         "search_results_selected": search_triage.selected,
         "search_results_rejected": search_triage.rejected,
