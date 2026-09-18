@@ -240,8 +240,7 @@ def resolve_llm_runtime(
         resolved_profile = profile.resolve()
     except KeyError as exc:
         raise RuntimeError(f"unknown_llm_profile:{config.profile_name}") from exc
-    resolved_model = (config.model_id or resolved_profile.model or "").strip()
-    return ResolvedLlmRuntime(
+    resolved_model = (\n        config.model_id\n        or resolved_profile.model\n        or ("openai/gpt-4o-mini" if config.profile_name == "routerai-current" else "")\n    ).strip()\n    return ResolvedLlmRuntime(
         role=normalized_role,
         profile_name=config.profile_name,
         provider=resolved_profile.provider.value,
