@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import httpx
 
 from app.research_control import record_llm_start, record_llm_usage
+from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
 
 from app.models import (
     EvidenceSource,
@@ -36,9 +37,9 @@ def _fallback_quote(text: str, limit: int = 320) -> str:
 
 @research_timed("llm")
 async def analyze_with_routerai(url: str, title: str, text: str, external_sources: list[dict] | None = None) -> SiteAnalysis:
-    key = os.getenv("ROUTERAI_API_KEY")
-    if not key:
-        raise RuntimeError("ROUTERAI_API_KEY не задан")
+    runtime = resolve_llm_runtime(LlmRole.REASONING)
+    if not runtime.configured:
+        raise RuntimeError(f"llm_runtime_not_configured:reasoning:{runtime.profile_name}")
 
     schema = SiteAnalysis.model_json_schema()
     accessed_at = datetime.now(timezone.utc).isoformat()
@@ -116,19 +117,41 @@ EXTERNAL OSINT SOURCES:
 JSON SCHEMA:
 {json.dumps(schema, ensure_ascii=False)}"""
 
+    if runtime.output_mode.value == "strict_schema":
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "aimeton_site_analysis",
+                "strict": True,
+                "schema": schema,
+            },
+        }
+    else:
+        response_format = {"type": "json_object"}
     payload = {
-        "model": MODEL,
-        "temperature": 0.1,
+        "model": runtime.model,
+        "temperature": runtime.temperature,
+        "max_tokens": runtime.max_tokens,
+        "response_format": response_format,
         "messages": [
             {"role": "system", "content": "Возвращай валидный JSON без Markdown. Главный результат — доказанная AI-коммерческая возможность; профиль и КМ усиливают её, но не заменяют."},
             {"role": "user", "content": prompt},
         ],
     }
+    if runtime.output_mode.value == "strict_schema":
+        payload["structured_outputs"] = True
+    if runtime.reasoning_mode is LlmReasoningMode.ON:
+        reasoning = {"enabled": True}
+        if runtime.reasoning_effort is not None:
+            reasoning["effort"] = runtime.reasoning_effort.value
+        payload["reasoning"] = reasoning
+    else:
+        payload["reasoning"] = {"enabled": False}
     record_llm_start()
-    async with httpx.AsyncClient(timeout=operation_timeout("llm", 180)) as client:
+    async with httpx.AsyncClient(timeout=operation_timeout("llm", runtime.timeout_seconds)) as client:
         response = await client.post(
-            f"{BASE_URL}/chat/completions",
-            headers={"Authorization": f"Bearer {key}"},
+            f"{runtime.base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {runtime.api_key}"},
             json=payload,
         )
         response.raise_for_status()
@@ -246,9 +269,9 @@ JSON SCHEMA:
 
 @research_timed("llm")
 async def chat_with_routerai(analysis: SiteAnalysis, messages: list[dict]) -> str:
-    key = os.getenv("ROUTERAI_API_KEY")
-    if not key:
-        return "Для диалога необходимо настроить ROUTERAI_API_KEY."
+    runtime = resolve_llm_runtime(LlmRole.REASONING)
+    if not runtime.configured:
+        return "Для диалога необходимо настроить активный LLM-профиль."
     system = (
         "Ты AI-консультант по продаже решений AIMETON. Сохраняй главной целью развитие доказанной коммерческой возможности. "
         "Используй company_facts и канонические элементы КМ для углубления понимания компании, но не подменяй ими продажу. "
@@ -259,15 +282,23 @@ async def chat_with_routerai(analysis: SiteAnalysis, messages: list[dict]) -> st
         + analysis.model_dump_json()
     )
     payload = {
-        "model": MODEL,
-        "temperature": 0.25,
+        "model": runtime.model,
+        "temperature": runtime.temperature,
+        "max_tokens": runtime.max_tokens,
         "messages": [{"role": "system", "content": system}] + messages[-12:],
     }
+    if runtime.reasoning_mode is LlmReasoningMode.ON:
+        reasoning = {"enabled": True}
+        if runtime.reasoning_effort is not None:
+            reasoning["effort"] = runtime.reasoning_effort.value
+        payload["reasoning"] = reasoning
+    else:
+        payload["reasoning"] = {"enabled": False}
     record_llm_start()
-    async with httpx.AsyncClient(timeout=operation_timeout("llm", 120)) as client:
+    async with httpx.AsyncClient(timeout=operation_timeout("llm", runtime.timeout_seconds)) as client:
         response = await client.post(
-            f"{BASE_URL}/chat/completions",
-            headers={"Authorization": f"Bearer {key}"},
+            f"{runtime.base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {runtime.api_key}"},
             json=payload,
         )
         response.raise_for_status()
