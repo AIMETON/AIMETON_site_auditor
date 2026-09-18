@@ -20,6 +20,7 @@
   const testButton = document.querySelector('#test-llm-model');
 
   let envelope = null;
+  let activeRole = roleSelect.value;
 
   function csrfToken() {
     const prefix = 'aimeton_csrf=';
@@ -63,9 +64,9 @@
     };
   }
 
-  function stashCurrentRole() {
+  function stashRole(role = activeRole) {
     if (!envelope?.record?.settings) return;
-    envelope.record.settings[currentRole()] = readRoleForm();
+    envelope.record.settings[role] = readRoleForm();
   }
 
   function updateReasoningControls() {
@@ -114,7 +115,8 @@
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       envelope = await response.json();
       fillProfiles(envelope.profiles || []);
-      fillRole(currentRole());
+      activeRole = currentRole();
+      fillRole(activeRole);
       const record = envelope.record || {};
       updated.textContent = record.updated_at
         ? `Последнее изменение: ${record.updated_at} · admin user ${record.updated_by ?? '—'} · ${record.reason || 'без комментария'}`
@@ -127,14 +129,16 @@
 
   roleSelect.addEventListener('change', event => {
     const nextRole = event.target.value;
-    if (envelope?.record?.settings) fillRole(nextRole);
+    if (envelope?.record?.settings) stashRole(activeRole);
+    activeRole = nextRole;
+    if (envelope?.record?.settings) fillRole(activeRole);
   });
 
   reasoningMode.addEventListener('change', updateReasoningControls);
 
   testButton.addEventListener('click', async () => {
     if (!envelope) return;
-    stashCurrentRole();
+    stashRole(activeRole);
     testButton.disabled = true;
     testResult.replaceChildren(card('Проверка модели', ['Выполняется один короткий live provider-вызов…']));
     try {
@@ -169,7 +173,7 @@
   form.addEventListener('submit', async event => {
     event.preventDefault();
     if (!envelope?.record?.settings) return;
-    stashCurrentRole();
+    stashRole(activeRole);
     const submit = form.querySelector('button[type="submit"]');
     submit.disabled = true;
     setMessage('Сохраняем LLM-настройки…');
