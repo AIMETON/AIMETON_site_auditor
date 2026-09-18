@@ -185,7 +185,7 @@ async def _run_verified_enriched_site_analysis(
                 ("finance", f'"{identifier}" site:bo.nalog.ru'),
                 ("registry", f'"{identifier}" реквизиты филиалы'),
             ]
-            planned_queries = planned_queries + follow_plan
+            attempted_queries.extend(follow_plan)
             try:
                 more, more_notes, more_diagnostics = await collect_external_sources_adaptive(
                     company_hint, url, max_sources=None if deep else 12, anchors=anchors, query_overrides=follow_plan,
@@ -196,13 +196,11 @@ async def _run_verified_enriched_site_analysis(
                     anchors=anchors,
                     official_url=url,
                 )
-                for item in more:
-                    item.id = "R-" + item.id
+                more = _append_unique_wave_sources(external_sources, more, prefix="R")
                 more_verified = await verify_external_sources(
                     more, company_name=company_hint, anchors=anchors, max_documents=None if deep else 8,
                     preserve_blocks=deep, timeout_seconds=25,
                 )
-                external_sources.extend(more)
                 verified.extend(more_verified)
                 notes.extend(more_notes)
                 notes.append(
@@ -210,15 +208,7 @@ async def _run_verified_enriched_site_analysis(
                     f"total={follow_triage.total}, selected={follow_triage.selected}, rejected={follow_triage.rejected}."
                 )
                 diagnostics = SearchDiagnostics.aggregate([diagnostics, more_diagnostics])
-                search_triage = search_triage.model_copy(update={
-                    "total": search_triage.total + follow_triage.total,
-                    "selected": search_triage.selected + follow_triage.selected,
-                    "rejected": search_triage.rejected + follow_triage.rejected,
-                    "deterministic_selected": search_triage.deterministic_selected + follow_triage.deterministic_selected,
-                    "model_selected": search_triage.model_selected + follow_triage.model_selected,
-                    "model_used": search_triage.model_used or follow_triage.model_used,
-                    "model_unavailable": search_triage.model_unavailable or follow_triage.model_unavailable,
-                })
+                search_triage = _merge_search_triage(search_triage, follow_triage)
             except Exception as exc:
                 notes.append(f"Уточняющая проверка реквизитов не завершена ({type(exc).__name__}).")
 
