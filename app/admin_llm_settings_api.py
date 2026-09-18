@@ -72,12 +72,15 @@ def _runtime_profiles() -> list[dict[str, Any]]:
         if profile.provider.value != "routerai":
             continue
         resolved = profile.resolve()
+        model = resolved.model or (
+            "openai/gpt-4o-mini" if profile.name == "routerai-current" else ""
+        )
         rows.append({
             "profile_name": profile.name,
             "provider": profile.provider.value,
-            "model": resolved.model,
+            "model": model,
             "tier": profile.tier,
-            "configured": resolved.configured,
+            "configured": bool(resolved.base_url and resolved.api_key and model),
         })
     return rows
 
