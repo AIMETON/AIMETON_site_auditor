@@ -261,7 +261,8 @@ async def _run_verified_enriched_site_analysis(
         [kind for kind, _ in attempted_queries],
     )
 
-    if progressive_search and search_waves_executed < MAX_PROGRESSIVE_WAVES:
+    if (progressive_search and search_waves_executed < MAX_PROGRESSIVE_WAVES
+            and not (current_research() and current_research().stop_requested)):
         attempted_query_text = {query for _, query in attempted_queries}
         gaps = gap_wave(
             full_plan,
@@ -305,7 +306,8 @@ async def _run_verified_enriched_site_analysis(
                 [kind for kind, _ in attempted_queries],
             )
 
-    if progressive_search and search_waves_executed < MAX_PROGRESSIVE_WAVES:
+    if (progressive_search and search_waves_executed < MAX_PROGRESSIVE_WAVES
+            and not (current_research() and current_research().stop_requested)):
         selection = await optional_wave(
             full_plan,
             coverage,
@@ -454,12 +456,21 @@ async def _run_verified_enriched_site_analysis(
         )
 
     analysis.readiness.provider_states["search"] = diagnostics.state
-    analysis.research_queries = [query for _, query in planned_queries]
+    analysis.research_queries = [query for _, query in attempted_queries]
     analysis.research_status = {
         "extraction_input_coverage_complete": False,
         **analysis.research_status,
         "stage": "intermediate_report",
         "search_state": diagnostics.state,
+        "search_progressive_enabled": progressive_search,
+        "search_waves_executed": search_waves_executed,
+        "search_queries_available": len(full_plan),
+        "search_queries_executed": len(attempted_queries),
+        "search_coverage_complete": coverage.search_complete,
+        "search_coverage_missing_verticals": ",".join(coverage.missing_verticals),
+        "search_coverage_searched_no_evidence": ",".join(coverage.searched_without_evidence),
+        "search_optional_wave_model_used": optional_wave_model_used,
+        "search_optional_wave_model_unavailable": optional_wave_model_unavailable,
         "search_results_triaged": search_triage.total,
         "search_results_selected": search_triage.selected,
         "search_results_rejected": search_triage.rejected,
