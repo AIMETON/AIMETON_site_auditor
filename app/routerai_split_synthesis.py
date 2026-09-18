@@ -94,7 +94,8 @@ async def _request_json(
         raise RuntimeError(f"llm_runtime_not_configured:{role.value}:{runtime.profile_name}")
 
     schema = json.dumps(model_type.model_json_schema(), ensure_ascii=False)
-    if runtime.output_mode.value == "strict_schema":
+    output_mode = "json_object" if runtime.output_mode.value == "inherit" else runtime.output_mode.value
+    if output_mode == "strict_schema":
         response_format = {
             "type": "json_schema",
             "json_schema": {
@@ -107,8 +108,8 @@ async def _request_json(
         response_format = {"type": "json_object"}
     payload = {
         "model": runtime.model,
-        "temperature": runtime.temperature,
-        "max_tokens": min(int(max_tokens), int(runtime.max_tokens)),
+        "temperature": 0.1 if runtime.temperature is None else runtime.temperature,
+        "max_tokens": min(int(max_tokens), int(runtime.max_tokens or max_tokens)),
         "response_format": response_format,
         "messages": [
             {"role": "system", "content": system},
@@ -118,7 +119,7 @@ async def _request_json(
             },
         ],
     }
-    if runtime.output_mode.value == "strict_schema":
+    if output_mode == "strict_schema":
         payload["structured_outputs"] = True
     if runtime.reasoning_mode is LlmReasoningMode.ON:
         reasoning = {"enabled": True}
@@ -131,7 +132,7 @@ async def _request_json(
         payload["reasoning"] = {"effort": runtime.reasoning_effort.value}
     record_llm_start()
     try:
-        async with httpx.AsyncClient(timeout=runtime.timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=runtime.timeout_seconds or timeout_seconds) as client:
             response = await client.post(
                 f"{runtime.base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {runtime.api_key}"},
