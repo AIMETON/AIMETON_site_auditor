@@ -145,8 +145,10 @@ JSON SCHEMA:
         if runtime.reasoning_effort is not None:
             reasoning["effort"] = runtime.reasoning_effort.value
         payload["reasoning"] = reasoning
-    else:
+    elif runtime.reasoning_mode is LlmReasoningMode.OFF:
         payload["reasoning"] = {"enabled": False}
+    elif runtime.reasoning_effort is not None:
+        payload["reasoning"] = {"effort": runtime.reasoning_effort.value}
     record_llm_start()
     async with httpx.AsyncClient(timeout=operation_timeout("llm", runtime.timeout_seconds)) as client:
         response = await client.post(
@@ -292,8 +294,10 @@ async def chat_with_routerai(analysis: SiteAnalysis, messages: list[dict]) -> st
         if runtime.reasoning_effort is not None:
             reasoning["effort"] = runtime.reasoning_effort.value
         payload["reasoning"] = reasoning
-    else:
+    elif runtime.reasoning_mode is LlmReasoningMode.OFF:
         payload["reasoning"] = {"enabled": False}
+    elif runtime.reasoning_effort is not None:
+        payload["reasoning"] = {"effort": runtime.reasoning_effort.value}
     record_llm_start()
     async with httpx.AsyncClient(timeout=operation_timeout("llm", runtime.timeout_seconds)) as client:
         response = await client.post(
