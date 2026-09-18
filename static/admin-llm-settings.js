@@ -51,13 +51,17 @@
     return roleSelect.value;
   }
 
+  function optionalNumber(element) {
+    return element.value.trim() === '' ? null : Number(element.value);
+  }
+
   function readRoleForm() {
     return {
       profile_name: profileSelect.value,
       model_id: modelId.value.trim() || null,
-      temperature: Number(temperature.value),
-      max_tokens: Number(maxTokens.value),
-      timeout_seconds: Number(timeoutSeconds.value),
+      temperature: optionalNumber(temperature),
+      max_tokens: optionalNumber(maxTokens),
+      timeout_seconds: optionalNumber(timeoutSeconds),
       output_mode: outputMode.value,
       reasoning_mode: reasoningMode.value,
       reasoning_effort: reasoningMode.value !== 'off' && reasoningEffort.value ? reasoningEffort.value : null,
@@ -79,9 +83,9 @@
     if (!settings) return;
     profileSelect.value = settings.profile_name;
     modelId.value = settings.model_id || '';
-    temperature.value = settings.temperature;
-    maxTokens.value = settings.max_tokens;
-    timeoutSeconds.value = settings.timeout_seconds;
+    temperature.value = settings.temperature ?? '';
+    maxTokens.value = settings.max_tokens ?? '';
+    timeoutSeconds.value = settings.timeout_seconds ?? '';
     outputMode.value = settings.output_mode;
     reasoningMode.value = settings.reasoning_mode;
     reasoningEffort.value = settings.reasoning_effort || '';
