@@ -256,6 +256,114 @@ async def _run_verified_enriched_site_analysis(
             except Exception as exc:
                 notes.append(f"Уточняющая проверка реквизитов не завершена ({type(exc).__name__}).")
 
+    coverage = assess_coverage(
+        verified,
+        [kind for kind, _ in attempted_queries],
+    )
+
+    if progressive_search and search_waves_executed < MAX_PROGRESSIVE_WAVES:
+        attempted_query_text = {query for _, query in attempted_queries}
+        gaps = gap_wave(
+            full_plan,
+            coverage,
+            already_attempted=attempted_query_text,
+        )
+        if gaps:
+            search_waves_executed += 1
+            attempted_queries.extend(gaps)
+            try:
+                (
+                    gap_verified,
+                    gap_notes,
+                    gap_diagnostics,
+                    gap_triage,
+                    gap_selected,
+                ) = await _search_verify_wave(
+                    plan=gaps,
+                    prefix=f"W{search_waves_executed}",
+                    company_name=company_hint,
+                    official_url=url,
+                    anchors=anchors,
+                    deep=deep,
+                    existing_sources=external_sources,
+                )
+                verified.extend(gap_verified)
+                notes.extend(gap_notes)
+                notes.append(
+                    "Progressive mandatory gap wave: "
+                    f"queries={len(gaps)}, selected_urls={gap_selected}, "
+                    f"verified_records={len(gap_verified)}."
+                )
+                diagnostics = SearchDiagnostics.aggregate([diagnostics, gap_diagnostics])
+                search_triage = _merge_search_triage(search_triage, gap_triage)
+            except Exception as exc:
+                notes.append(
+                    f"Progressive mandatory gap wave не завершена ({type(exc).__name__})."
+                )
+            coverage = assess_coverage(
+                verified,
+                [kind for kind, _ in attempted_queries],
+            )
+
+    if progressive_search and search_waves_executed < MAX_PROGRESSIVE_WAVES:
+        selection = await optional_wave(
+            full_plan,
+            coverage,
+            company_name=company_hint,
+            anchors=anchors,
+            already_attempted={query for _, query in attempted_queries},
+        )
+        optional_wave_model_used = selection.model_used
+        optional_wave_model_unavailable = selection.model_unavailable
+        optional_plan = list(selection.queries)
+        if optional_plan:
+            search_waves_executed += 1
+            attempted_queries.extend(optional_plan)
+            try:
+                (
+                    optional_verified,
+                    optional_notes,
+                    optional_diagnostics,
+                    optional_triage,
+                    optional_selected,
+                ) = await _search_verify_wave(
+                    plan=optional_plan,
+                    prefix=f"W{search_waves_executed}",
+                    company_name=company_hint,
+                    official_url=url,
+                    anchors=anchors,
+                    deep=deep,
+                    existing_sources=external_sources,
+                )
+                verified.extend(optional_verified)
+                notes.extend(optional_notes)
+                notes.append(
+                    "Progressive optional recovery/enrichment wave: "
+                    f"queries={len(optional_plan)}/{selection.candidate_count}, "
+                    f"selected_urls={optional_selected}, "
+                    f"verified_records={len(optional_verified)}, "
+                    f"model_used={selection.model_used}, "
+                    f"model_unavailable={selection.model_unavailable}."
+                )
+                diagnostics = SearchDiagnostics.aggregate([diagnostics, optional_diagnostics])
+                search_triage = _merge_search_triage(search_triage, optional_triage)
+            except Exception as exc:
+                notes.append(
+                    f"Progressive optional wave не завершена ({type(exc).__name__})."
+                )
+            coverage = assess_coverage(
+                verified,
+                [kind for kind, _ in attempted_queries],
+            )
+
+    if progressive_search:
+        notes.append(
+            "Progressive search coverage: "
+            f"waves={search_waves_executed}, "
+            f"missing={','.join(coverage.missing_verticals) or 'none'}, "
+            f"searched_without_evidence={','.join(coverage.searched_without_evidence) or 'none'}."
+        )
+
     verified, postfetch_duplicate_documents = deduplicate_verified_documents(verified)
     if postfetch_duplicate_documents:
         notes.append(
