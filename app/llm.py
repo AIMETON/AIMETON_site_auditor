@@ -117,7 +117,9 @@ EXTERNAL OSINT SOURCES:
 JSON SCHEMA:
 {json.dumps(schema, ensure_ascii=False)}"""
 
-    if runtime.output_mode.value == "strict_schema":
+    output_mode = runtime.output_mode.value
+    response_format = None
+    if output_mode == "strict_schema":
         response_format = {
             "type": "json_schema",
             "json_schema": {
@@ -126,20 +128,22 @@ JSON SCHEMA:
                 "schema": schema,
             },
         }
-    else:
+    elif output_mode == "json_object":
         response_format = {"type": "json_object"}
     payload = {
         "model": runtime.model,
-        "temperature": runtime.temperature,
-        "max_tokens": runtime.max_tokens,
-        "response_format": response_format,
+        "temperature": 0.1 if runtime.temperature is None else runtime.temperature,
         "messages": [
             {"role": "system", "content": "Возвращай валидный JSON без Markdown. Главный результат — доказанная AI-коммерческая возможность; профиль и КМ усиливают её, но не заменяют."},
             {"role": "user", "content": prompt},
         ],
     }
-    if runtime.output_mode.value == "strict_schema":
+    if response_format is not None:
+        payload["response_format"] = response_format
+    if output_mode == "strict_schema":
         payload["structured_outputs"] = True
+    if runtime.max_tokens is not None:
+        payload["max_tokens"] = runtime.max_tokens
     if runtime.reasoning_mode is LlmReasoningMode.ON:
         reasoning = {"enabled": True}
         if runtime.reasoning_effort is not None:
@@ -150,7 +154,7 @@ JSON SCHEMA:
     elif runtime.reasoning_effort is not None:
         payload["reasoning"] = {"effort": runtime.reasoning_effort.value}
     record_llm_start()
-    async with httpx.AsyncClient(timeout=operation_timeout("llm", runtime.timeout_seconds)) as client:
+    async with httpx.AsyncClient(timeout=operation_timeout("llm", runtime.timeout_seconds or 180)) as client:
         response = await client.post(
             f"{runtime.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {runtime.api_key}"},
@@ -285,10 +289,11 @@ async def chat_with_routerai(analysis: SiteAnalysis, messages: list[dict]) -> st
     )
     payload = {
         "model": runtime.model,
-        "temperature": runtime.temperature,
-        "max_tokens": runtime.max_tokens,
-        "messages": [{"role": "system", "content": system}] + messages[-12:],
+        "temperature": 0.25 if runtime.temperature is None else runtime.temperature,
+                "messages": [{"role": "system", "content": system}] + messages[-12:],
     }
+    if runtime.max_tokens is not None:
+        payload["max_tokens"] = runtime.max_tokens
     if runtime.reasoning_mode is LlmReasoningMode.ON:
         reasoning = {"enabled": True}
         if runtime.reasoning_effort is not None:
@@ -299,7 +304,7 @@ async def chat_with_routerai(analysis: SiteAnalysis, messages: list[dict]) -> st
     elif runtime.reasoning_effort is not None:
         payload["reasoning"] = {"effort": runtime.reasoning_effort.value}
     record_llm_start()
-    async with httpx.AsyncClient(timeout=operation_timeout("llm", runtime.timeout_seconds)) as client:
+    async with httpx.AsyncClient(timeout=operation_timeout("llm", runtime.timeout_seconds or 120)) as client:
         response = await client.post(
             f"{runtime.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {runtime.api_key}"},
