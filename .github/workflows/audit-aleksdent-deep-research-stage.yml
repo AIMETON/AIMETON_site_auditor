@@ -1,0 +1,270 @@
+name: Audit Aleks Dent Deep Research Stage
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact deployed source SHA to validate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: audit-aleksdent-deep-research-stage
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: [self-hosted, Linux, X64, stage, auditor]
+    environment: stage
+    timeout-minutes: 18
+    env:
+      STACK_DIR: /opt/aimeton/auditor-stack
+      CONTAINER: aimeton-auditor
+      STAGE_URL: https://stage-auditor.aimeton.ru
+      TARGET_URL: https://aleksdent24.ru/
+      AIMETON_BOOTSTRAP_ADMIN_USERNAME: ${{ vars.AIMETON_BOOTSTRAP_ADMIN_USERNAME }}
+      AIMETON_BOOTSTRAP_ADMIN_PASSWORD: ${{ secrets.AIMETON_BOOTSTRAP_ADMIN_PASSWORD }}
+
+    steps:
+      - name: Verify exact Stage and owner-authenticated model selection
+        id: preflight
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          expected='${{ inputs.expected_sha }}'
+          [[ "$expected" =~ ^[0-9a-f]{40}$ ]]
+          deployed="$(tr -d '[:space:]' < "$STACK_DIR/app-source-sha.txt")"
+          health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$CONTAINER")"
+          test "$deployed" = "$expected"
+          test "$health" = healthy
+          test -n "$AIMETON_BOOTSTRAP_ADMIN_USERNAME"
+          test -n "$AIMETON_BOOTSTRAP_ADMIN_PASSWORD"
+          echo "::add-mask::$AIMETON_BOOTSTRAP_ADMIN_USERNAME"
+          echo "::add-mask::$AIMETON_BOOTSTRAP_ADMIN_PASSWORD"
+
+          cookie="$RUNNER_TEMP/aleksdent-deep-cookie.txt"
+          login_payload="$RUNNER_TEMP/aleksdent-login.json"
+          model_snapshot="$RUNNER_TEMP/aleksdent-model.json"
+          python3 - <<'PY' > "$login_payload"
+          import json, os
+          print(json.dumps({
+              "username": os.environ["AIMETON_BOOTSTRAP_ADMIN_USERNAME"],
+              "password": os.environ["AIMETON_BOOTSTRAP_ADMIN_PASSWORD"],
+          }))
+          PY
+          code="$(curl -sS -o "$RUNNER_TEMP/aleksdent-login-response.json" -c "$cookie" -w '%{http_code}'             -H 'Content-Type: application/json' --data-binary @"$login_payload" "$STAGE_URL/api/auth/login")"
+          test "$code" = 200
+          csrf="$(awk '$6=="aimeton_csrf"{print $7}' "$cookie" | tail -n1)"
+          test -n "$csrf"
+          echo "::add-mask::$csrf"
+
+          curl -fsS -b "$cookie" "$STAGE_URL/api/admin/llm-settings" > "$model_snapshot"
+          python3 - "$model_snapshot" <<'PY'
+          import json, sys
+          payload = json.load(open(sys.argv[1], encoding="utf-8"))
+          extraction = payload["resolved"]["extraction"]
+          assert extraction["provider"] == "routerai", extraction
+          assert extraction["model"] == "~deepseek/deepseek-v4-flash-latest", extraction
+          print("extraction_profile=" + str(extraction.get("profile_name") or "unknown"))
+          print("extraction_model=" + extraction["model"])
+          print("extraction_configured=" + str(extraction.get("configured", False)).lower())
+          PY
+          echo "cookie=$cookie" >> "$GITHUB_OUTPUT"
+          echo "model_snapshot=$model_snapshot" >> "$GITHUB_OUTPUT"
+          rm -f "$login_payload" "$RUNNER_TEMP/aleksdent-login-response.json"
+
+      - name: Run one authenticated deep-research regression
+        id: run
+        shell: bash
+        env:
+          COOKIE: ${{ steps.preflight.outputs.cookie }}
+        run: |
+          set -Eeuo pipefail
+          csrf="$(awk '$6=="aimeton_csrf"{print $7}' "$COOKIE" | tail -n1)"
+          test -n "$csrf"
+          echo "::add-mask::$csrf"
+          start_json="$RUNNER_TEMP/aleksdent-deep-start.json"
+          status_json="$RUNNER_TEMP/aleksdent-deep-status.json"
+          request_json="$RUNNER_TEMP/aleksdent-deep-request.json"
+          python3 - <<'PY' > "$request_json"
+          import json, os
+          print(json.dumps({
+              "url": os.environ["TARGET_URL"],
+              "deep_research": True,
+              "unlimited_llm_budget": True,
+          }))
+          PY
+          curl -fsS -X POST "$STAGE_URL/api/analyze/start"             -b "$COOKIE" -H "X-CSRF-Token: $csrf" -H 'Content-Type: application/json'             --data-binary @"$request_json" > "$start_json"
+
+          analysis_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["analysis_id"])' "$start_json")"
+          mission_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["mission_id"])' "$start_json")"
+          [[ "$analysis_id" == analysis_* ]]
+          [[ "$mission_id" == mission_* ]]
+          echo "analysis_id=$analysis_id" >> "$GITHUB_OUTPUT"
+          echo "mission_id=$mission_id" >> "$GITHUB_OUTPUT"
+          echo "status_json=$status_json" >> "$GITHUB_OUTPUT"
+
+          terminal=""
+          for _ in $(seq 1 240); do
+            curl -fsS -b "$COOKIE" "$STAGE_URL/api/analyze/$analysis_id" > "$status_json"
+            terminal="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("state",""))' "$status_json")"
+            if [[ "$terminal" == completed || "$terminal" == failed ]]; then
+              break
+            fi
+            sleep 3
+          done
+
+          if [[ "$terminal" != completed && "$terminal" != failed ]]; then
+            curl -fsS -X POST "$STAGE_URL/api/analyze/$analysis_id/stop"               -b "$COOKIE" -H "X-CSRF-Token: $csrf" >/dev/null
+            for _ in $(seq 1 20); do
+              sleep 3
+              curl -fsS -b "$COOKIE" "$STAGE_URL/api/analyze/$analysis_id" > "$status_json"
+              terminal="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("state",""))' "$status_json")"
+              [[ "$terminal" == completed || "$terminal" == failed ]] && break
+            done
+          fi
+
+          rm -f "$request_json" "$start_json" "$COOKIE"
+          echo "terminal_state=$terminal" >> "$GITHUB_OUTPUT"
+          [[ "$terminal" == completed || "$terminal" == failed ]]
+
+      - name: Build sanitized regression evidence
+        id: evidence
+        if: always()
+        shell: bash
+        env:
+          STATUS_JSON: ${{ steps.run.outputs.status_json }}
+          MODEL_SNAPSHOT: ${{ steps.preflight.outputs.model_snapshot }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -Eeuo pipefail
+          report="$RUNNER_TEMP/aleksdent-deep-report.md"
+          echo "report=$report" >> "$GITHUB_OUTPUT"
+          python3 - "$STATUS_JSON" "$MODEL_SNAPSHOT" "$report" <<'PY'
+          import collections, json, os, sys
+          from pathlib import Path
+          from urllib.parse import urlsplit
+
+          status_path, model_path, report_path = map(Path, sys.argv[1:4])
+          status = json.loads(status_path.read_text(encoding="utf-8")) if status_path.is_file() else {}
+          model = json.loads(model_path.read_text(encoding="utf-8")) if model_path.is_file() else {}
+          result = status.get("result") if isinstance(status.get("result"), dict) else {}
+          facts = result.get("company_facts") if isinstance(result.get("company_facts"), list) else []
+          sources = result.get("sources") if isinstance(result.get("sources"), list) else []
+          research_status = result.get("research_status") if isinstance(result.get("research_status"), dict) else {}
+          readiness = result.get("readiness") if isinstance(result.get("readiness"), dict) else {}
+          research = status.get("research") if isinstance(status.get("research"), dict) else {}
+          progress = status.get("progress") if isinstance(status.get("progress"), dict) else {}
+
+          by_field = collections.Counter(str(item.get("field") or "") for item in facts if isinstance(item, dict))
+          sensitive = []
+          markers = ("founder", "owner", "executive", "director", "учред", "собствен", "руковод", "директор")
+          for item in facts:
+              if not isinstance(item, dict):
+                  continue
+              field = str(item.get("field") or "")
+              if any(marker in field.casefold() for marker in markers):
+                  sensitive.append({
+                      "field": field[:120],
+                      "value": str(item.get("value") or "")[:500],
+                      "period": str(item.get("period") or "")[:100],
+                      "source_ids": list(item.get("source_ids") or [])[:20],
+                  })
+
+          urls = [str(item.get("url") or item.get("document_url") or "") for item in sources if isinstance(item, dict)]
+          hosts = collections.Counter(urlsplit(url).hostname or "" for url in urls if url)
+          evidence_blocks = sum(
+              len(item.get("evidence_blocks") or [])
+              for item in sources if isinstance(item, dict)
+          )
+          safe_sources = [{
+              "id": str(item.get("id") or "")[:80],
+              "title": str(item.get("title") or "")[:300],
+              "url": str(item.get("url") or "")[:1200],
+              "source_type": str(item.get("source_type") or "")[:80],
+              "evidence_level": str(item.get("evidence_level") or "")[:80],
+          } for item in sources[:40] if isinstance(item, dict)]
+
+          resolved = ((model.get("resolved") or {}).get("extraction") or {}) if isinstance(model, dict) else {}
+          summary = {
+              "exact_deployed_sha": os.environ.get("EXPECTED_SHA"),
+              "target": "https://aleksdent24.ru/",
+              "terminal_state": status.get("state"),
+              "phase": status.get("phase"),
+              "mission_id": status.get("mission_id"),
+              "analysis_id": status.get("analysis_id"),
+              "extraction_profile": resolved.get("profile_name"),
+              "extraction_model": resolved.get("model"),
+              "company_name": result.get("company_name"),
+              "business_summary": result.get("business_summary"),
+              "company_fact_count": len(facts),
+              "facts_by_field": dict(sorted(by_field.items())),
+              "sensitive_identity_facts": sensitive[:40],
+              "other_fact_count": by_field.get("other", 0),
+              "product_fact_count": by_field.get("products", 0),
+              "source_count": len(sources),
+              "unique_source_urls": len(set(urls)),
+              "source_hosts": dict(sorted(hosts.items())),
+              "evidence_block_count": evidence_blocks,
+              "sources": safe_sources,
+              "commercial_opportunity": result.get("commercial_opportunity"),
+              "readiness": readiness,
+              "research_status": research_status,
+              "research_accounting": {
+                  key: research.get(key)
+                  for key in (
+                      "deep_research", "llm_calls", "prompt_tokens", "completion_tokens",
+                      "llm_usage_reports", "llm_usage_unknown", "completed_chunks",
+                      "documents_attempted", "frontier_size", "search_attempts",
+                      "search_price_unknown", "search_cost_estimate_by_currency",
+                  )
+                  if key in research
+              },
+              "llm_progress": {
+                  key: progress.get(key)
+                  for key in (
+                      "llm_state", "llm_provider", "llm_elapsed_seconds",
+                      "llm_budget_seconds", "llm_outcome",
+                  )
+                  if key in progress
+              },
+              "risks_and_assumptions": list(result.get("risks_and_assumptions") or [])[:80],
+          }
+          body = json.dumps(summary, ensure_ascii=False, indent=2)
+          lines = [
+              "## Aleks Dent authenticated deep-research regression",
+              "",
+              f"- exact deployed SHA: `{os.environ.get('EXPECTED_SHA')}`",
+              "- target: `https://aleksdent24.ru/`",
+              f"- terminal state: `{status.get('state', 'unknown')}`",
+              f"- extraction model (pre-spend resolved): `{resolved.get('model', 'unknown')}`",
+              "",
+              "```json",
+              body[:55000],
+              "```",
+              "",
+              "### Safety",
+              "",
+              "- authenticated Stage deep-research path with explicit deep/unlimited consent for this owner-authorized regression",
+              "- hard polling window: 12 minutes, then cooperative stop is requested",
+              "- no credentials, cookies, raw prompts, raw provider payloads or chain-of-thought are published",
+          ]
+          report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish sanitized evidence to issue 293
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT_PATH: ${{ steps.evidence.outputs.report }}
+        run: |
+          set -Eeuo pipefail
+          test -f "$REPORT_PATH"
+          payload="$(python3 -c 'import json,sys; print(json.dumps({"body": open(sys.argv[1], encoding="utf-8").read()}))' "$REPORT_PATH")"
+          curl --fail-with-body --silent --show-error -X POST             -H "Authorization: Bearer $GH_TOKEN"             -H 'Accept: application/vnd.github+json'             -H 'X-GitHub-Api-Version: 2022-11-28'             "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/293/comments"             -d "$payload"
