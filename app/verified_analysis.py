@@ -109,7 +109,13 @@ async def _run_verified_enriched_site_analysis(
         anchors
     )
 
-    planned_queries = research_queries if research_queries is not None else query_plan(company_hint, anchors=anchors)
+    full_plan = research_queries if research_queries is not None else query_plan(company_hint, anchors=anchors)
+    progressive_search = bool(deep and research_queries is None)
+    initial_plan = initial_wave(full_plan) if progressive_search else research_queries
+    attempted_queries = list(initial_plan if progressive_search else full_plan)
+    search_waves_executed = 1
+    optional_wave_model_used = False
+    optional_wave_model_unavailable = False
     search_triage = SearchTriageSummary(total=0, selected=0, rejected=0)
     try:
         external_sources, notes, diagnostics = await collect_external_sources_adaptive(
@@ -118,7 +124,7 @@ async def _run_verified_enriched_site_analysis(
             region=anchors.primary_region,
             max_sources=None if deep else 100,
             anchors=anchors,
-            query_overrides=research_queries,
+            query_overrides=initial_plan if progressive_search else research_queries,
         )
         if deep and not any(item.url == url for item in external_sources):
             external_sources.insert(0, IntelligenceSource(
@@ -137,6 +143,11 @@ async def _run_verified_enriched_site_analysis(
             f"total={search_triage.total}, selected={search_triage.selected}, "
             f"rejected={search_triage.rejected}, model_used={search_triage.model_used}."
         )
+        if progressive_search:
+            notes.append(
+                "Progressive search wave 1: "
+                f"queries={len(initial_plan)}, full_plan={len(full_plan)}."
+            )
     except Exception as exc:
         external_sources = []
         notes = [f"Внешний поиск/triage недоступен ({type(exc).__name__}); профиль неполный."]
