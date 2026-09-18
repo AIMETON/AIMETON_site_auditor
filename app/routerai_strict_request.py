@@ -46,9 +46,11 @@ async def request_json_strict(
     if not runtime.configured:
         raise RuntimeError(f"llm_runtime_not_configured:{role.value}:{runtime.profile_name}")
 
-    timeout_seconds = float(runtime.timeout_seconds)
-    effective_max_tokens = min(int(max_tokens), int(runtime.max_tokens))
-    if runtime.output_mode.value == "strict_schema":
+    inherited_timeout = max(float(timeout_seconds), 120.0) if deep_research_enabled() else float(timeout_seconds)
+    timeout_seconds = float(runtime.timeout_seconds or inherited_timeout)
+    effective_max_tokens = min(int(max_tokens), int(runtime.max_tokens or max_tokens))
+    output_mode = "strict_schema" if runtime.output_mode.value == "inherit" else runtime.output_mode.value
+    if output_mode == "strict_schema":
         response_format = {
             "type": "json_schema",
             "json_schema": {
@@ -63,7 +65,7 @@ async def request_json_strict(
     record_llm_start()
     payload = {
         "model": runtime.model,
-        "temperature": runtime.temperature,
+        "temperature": 0.1 if runtime.temperature is None else runtime.temperature,
         "max_tokens": effective_max_tokens,
         "response_format": response_format,
         "messages": [
@@ -71,7 +73,7 @@ async def request_json_strict(
             {"role": "user", "content": prompt},
         ],
     }
-    if runtime.output_mode.value == "strict_schema":
+    if output_mode == "strict_schema":
         payload["structured_outputs"] = True
 
     explicit_off = reasoning_enabled is False
