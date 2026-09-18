@@ -108,6 +108,49 @@
       </form>
     </section>
 
+    <section class="panel" aria-labelledby="llm-settings-title">
+      <div class="panel-title"><h2 id="llm-settings-title">LLM Control Center</h2><button id="refresh-llm-settings" class="secondary" type="button">Обновить</button></div>
+      <p class="message">Настройка моделей по ролям. API-ключи здесь не отображаются и не сохраняются: используются зарегистрированные server-side credentials. «Проверить модель» выполняет один короткий live provider-вызов.</p>
+      <form id="llm-settings-form" class="auth-form">
+        <label>Роль<select id="llm-role">
+          <option value="fast_research">Fast Research — поиск и evidence triage</option>
+          <option value="extraction">Extraction — извлечение фактов</option>
+          <option value="reasoning">Reasoning — KM и коммерческий synthesis</option>
+        </select></label>
+        <label>Provider profile<select id="llm-profile"></select></label>
+        <label>Model ID override<input id="llm-model-id" maxlength="200" autocomplete="off" placeholder="пусто = модель профиля"></label>
+        <label>Temperature<input id="llm-temperature" type="number" min="0" max="2" step="0.05" required></label>
+        <label>Output token cap<input id="llm-max-tokens" type="number" min="64" max="65536" step="1" required></label>
+        <label>Timeout, секунд<input id="llm-timeout-seconds" type="number" min="2" max="600" step="1" required></label>
+        <label>Structured output mode<select id="llm-output-mode">
+          <option value="strict_schema">Strict JSON Schema</option>
+          <option value="json_object">JSON object</option>
+        </select></label>
+        <label>Reasoning<select id="llm-reasoning-mode">
+          <option value="off">Off</option>
+          <option value="on">On</option>
+        </select></label>
+        <label>Reasoning effort<select id="llm-reasoning-effort">
+          <option value="">Provider/default</option>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="xhigh">Extra high</option>
+        </select></label>
+        <div class="panel-title">
+          <button id="test-llm-model" class="secondary" type="button">Проверить модель</button>
+          <span id="llm-resolved-state" class="message"></span>
+        </div>
+        <div id="llm-test-result" class="mission-list" aria-live="polite"></div>
+        <label>Причина изменения<input id="llm-settings-reason" minlength="1" maxlength="500" value="Настройка LLM-моделей и режимов" required></label>
+        <button type="submit">Сохранить LLM-настройки</button>
+        <p id="llm-settings-message" class="message" aria-live="polite"></p>
+        <p id="llm-settings-updated" class="message"></p>
+      </form>
+      <h3>Доступные RouterAI-профили</h3>
+      <div id="llm-profile-catalog" class="mission-list" aria-live="polite"></div>
+    </section>
+
     <section class="panel" aria-labelledby="missions-title">
       <div class="panel-title"><h2 id="missions-title">Все миссии</h2><button id="refresh-missions" class="secondary">Обновить</button></div>
       <p class="message">Технические secrets, snapshots и внутренние пути не отображаются.</p>
@@ -133,6 +176,7 @@
   <script src="/static/admin-temporary-access.js" defer></script>
   <script src="/static/admin-search-strategies.js?v=20260910a" defer></script>
   <script src="/static/admin-hunter-settings.js?v=20260809b" defer></script>
+  <script src="/static/admin-llm-settings.js?v=20260918a" defer></script>
   <script src="/static/admin-hunter-trace.js?v=20260809c" defer></script>
 </body>
 </html>
