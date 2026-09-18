@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from app.research_control import record_llm_start, record_llm_usage
 from app.research_execution import operation_timeout, research_timed
-from app.search_observer_models import observer_profile
+from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
 
 
 TModel = TypeVar("TModel", bound=BaseModel)
@@ -29,18 +29,13 @@ def _schema_name(phase: str) -> str:
 
 
 def resolve_fast_research_model():
-    profile_name = os.getenv(
-        "AIMETON_FAST_RESEARCH_MODEL_PROFILE", DEFAULT_FAST_RESEARCH_PROFILE
-    ).strip() or DEFAULT_FAST_RESEARCH_PROFILE
     try:
-        model = observer_profile(profile_name).resolve()
-    except KeyError as exc:
-        raise FastResearchModelUnavailable(
-            f"unknown_fast_research_profile:{profile_name}"
-        ) from exc
+        model = resolve_llm_runtime(LlmRole.FAST_RESEARCH)
+    except Exception as exc:
+        raise FastResearchModelUnavailable(type(exc).__name__) from exc
     if not model.configured or not model.base_url or not model.api_key or not model.model:
         raise FastResearchModelUnavailable(
-            f"fast_research_model_not_configured:{profile_name}"
+            f"fast_research_model_not_configured:{model.profile_name}"
         )
     return model
 
@@ -63,26 +58,39 @@ async def request_fast_json(
     operation. Callers must implement a deterministic conservative fallback.
     """
     model = resolve_fast_research_model()
-    timeout_seconds = min(30.0, max(2.0, float(timeout_seconds)))
-    payload = {
-        "model": model.model,
-        "temperature": 0.0,
-        "max_tokens": max_tokens,
-        "structured_outputs": True,
-        "response_format": {
+    timeout_seconds = min(30.0, max(2.0, float(model.timeout_seconds or timeout_seconds)))
+    effective_max_tokens = min(int(max_tokens), int(model.max_tokens or max_tokens))
+    output_mode = "strict_schema" if model.output_mode.value == "inherit" else model.output_mode.value
+    if output_mode == "strict_schema":
+        response_format = {
             "type": "json_schema",
             "json_schema": {
                 "name": _schema_name(phase),
                 "strict": True,
                 "schema": model_type.model_json_schema(),
             },
-        },
-        "reasoning": {"enabled": False},
+        }
+    else:
+        response_format = {"type": "json_object"}
+    payload = {
+        "model": model.model,
+        "temperature": 0.0 if model.temperature is None else model.temperature,
+        "max_tokens": effective_max_tokens,
+        "response_format": response_format,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
         ],
     }
+    if output_mode == "strict_schema":
+        payload["structured_outputs"] = True
+    if model.reasoning_mode is LlmReasoningMode.ON:
+        reasoning = {"enabled": True}
+        if model.reasoning_effort is not None:
+            reasoning["effort"] = model.reasoning_effort.value
+        payload["reasoning"] = reasoning
+    else:
+        payload["reasoning"] = {"enabled": False}
 
     record_llm_start()
     try:

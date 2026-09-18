@@ -34,6 +34,7 @@ from app.hunter_settings import get_hunter_settings_repository
 from app.search_strategy_settings import get_search_strategy_settings_repository
 from app.hunter_sources import get_hunter_sources
 from app.llm import chat_with_routerai
+from app.llm_runtime_settings import get_llm_runtime_settings_repository
 from app.audit_dialogue import run_audit_dialogue
 from app.research_control import authorize_research, bind_research, bind_settings_snapshot
 from app.research_execution import run_controlled, ResearchInterrupted
@@ -94,6 +95,7 @@ from app.sef.report import (
 async def lifespan(_app: FastAPI):
     runtime_db = os.getenv("AIMETON_RUNTIME_DB", "data/runtime-core.sqlite3")
     get_search_strategy_settings_repository().ensure_bootstrap_default()
+    get_llm_runtime_settings_repository().ensure_bootstrap_default()
     retention_runner = build_retention_runner(runtime_db)
     _app.state.retention_runner = retention_runner
     await retention_runner.start()
