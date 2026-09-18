@@ -197,8 +197,10 @@ async def test_llm_settings(
         if runtime.reasoning_effort is not None:
             reasoning["effort"] = runtime.reasoning_effort.value
         request_json["reasoning"] = reasoning
-    else:
+    elif runtime.reasoning_mode is LlmReasoningMode.OFF:
         request_json["reasoning"] = {"enabled": False}
+    elif runtime.reasoning_effort is not None:
+        request_json["reasoning"] = {"effort": runtime.reasoning_effort.value}
 
     started = perf_counter()
     try:
