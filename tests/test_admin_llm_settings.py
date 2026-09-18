@@ -170,3 +170,18 @@ def test_probe_uses_unsaved_role_settings_and_returns_sanitized_telemetry(monkey
     assert captured["payload"]["reasoning"] == {"enabled": False}
     assert captured["payload"]["response_format"]["type"] == "json_schema"
     assert "must-not-leak" not in json.dumps(body)
+
+
+def test_admin_catalog_includes_deepseek_v4_flash_latest_alias(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AIMETON_RUNTIME_DB", str(tmp_path / "runtime.sqlite3"))
+    monkeypatch.setenv("ROUTERAI_API_KEY", "test-only-key")
+    monkeypatch.setenv("ROUTERAI_BASE_URL", "https://routerai.ru/api/v1")
+
+    response = _client().get("/api/admin/llm-settings")
+
+    assert response.status_code == 200
+    profiles = {item["profile_name"]: item for item in response.json()["profiles"]}
+    candidate = profiles["routerai-deepseek-v4-flash-latest"]
+    assert candidate["provider"] == "routerai"
+    assert candidate["model"] == "~deepseek/deepseek-v4-flash-latest"
+    assert candidate["configured"] is True
