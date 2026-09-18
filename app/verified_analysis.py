@@ -27,6 +27,14 @@ from app.routerai_runtime import run_bounded_routerai_analysis as analyze_with_r
 from app.models import IntelligenceSource, SiteAnalysis
 from app.research_control import deep_research_enabled, current_research
 from app.search_result_triage import SearchTriageSummary, triage_search_candidates
+from app.research_coverage_controller import (
+    MAX_PROGRESSIVE_WAVES,
+    assess_coverage,
+    gap_wave,
+    initial_wave,
+    optional_wave,
+)
+from app.search_gateway.gateway import canonical_url
 from datetime import datetime, timezone
 
 
@@ -41,6 +49,40 @@ def _remap_analysis_source_ids(analysis: SiteAnalysis) -> None:
         signal.source_ids = collapse_source_ids(signal.source_ids)
     for cell in analysis.business_machine_4x4:
         cell.source_ids = collapse_source_ids(cell.source_ids)
+
+
+def _merge_search_triage(
+    left: SearchTriageSummary,
+    right: SearchTriageSummary,
+) -> SearchTriageSummary:
+    return left.model_copy(update={
+        "total": left.total + right.total,
+        "selected": left.selected + right.selected,
+        "rejected": left.rejected + right.rejected,
+        "deterministic_selected": left.deterministic_selected + right.deterministic_selected,
+        "model_selected": left.model_selected + right.model_selected,
+        "model_used": left.model_used or right.model_used,
+        "model_unavailable": left.model_unavailable or right.model_unavailable,
+    })
+
+
+def _append_unique_wave_sources(
+    existing: list[IntelligenceSource],
+    incoming: list[IntelligenceSource],
+    *,
+    prefix: str,
+) -> list[IntelligenceSource]:
+    seen = {canonical_url(str(item.url)) for item in existing}
+    selected: list[IntelligenceSource] = []
+    for item in incoming:
+        key = canonical_url(str(item.url))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        item.id = f"{prefix}-{item.id}"
+        existing.append(item)
+        selected.append(item)
+    return selected
 
 
 async def _run_verified_enriched_site_analysis(
