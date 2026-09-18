@@ -11,7 +11,7 @@ from typing import Literal, TypeVar
 import httpx
 from pydantic import BaseModel
 
-from app.llm import BASE_URL, MODEL
+from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
 from app.research_control import deep_research_enabled, record_llm_start, record_llm_usage
 from app.routerai_split_synthesis import (
     SplitSynthesisPhaseError,
@@ -20,7 +20,7 @@ from app.routerai_split_synthesis import (
 
 
 TModel = TypeVar("TModel", bound=BaseModel)
-ReasoningEffort = Literal["high", "xhigh"]
+ReasoningEffort = Literal["low", "medium", "high", "xhigh"]
 
 
 def _schema_name(phase: str) -> str:
@@ -41,44 +41,58 @@ async def request_json_strict(
     reasoning_effort: ReasoningEffort | None = None,
 ) -> TModel:
     """Request provider-enforced JSON Schema output for a bounded split phase."""
-    if deep_research_enabled():
-        timeout_seconds = max(timeout_seconds, 120.0)
-    key = os.getenv("ROUTERAI_API_KEY")
-    if not key:
-        raise RuntimeError("ROUTERAI_API_KEY не задан")
+    role = LlmRole.EXTRACTION if phase.startswith("profile_") else LlmRole.REASONING
+    runtime = resolve_llm_runtime(role)
+    if not runtime.configured:
+        raise RuntimeError(f"llm_runtime_not_configured:{role.value}:{runtime.profile_name}")
 
-    record_llm_start()
-    payload = {
-        "model": MODEL,
-        "temperature": 0.1,
-        "max_tokens": max_tokens,
-        "structured_outputs": True,
-        "response_format": {
+    timeout_seconds = float(runtime.timeout_seconds)
+    effective_max_tokens = min(int(max_tokens), int(runtime.max_tokens))
+    if runtime.output_mode.value == "strict_schema":
+        response_format = {
             "type": "json_schema",
             "json_schema": {
                 "name": _schema_name(phase),
                 "strict": True,
                 "schema": model_type.model_json_schema(),
             },
-        },
+        }
+    else:
+        response_format = {"type": "json_object"}
+
+    record_llm_start()
+    payload = {
+        "model": runtime.model,
+        "temperature": runtime.temperature,
+        "max_tokens": effective_max_tokens,
+        "response_format": response_format,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
         ],
     }
-    reasoning: dict[str, bool | str] = {}
-    if reasoning_enabled is not None:
-        reasoning["enabled"] = reasoning_enabled
-    if reasoning_effort is not None:
-        reasoning["effort"] = reasoning_effort
-    if reasoning:
+    if runtime.output_mode.value == "strict_schema":
+        payload["structured_outputs"] = True
+
+    explicit_off = reasoning_enabled is False
+    if explicit_off or runtime.reasoning_mode is LlmReasoningMode.OFF:
+        payload["reasoning"] = {"enabled": False}
+    else:
+        reasoning: dict[str, bool | str] = {"enabled": True}
+        effort = (
+            runtime.reasoning_effort.value
+            if runtime.reasoning_effort is not None
+            else reasoning_effort
+        )
+        if effort is not None:
+            reasoning["effort"] = effort
         payload["reasoning"] = reasoning
 
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
             response = await client.post(
-                f"{BASE_URL}/chat/completions",
-                headers={"Authorization": f"Bearer {key}"},
+                f"{runtime.base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {runtime.api_key}"},
                 json=payload,
             )
             response.raise_for_status()
