@@ -24,7 +24,7 @@ from app.external_verification import verify_external_sources
 from app.heuristics import heuristic_analysis
 from app.identity_anchor_guard import guard_identity_anchors
 from app.routerai_runtime import run_bounded_routerai_analysis as analyze_with_routerai
-from app.models import IntelligenceSource, SiteAnalysis
+from app.models import IntelligenceSource, SiteAnalysis, SourceKind
 from app.research_control import deep_research_enabled, current_research
 from app.search_result_triage import SearchTriageSummary, triage_search_candidates
 from app.research_coverage_controller import (
@@ -83,6 +83,50 @@ def _append_unique_wave_sources(
         existing.append(item)
         selected.append(item)
     return selected
+
+
+async def _search_verify_wave(
+    *,
+    plan: list[tuple[SourceKind, str]],
+    prefix: str,
+    company_name: str,
+    official_url: str,
+    anchors,
+    deep: bool,
+    existing_sources: list[IntelligenceSource],
+) -> tuple[list[IntelligenceSource], list[str], SearchDiagnostics, SearchTriageSummary, int]:
+    if not plan:
+        return [], [], SearchDiagnostics(state="unavailable"), SearchTriageSummary(total=0, selected=0, rejected=0), 0
+
+    sources, notes, diagnostics = await collect_external_sources_adaptive(
+        company_name,
+        official_url,
+        region=anchors.primary_region,
+        max_sources=None if deep else 12,
+        anchors=anchors,
+        query_overrides=plan,
+    )
+    sources, triage = await triage_search_candidates(
+        sources,
+        company_name=company_name,
+        anchors=anchors,
+        official_url=official_url,
+    )
+    unique_sources = _append_unique_wave_sources(
+        existing_sources,
+        sources,
+        prefix=prefix,
+    )
+    verified = await verify_external_sources(
+        unique_sources,
+        company_name=company_name,
+        anchors=anchors,
+        max_documents=None if deep else 8,
+        preserve_blocks=deep,
+        include_official=True,
+        timeout_seconds=25,
+    )
+    return verified, notes, diagnostics, triage, len(unique_sources)
 
 
 async def _run_verified_enriched_site_analysis(
