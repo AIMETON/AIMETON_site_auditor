@@ -16,6 +16,7 @@ ROUTES: dict[str, tuple[int, str, dict[str, str]]] = {
     "accept-aimeton-self-audit-stage": (293, "accept-aimeton-self-audit-stage.yml", {"expected_sha": "{sha}"}),
     "audit-competitor-services-realty-stage": (293, "audit-competitor-services-realty-stage.yml", {"expected_sha": "{sha}"}),
     "audit-selectel-stage": (293, "audit-competitor-services-realty-stage.yml", {"expected_sha": "{sha}", "target_url": "https://selectel.ru/services/cloud/vps-vds/", "audit_label": "Selectel VPS/VDS"}),
+    "audit-aleksdent-stage": (293, "audit-competitor-services-realty-stage.yml", {"expected_sha": "{sha}", "target_url": "https://aleksdent24.ru/", "audit_label": "Aleks Dent regression repeat"}),
     "accept-routerai-synthesis-stage": (700, "accept-routerai-synthesis-stage.yml", {"expected_sha": "{sha}", "allow_paid_calls": "true", "owner_spend_authorized": "true"}),
     "accept-checkpoint-stage": (88, "accept-checkpoint-stage.yml", {"expected_sha": "{sha}"}),
     "accept-mobile-ui-stage": (223, "accept-mobile-ui-stage.yml", {"expected_sha": "{sha}"}),

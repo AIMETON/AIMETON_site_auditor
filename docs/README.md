@@ -74,3 +74,4 @@
 - [User research execution v0.1](architecture/USER_RESEARCH_EXECUTION_V0.1.md) — applied time settings, preflight gates and lifecycle boundaries.
 
 - [Admin LLM Control Center v0.1](architecture/ADMIN-LLM-CONTROL-CENTER-V0.1.md) — admin runtime authority for Fast Research / Extraction / Reasoning model selection, non-secret parameters and sanitized live capability probe.
+- [Aleks Dent repeat Stage audit](operations/ALEKSDENT-REPEAT-STAGE-AUDIT.md) — owner-authorized exact-SHA regression rerun for the previously bad `aleksdent24.ru` audit using the current Stage runtime and sanitized evidence publication.
