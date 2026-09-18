@@ -19,7 +19,7 @@ def test_llm_runtime_settings_roundtrip(tmp_path) -> None:
     initial = repo.ensure_bootstrap_default()
     assert initial.settings.fast_research.profile_name == "routerai-qwen35-9b"
     assert initial.settings.extraction.profile_name == "routerai-current"
-    assert initial.settings.reasoning.reasoning_mode is LlmReasoningMode.ON
+    assert initial.settings.reasoning.reasoning_mode is LlmReasoningMode.INHERIT
 
     updated = initial.settings.model_copy(deep=True)
     updated.reasoning = updated.reasoning.model_copy(
