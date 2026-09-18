@@ -58,9 +58,10 @@ async def request_fast_json(
     operation. Callers must implement a deterministic conservative fallback.
     """
     model = resolve_fast_research_model()
-    timeout_seconds = min(30.0, max(2.0, float(model.timeout_seconds)))
-    effective_max_tokens = min(int(max_tokens), int(model.max_tokens))
-    if model.output_mode.value == "strict_schema":
+    timeout_seconds = min(30.0, max(2.0, float(model.timeout_seconds or timeout_seconds)))
+    effective_max_tokens = min(int(max_tokens), int(model.max_tokens or max_tokens))
+    output_mode = "strict_schema" if model.output_mode.value == "inherit" else model.output_mode.value
+    if output_mode == "strict_schema":
         response_format = {
             "type": "json_schema",
             "json_schema": {
@@ -73,7 +74,7 @@ async def request_fast_json(
         response_format = {"type": "json_object"}
     payload = {
         "model": model.model,
-        "temperature": model.temperature,
+        "temperature": 0.0 if model.temperature is None else model.temperature,
         "max_tokens": effective_max_tokens,
         "response_format": response_format,
         "messages": [
@@ -81,7 +82,7 @@ async def request_fast_json(
             {"role": "user", "content": prompt},
         ],
     }
-    if model.output_mode.value == "strict_schema":
+    if output_mode == "strict_schema":
         payload["structured_outputs"] = True
     if model.reasoning_mode is LlmReasoningMode.ON:
         reasoning = {"enabled": True}
