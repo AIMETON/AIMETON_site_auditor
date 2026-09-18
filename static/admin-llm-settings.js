@@ -60,7 +60,7 @@
       timeout_seconds: Number(timeoutSeconds.value),
       output_mode: outputMode.value,
       reasoning_mode: reasoningMode.value,
-      reasoning_effort: reasoningMode.value === 'on' && reasoningEffort.value ? reasoningEffort.value : null,
+      reasoning_effort: reasoningMode.value !== 'off' && reasoningEffort.value ? reasoningEffort.value : null,
     };
   }
 
@@ -70,7 +70,7 @@
   }
 
   function updateReasoningControls() {
-    reasoningEffort.disabled = reasoningMode.value !== 'on';
+    reasoningEffort.disabled = reasoningMode.value === 'off';
     if (reasoningEffort.disabled) reasoningEffort.value = '';
   }
 
