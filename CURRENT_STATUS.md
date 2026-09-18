@@ -1,5 +1,25 @@
 <!-- User execution integration candidate 2026-09-15T09:20:34.513355+00:00 -->
 
+## Admin LLM Control Center candidate — 2026-09-18
+
+A new authenticated admin control plane now manages LLM runtime roles without exposing credentials.
+Three independent roles are configurable: Fast Research, Extraction and Reasoning. The persisted
+`llm.runtime.settings.v1` record stores only profile/model selection and non-secret execution
+parameters; RouterAI credentials remain environment-owned.
+
+The admin workspace adds profile/model selection, temperature, output-token cap, timeout,
+structured-output mode, reasoning inherit/off/on and reasoning effort, plus a short sanitized live
+capability probe that tests unsaved form values before saving. Extraction/reasoning parameters use
+inherit-by-default semantics so introducing the panel does not silently change established
+phase-specific behaviour. Fast Research keeps the bounded Qwen 3.5 9B default.
+
+Runtime integration covers fast evidence/search triage, strict profile extraction, split reasoning,
+legacy monolith analysis and chat. Unknown/direct-provider profiles are rejected in v0.1 so the
+feature does not create a second provider dispatcher. Save and test calls require admin + CSRF.
+See `docs/architecture/ADMIN-LLM-CONTROL-CENTER-V0.1.md`. PR CI and exact-SHA stage admin
+acceptance remain pending.
+
+
 ## Large evidence corpus: schedule chunks instead of rejecting coverage
 
 Checkpoint: 2026-09-17T01:01:01.022541+00:00. Part of #915; follows #929 live validation.
