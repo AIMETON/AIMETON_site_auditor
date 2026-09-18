@@ -116,6 +116,16 @@ OBSERVER_MODEL_PROFILES: tuple[ObserverModelProfile, ...] = (
         tier="O1",
     ),
     ObserverModelProfile(
+        name="routerai-deepseek-v4-flash-latest",
+        provider=ObserverProvider.ROUTERAI,
+        base_url_env="ROUTERAI_BASE_URL",
+        api_key_env="ROUTERAI_API_KEY",
+        model_env="ROUTERAI_DEEPSEEK_V4_FLASH_MODEL",
+        default_base_url="https://api.routerai.ru/v1",
+        default_model="~deepseek/deepseek-v4-flash-latest",
+        tier="O1",
+    ),
+    ObserverModelProfile(
         name="qwen-flash",
         provider=ObserverProvider.QWEN,
         base_url_env="QWEN_BASE_URL",

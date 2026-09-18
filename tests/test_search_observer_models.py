@@ -64,3 +64,17 @@ def test_unconfigured_profile_is_not_selected(monkeypatch):
 def test_unknown_profile_rejected():
     with pytest.raises(KeyError):
         observer_profile("not-a-model")
+
+
+def test_routerai_deepseek_v4_flash_latest_profile_uses_stable_alias(monkeypatch):
+    monkeypatch.setenv("ROUTERAI_API_KEY", "test-only-key")
+    monkeypatch.setenv("ROUTERAI_BASE_URL", "https://routerai.ru/api/v1")
+    monkeypatch.delenv("ROUTERAI_DEEPSEEK_V4_FLASH_MODEL", raising=False)
+
+    resolved = observer_profile("routerai-deepseek-v4-flash-latest").resolve()
+
+    assert resolved.configured is True
+    assert resolved.provider is ObserverProvider.ROUTERAI
+    assert resolved.model == "~deepseek/deepseek-v4-flash-latest"
+    assert resolved.safe_descriptor()["model"] == "~deepseek/deepseek-v4-flash-latest"
+    assert "test-only-key" not in str(resolved.safe_descriptor())
