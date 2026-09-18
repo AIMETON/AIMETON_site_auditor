@@ -202,9 +202,11 @@ class LlmRuntimeSettingsRepository:
         for role in LlmRole:
             config = settings.for_role(role)
             try:
-                observer_profile(config.profile_name)
+                profile = observer_profile(config.profile_name)
             except KeyError as exc:
                 raise ValueError(f"unknown_llm_profile:{config.profile_name}") from exc
+            if profile.provider.value != "routerai":
+                raise ValueError(f"runtime_llm_profile_must_use_routerai:{config.profile_name}")
         record = LlmRuntimeSettingsRecord(
             settings=settings,
             updated_at=datetime.now(UTC).isoformat(),
@@ -232,7 +234,10 @@ def resolve_llm_runtime(
     active = settings or get_llm_runtime_settings_repository().get().settings
     config = active.for_role(normalized_role)
     try:
-        resolved_profile = observer_profile(config.profile_name).resolve()
+        profile = observer_profile(config.profile_name)
+        if profile.provider.value != "routerai":
+            raise RuntimeError(f"runtime_llm_profile_must_use_routerai:{config.profile_name}")
+        resolved_profile = profile.resolve()
     except KeyError as exc:
         raise RuntimeError(f"unknown_llm_profile:{config.profile_name}") from exc
     resolved_model = (config.model_id or resolved_profile.model or "").strip()
