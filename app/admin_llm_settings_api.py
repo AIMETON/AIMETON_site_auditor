@@ -160,7 +160,8 @@ async def test_llm_settings(
 
     schema = _ProbeSchema.model_json_schema()
     response_format: dict[str, Any]
-    if runtime.output_mode.value == "strict_schema":
+    output_mode = "json_object" if runtime.output_mode.value == "inherit" else runtime.output_mode.value
+    if output_mode == "strict_schema":
         response_format = {
             "type": "json_schema",
             "json_schema": {
@@ -174,8 +175,8 @@ async def test_llm_settings(
 
     request_json: dict[str, Any] = {
         "model": runtime.model,
-        "temperature": runtime.temperature,
-        "max_tokens": min(runtime.max_tokens, 256),
+        "temperature": 0.1 if runtime.temperature is None else runtime.temperature,
+        "max_tokens": min(runtime.max_tokens or 256, 256),
         "response_format": response_format,
         "messages": [
             {
@@ -190,7 +191,7 @@ async def test_llm_settings(
             },
         ],
     }
-    if runtime.output_mode.value == "strict_schema":
+    if output_mode == "strict_schema":
         request_json["structured_outputs"] = True
     if runtime.reasoning_mode is LlmReasoningMode.ON:
         reasoning: dict[str, Any] = {"enabled": True}
@@ -204,7 +205,7 @@ async def test_llm_settings(
 
     started = perf_counter()
     try:
-        timeout = min(runtime.timeout_seconds, 30.0)
+        timeout = min(runtime.timeout_seconds or 30.0, 30.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
                 f"{runtime.base_url}/chat/completions",
