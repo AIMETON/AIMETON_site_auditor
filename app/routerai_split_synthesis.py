@@ -13,7 +13,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from app.research_control import record_llm_start, record_llm_usage
-from app.llm import BASE_URL, MODEL
+from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
 from app.models import (
     ActionPackage,
     AgentRecommendation,
@@ -88,16 +88,28 @@ async def _request_json(
     max_tokens: int,
     timeout_seconds: float,
 ) -> TModel:
-    key = os.getenv("ROUTERAI_API_KEY")
-    if not key:
-        raise RuntimeError("ROUTERAI_API_KEY не задан")
+    role = LlmRole.EXTRACTION if phase.startswith("profile_") else LlmRole.REASONING
+    runtime = resolve_llm_runtime(role)
+    if not runtime.configured:
+        raise RuntimeError(f"llm_runtime_not_configured:{role.value}:{runtime.profile_name}")
 
     schema = json.dumps(model_type.model_json_schema(), ensure_ascii=False)
+    if runtime.output_mode.value == "strict_schema":
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": re.sub(r"[^A-Za-z0-9_-]+", "_", phase)[:64],
+                "strict": True,
+                "schema": model_type.model_json_schema(),
+            },
+        }
+    else:
+        response_format = {"type": "json_object"}
     payload = {
-        "model": MODEL,
-        "temperature": 0.1,
-        "max_tokens": max_tokens,
-        "response_format": {"type": "json_object"},
+        "model": runtime.model,
+        "temperature": runtime.temperature,
+        "max_tokens": min(int(max_tokens), int(runtime.max_tokens)),
+        "response_format": response_format,
         "messages": [
             {"role": "system", "content": system},
             {
@@ -106,12 +118,21 @@ async def _request_json(
             },
         ],
     }
+    if runtime.output_mode.value == "strict_schema":
+        payload["structured_outputs"] = True
+    if runtime.reasoning_mode is LlmReasoningMode.ON:
+        reasoning = {"enabled": True}
+        if runtime.reasoning_effort is not None:
+            reasoning["effort"] = runtime.reasoning_effort.value
+        payload["reasoning"] = reasoning
+    else:
+        payload["reasoning"] = {"enabled": False}
     record_llm_start()
     try:
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=runtime.timeout_seconds) as client:
             response = await client.post(
-                f"{BASE_URL}/chat/completions",
-                headers={"Authorization": f"Bearer {key}"},
+                f"{runtime.base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {runtime.api_key}"},
                 json=payload,
             )
             response.raise_for_status()
