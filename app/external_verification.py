@@ -130,26 +130,46 @@ _OFFICIAL_IDENTITY_MARKER = re.compile(
 )
 
 
-def _official_identity_block_indices(blocks: list[Any]) -> list[int]:
-    """Keep explicit labelled legal identifiers from first-party primary content.
+_OFFICIAL_IDENTITY_COMPONENT = re.compile(
+    r"(?:(?<![А-Яа-яЁё])(?:ИНН|ОГРН)\s*[:№]?|(?<!\d)\d{10,15}(?!\d))",
+    re.IGNORECASE,
+)
 
-    Model/block triage is allowed to be conservative, but an official requisites
-    block containing a labelled INN/OGRN must remain visible to deterministic
-    identity extraction. Footer/sidebar/related blocks remain excluded.
+
+def _official_identity_block_indices(blocks: list[Any]) -> list[int]:
+    """Keep labelled legal identifiers even when label/value are split by the DOM.
+
+    Real requisites pages often render the INN/OGRN label and digits in adjacent
+    blocks. Scan small first-party windows, but retain only identity-bearing blocks
+    from primary content; footer/sidebar/related-company containers remain excluded.
     """
-    selected: list[int] = []
-    for index, block in enumerate(blocks):
+    safe: list[bool] = []
+    texts: list[str] = []
+    for block in blocks:
         text = str(getattr(block, "text", "") or "").strip()
         locator = str(getattr(block, "locator", "") or "")
-        if not text or not _OFFICIAL_IDENTITY_MARKER.search(text):
-            continue
-        if _is_related_context(text, locator):
-            continue
         locator_folded = _fold(locator)
-        if any(marker in locator_folded for marker in ("footer", "aside", "sidebar")):
+        blocked = (
+            not text
+            or _is_related_context(text, locator)
+            or any(marker in locator_folded for marker in ("footer", "aside", "sidebar"))
+        )
+        safe.append(not blocked)
+        texts.append(text)
+
+    selected: set[int] = set()
+    for start in range(len(blocks)):
+        stop = min(len(blocks), start + 4)
+        window_indices = [index for index in range(start, stop) if safe[index]]
+        if not window_indices:
             continue
-        selected.append(index)
-    return selected
+        window = " ".join(texts[index] for index in window_indices)
+        if not _OFFICIAL_IDENTITY_MARKER.search(window):
+            continue
+        for index in window_indices:
+            if _OFFICIAL_IDENTITY_COMPONENT.search(texts[index]):
+                selected.add(index)
+    return sorted(selected)
 
 
 def _source_kind(source_class: str) -> SourceKind:
@@ -562,12 +582,20 @@ async def verify_external_sources(
                         "deterministic labelled INN/OGRN on official primary content",
                     ))
             block_plan.sort(key=lambda item: item[0])
+            seen_fragments: set[tuple[str, str]] = set()
             for block_index, query_kind, entity_relation, reason in block_plan:
                 evidence_block = fetched.blocks[block_index]
                 for offset in range(0, len(evidence_block.text), 4000):
                     fragment = evidence_block.text[offset:offset + 4000]
                     if not fragment.strip():
                         continue
+                    fragment_key = (
+                        str(query_kind),
+                        " ".join(fragment.split()).casefold(),
+                    )
+                    if fragment_key in seen_fragments:
+                        continue
+                    seen_fragments.add(fragment_key)
                     promotion = pipeline.promote_quote(
                         fetched, locator=evidence_block.locator, quote=fragment,
                     )
