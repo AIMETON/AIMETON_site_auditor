@@ -7,6 +7,7 @@ import json
 import re
 from datetime import datetime, timezone
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field
 
@@ -200,6 +201,33 @@ def _reasoning_source_authority(external_sources: list[dict]) -> dict[str, str]:
     return authority
 
 
+def _reasoning_source_groups(url: str, external_sources: list[dict]) -> dict[str, str]:
+    def host_group(value: str) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        parsed = urlsplit(raw if "://" in raw else "https://" + raw)
+        host = (parsed.hostname or "").casefold().removeprefix("www.")
+        return "host:" + host if host else ""
+
+    groups: dict[str, str] = {}
+    root_group = host_group(url)
+    if root_group:
+        groups["S1"] = root_group
+    for source in external_sources:
+        if source.get("lifecycle_state") != "evidence":
+            continue
+        source_id = str(source.get("id") or "")
+        if not source_id:
+            continue
+        match = _CHILD_SOURCE_ID.match(source_id)
+        parent_id = match.group("parent") if match else source_id
+        group = host_group(str(source.get("document_url") or source.get("url") or ""))
+        if group:
+            groups[parent_id] = group
+    return groups
+
+
 def _full_reasoning_profile(merged) -> FullReasoningProfile:
     return FullReasoningProfile(
         company_name=merged.company_name,
@@ -225,7 +253,7 @@ def _km_quadrant_prompt(quadrant: str, codes: tuple[str, ...], dossier_context: 
 confidence, source_ids и sales_relevance. Не создавай факты сверх dossier.
 Поля fact_counts_by_field и omitted_fact_counts_by_field показывают полноту проекции:
 не интерпретируй omitted как отсутствие фактов в полном evidence ledger.
-source_authority_by_id — deterministic provenance-level: confirmed_fact сильнее
+source_authority_by_id — deterministic provenance-level; source_group_by_id группирует источники по origin host, поэтому несколько страниц одного домена не считаются независимой corroboration: confirmed_fact сильнее
 corroborated_signal, тот сильнее weak_signal. При конфликте предпочитай более сильный
 provenance, а не только заявленный confidence модели.
 Если данных в dossier нет, используй status=\"Нет данных\" и не компенсируй пробелы
@@ -271,6 +299,7 @@ async def analyze_with_routerai_split_v2(url: str, title: str, text: str, extern
     dossier = build_reasoning_dossier(
         profile,
         source_authority_by_id=_reasoning_source_authority(external_sources),
+        source_group_by_id=_reasoning_source_groups(url, external_sources),
     )
     dossier_status = _dossier_status(dossier)
     try:
@@ -326,7 +355,7 @@ reasoning dossier выбери одну наиболее доказанную к
 реалистичное AIMETON-решение, ожидаемую ценность, score и qualification. Не формируй
 агентов, demo или текст первого контакта на этом этапе. Оценка 80+ допустима только
 при прямом подтверждении проблемы, масштаба и реалистичного пилота. Не обещай
-неподтверждённый эффект. source_authority_by_id — deterministic provenance-level:
+неподтверждённый эффект. source_authority_by_id — deterministic provenance-level; source_group_by_id группирует источники по origin host, поэтому несколько страниц одного домена не считаются независимой corroboration:
 confirmed_fact сильнее corroborated_signal, тот сильнее weak_signal; при конфликте
 опирайся на более сильный provenance, а не на одно лишь confidence. omitted counters
 означают только то, что повторяющиеся низкоприоритетные факты остались в полном

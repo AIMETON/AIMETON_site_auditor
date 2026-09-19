@@ -46,6 +46,7 @@ class ReasoningDossier(BaseModel):
     risks_and_assumptions: list[str] = Field(default_factory=list)
     coverage: dict[str, int | bool] = Field(default_factory=dict)
     source_authority_by_id: dict[str, str] = Field(default_factory=dict)
+    source_group_by_id: dict[str, str] = Field(default_factory=dict)
     fact_counts_by_field: dict[str, int] = Field(default_factory=dict)
     omitted_fact_counts_by_field: dict[str, int] = Field(default_factory=dict)
     total_facts: int = 0
@@ -64,23 +65,33 @@ class ReasoningDossier(BaseModel):
         }
 
 
-def _authority_score(source_ids: list[str], authority_by_id: dict[str, str]) -> tuple[int, int]:
+def _authority_score(
+    source_ids: list[str],
+    authority_by_id: dict[str, str],
+    group_by_id: dict[str, str],
+) -> tuple[int, int]:
     levels = [
         _AUTHORITY.get(authority_by_id.get(source_id, "unverified_mention"), 0)
         for source_id in source_ids
     ]
-    return (max(levels, default=0), sum(level > 0 for level in levels))
+    independent_groups = {
+        group_by_id.get(source_id, source_id)
+        for source_id, level in zip(source_ids, levels, strict=True)
+        if level > 0
+    }
+    return (max(levels, default=0), len(independent_groups))
 
 
 def _ranked_facts(
     items: list[tuple[int, CompanyFact]],
     authority_by_id: dict[str, str],
+    group_by_id: dict[str, str],
 ) -> list[CompanyFact]:
     ranked = sorted(
         items,
         key=lambda pair: (
-            -_authority_score(pair[1].source_ids, authority_by_id)[0],
-            -_authority_score(pair[1].source_ids, authority_by_id)[1],
+            -_authority_score(pair[1].source_ids, authority_by_id, group_by_id)[0],
+            -_authority_score(pair[1].source_ids, authority_by_id, group_by_id)[1],
             -_CONFIDENCE.get(pair[1].confidence, 0),
             -int(bool(pair[1].period)),
             pair[0],
@@ -88,13 +99,14 @@ def _ranked_facts(
     )
     return [fact for _, fact in ranked]
 
-
 def build_reasoning_dossier(
     profile: Any,
     *,
     source_authority_by_id: dict[str, str] | None = None,
+    source_group_by_id: dict[str, str] | None = None,
 ) -> ReasoningDossier:
     source_authority_by_id = dict(source_authority_by_id or {})
+    source_group_by_id = dict(source_group_by_id or {})
     grouped: dict[str, list[tuple[int, CompanyFact]]] = defaultdict(list)
     counts = Counter()
     for index, fact in enumerate(profile.company_facts):
@@ -105,7 +117,7 @@ def build_reasoning_dossier(
     omitted: dict[str, int] = {}
     for field in sorted(grouped):
         limit = FIELD_LIMITS.get(field, DEFAULT_FACT_LIMIT)
-        ranked = _ranked_facts(grouped[field], source_authority_by_id)
+        ranked = _ranked_facts(grouped[field], source_authority_by_id, source_group_by_id)
         selected[field] = ranked[:limit]
         if len(ranked) > limit:
             omitted[field] = len(ranked) - limit
@@ -113,8 +125,8 @@ def build_reasoning_dossier(
     signals = sorted(
         enumerate(profile.economic_signals),
         key=lambda pair: (
-            -_authority_score(pair[1].source_ids, source_authority_by_id)[0],
-            -_authority_score(pair[1].source_ids, source_authority_by_id)[1],
+            -_authority_score(pair[1].source_ids, source_authority_by_id, source_group_by_id)[0],
+            -_authority_score(pair[1].source_ids, source_authority_by_id, source_group_by_id)[1],
             -_CONFIDENCE.get(pair[1].confidence, 0),
             pair[0],
         ),
@@ -164,6 +176,20 @@ def build_reasoning_dossier(
                 for source_id in signal.source_ids
             })
             if source_id in source_authority_by_id
+        },
+        source_group_by_id={
+            source_id: source_group_by_id[source_id]
+            for source_id in sorted({
+                source_id
+                for facts in selected.values()
+                for fact in facts
+                for source_id in fact.source_ids
+            } | {
+                source_id
+                for signal in selected_signals
+                for source_id in signal.source_ids
+            })
+            if source_id in source_group_by_id
         },
         fact_counts_by_field=dict(counts),
         omitted_fact_counts_by_field=omitted,

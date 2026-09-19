@@ -128,3 +128,51 @@ def test_reasoning_dossier_prioritizes_source_authority_before_model_confidence(
         "W1": "weak_signal",
     }
     assert dossier.omitted_fact_counts_by_field["products"] == 6
+
+
+def test_reasoning_dossier_counts_independent_origins_not_raw_source_ids():
+    facts = [
+        CompanyFact(
+            field="products",
+            value="Same-host repetition",
+            confidence="Высокая",
+            source_ids=["A1", "A2"],
+        ),
+        CompanyFact(
+            field="products",
+            value="Independent corroboration",
+            confidence="Средняя",
+            source_ids=["B1", "C1"],
+        ),
+    ]
+    profile = NS(
+        company_name="Company",
+        business_summary="Summary",
+        company_facts=facts,
+        economic_signals=[],
+        evidence=[],
+        risks_and_assumptions=[],
+        coverage={},
+    )
+
+    dossier = build_reasoning_dossier(
+        profile,
+        source_authority_by_id={
+            "A1": "corroborated_signal",
+            "A2": "corroborated_signal",
+            "B1": "corroborated_signal",
+            "C1": "corroborated_signal",
+        },
+        source_group_by_id={
+            "A1": "host:example.test",
+            "A2": "host:example.test",
+            "B1": "host:registry.test",
+            "C1": "host:court.test",
+        },
+    )
+
+    assert [fact.value for fact in dossier.facts_by_field["products"]][:2] == [
+        "Independent corroboration",
+        "Same-host repetition",
+    ]
+    assert dossier.source_group_by_id["A1"] == dossier.source_group_by_id["A2"]
