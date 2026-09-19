@@ -83,3 +83,48 @@ def test_reasoning_dossier_prioritizes_high_confidence_and_sourced_facts():
     assert "High verified" in values
     assert "Medium verified" in values
     assert dossier.omitted_fact_counts_by_field["products"] == 7
+
+
+def test_reasoning_dossier_prioritizes_source_authority_before_model_confidence():
+    facts = [
+        CompanyFact(
+            field="products",
+            value=f"Weak high-confidence {i}",
+            confidence="Высокая",
+            source_ids=["W1"],
+        )
+        for i in range(45)
+    ]
+    facts.append(
+        CompanyFact(
+            field="products",
+            value="Corroborated medium-confidence",
+            confidence="Средняя",
+            source_ids=["R1"],
+        )
+    )
+    profile = NS(
+        company_name="Company",
+        business_summary="Summary",
+        company_facts=facts,
+        economic_signals=[],
+        evidence=[],
+        risks_and_assumptions=[],
+        coverage={},
+    )
+
+    dossier = build_reasoning_dossier(
+        profile,
+        source_authority_by_id={
+            "W1": "weak_signal",
+            "R1": "corroborated_signal",
+        },
+    )
+    values = [fact.value for fact in dossier.facts_by_field["products"]]
+
+    assert "Corroborated medium-confidence" in values
+    assert dossier.source_authority_by_id == {
+        "R1": "corroborated_signal",
+        "W1": "weak_signal",
+    }
+    assert dossier.omitted_fact_counts_by_field["products"] == 6
