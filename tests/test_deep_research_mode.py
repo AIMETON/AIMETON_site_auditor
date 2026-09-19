@@ -248,3 +248,13 @@ def test_official_requisites_identifier_blocks_are_forced_into_evidence():
     ]
 
     assert verify._official_identity_block_indices(blocks) == [1]
+
+    split_blocks = [
+        NS(text="О клинике Алекс Дент", locator="body/main/p[1]"),
+        NS(text="ОГРН:", locator="body/main/div[4]/span[1]"),
+        NS(text="1112468013030", locator="body/main/div[4]/span[2]"),
+        NS(text="ИНН:", locator="body/main/div[5]/span[1]"),
+        NS(text="2462215501", locator="body/main/div[5]/span[2]"),
+        NS(text="ИНН: 9999999999", locator="footer/legal"),
+    ]
+    assert verify._official_identity_block_indices(split_blocks) == [1, 2, 3, 4]

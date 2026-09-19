@@ -398,6 +398,9 @@ def _assemble_site_analysis(
             "commercial_support_state": commercial_support.state,
             "commercial_support_direct_sources": commercial_support.direct_support_count,
             "commercial_support_terms": ",".join(commercial_support.matched_terms),
+            "commercial_support_unsupported_metrics": ",".join(
+                commercial_support.unsupported_expected_value_metrics
+            ),
         },
         url=url,
         company_name=profile.company_name or title or url,

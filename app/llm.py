@@ -241,6 +241,9 @@ JSON SCHEMA:
         "commercial_support_state": commercial_support.state,
         "commercial_support_direct_sources": commercial_support.direct_support_count,
         "commercial_support_terms": ",".join(commercial_support.matched_terms),
+            "commercial_support_unsupported_metrics": ",".join(
+                commercial_support.unsupported_expected_value_metrics
+            ),
     })
     fact_fields = {item.field for item in result.company_facts if item.source_ids}
     vertical_fields = {
