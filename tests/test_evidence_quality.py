@@ -94,3 +94,26 @@ def test_untraceable_claim_does_not_gain_authority_from_declared_level() -> None
     assert quality.unique_documents == 1
     assert quality.traceable_documents == 0
     assert quality.score == 0.0
+
+
+def test_traceable_fetched_document_replaces_synthetic_same_url_projection() -> None:
+    shared_url = "https://example.test/"
+    synthetic = _source(
+        "S1",
+        level="confirmed_fact",
+        url=shared_url,
+    )
+    fetched = _source(
+        "OFFICIAL",
+        level="confirmed_fact",
+        document_digest=_digest("e"),
+        evidence_digest=_digest("f"),
+        url=shared_url,
+    )
+
+    quality = assess_evidence_quality([synthetic, fetched])
+
+    assert quality.unique_documents == 1
+    assert quality.traceable_documents == 1
+    assert quality.confirmed_documents == 1
+    assert quality.score == 1.0
