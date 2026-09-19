@@ -91,12 +91,19 @@ class CoverageSnapshot:
     def search_complete(self) -> bool:
         return not self.missing_verticals
 
+    @property
+    def evidence_sufficient(self) -> bool:
+        return bool(self.states) and all(
+            state == "covered" for state in self.states.values()
+        )
+
     def safe_dict(self) -> dict[str, object]:
         return {
             "states": dict(self.states),
             "missing_verticals": list(self.missing_verticals),
             "searched_without_evidence": list(self.searched_without_evidence),
             "search_complete": self.search_complete,
+            "evidence_sufficient": self.evidence_sufficient,
             "searched_kinds": sorted(self.searched_kinds),
             "evidence_kinds": sorted(self.evidence_kinds),
             "evidence_documents_by_kind": {
