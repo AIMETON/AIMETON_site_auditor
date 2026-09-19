@@ -225,7 +225,7 @@ def _km_quadrant_prompt(quadrant: str, codes: tuple[str, ...], dossier_context: 
 confidence, source_ids и sales_relevance. Не создавай факты сверх dossier.
 Поля fact_counts_by_field и omitted_fact_counts_by_field показывают полноту проекции:
 не интерпретируй omitted как отсутствие фактов в полном evidence ledger.
-source_authority_by_id — deterministic provenance-level: confirmed_fact сильнее
+source_authority_by_id — deterministic provenance-level; source_group_by_id группирует источники по origin host, поэтому несколько страниц одного домена не считаются независимой corroboration: confirmed_fact сильнее
 corroborated_signal, тот сильнее weak_signal. При конфликте предпочитай более сильный
 provenance, а не только заявленный confidence модели.
 Если данных в dossier нет, используй status=\"Нет данных\" и не компенсируй пробелы
@@ -326,7 +326,7 @@ reasoning dossier выбери одну наиболее доказанную к
 реалистичное AIMETON-решение, ожидаемую ценность, score и qualification. Не формируй
 агентов, demo или текст первого контакта на этом этапе. Оценка 80+ допустима только
 при прямом подтверждении проблемы, масштаба и реалистичного пилота. Не обещай
-неподтверждённый эффект. source_authority_by_id — deterministic provenance-level:
+неподтверждённый эффект. source_authority_by_id — deterministic provenance-level; source_group_by_id группирует источники по origin host, поэтому несколько страниц одного домена не считаются независимой corroboration:
 confirmed_fact сильнее corroborated_signal, тот сильнее weak_signal; при конфликте
 опирайся на более сильный provenance, а не на одно лишь confidence. omitted counters
 означают только то, что повторяющиеся низкоприоритетные факты остались в полном
