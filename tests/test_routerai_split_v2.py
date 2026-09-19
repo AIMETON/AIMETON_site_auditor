@@ -10,7 +10,7 @@ from app.models import (
 )
 from app.routerai_evidence_units import EvidenceCoverage
 from app.routerai_profile_extraction import MergedProfileExtraction
-from app.routerai_split_synthesis import BusinessMachineSynthesis, CommercialSynthesis
+from app.routerai_split_synthesis import BusinessMachineSynthesis, CommercialSynthesis, SplitSynthesisPhaseError
 
 
 def _coverage() -> EvidenceCoverage:
@@ -342,3 +342,89 @@ def test_reasoning_failure_preserves_extracted_company_facts(monkeypatch):
     assert result.company_facts[0].source_ids == ["S1"]
     assert result.readiness.provider_states["routerai"] == "reasoning_failed_extraction_preserved"
     assert result.readiness.client_release_eligible is False
+
+
+def test_partial_km_failure_does_not_cancel_commercial_and_opportunity_retries(monkeypatch):
+    async def fake_profile(**kwargs):
+        return MergedProfileExtraction(
+            company_name="Example",
+            business_summary="Engineering company",
+            evidence=["Official evidence"],
+            company_facts=[
+                CompanyFact(field="website", value="https://example.com", source_ids=["S1"])
+            ],
+            economic_signals=[
+                EconomicSignal(
+                    signal="Manual process",
+                    evidence="Official text describes manual process",
+                    business_effect="Potential pilot",
+                    source_ids=["S1"],
+                )
+            ],
+            risks_and_assumptions=[],
+            coverage=_coverage(),
+        )
+
+    opportunity_calls = 0
+
+    async def fake_strict_request(phase, model_type, **kwargs):
+        nonlocal opportunity_calls
+        if phase == "km_reasoning_III":
+            raise SplitSynthesisPhaseError(phase, "ProviderSchemaError")
+        if model_type is split_v2.CompactBusinessMachineQuadrant:
+            return split_v2.CompactBusinessMachineQuadrant()
+        if model_type is split_v2.CompactBusinessMachineCell:
+            return split_v2.CompactBusinessMachineCell()
+        if model_type is split_v2.CompactCommercialOpportunity:
+            opportunity_calls += 1
+            if opportunity_calls == 1:
+                raise SplitSynthesisPhaseError(phase, "OutputTruncated")
+            assert phase == "commercial_opportunity_reasoning_retry"
+            assert kwargs["reasoning_enabled"] is False
+            return split_v2.CompactCommercialOpportunity(
+                opportunity_type="AI automation",
+                problem_hypothesis="Manual process",
+                recommended_solution="AIMETON pilot",
+                expected_value="Reduce manual work",
+                score=72,
+                qualification="Перспективная",
+                source_ids=["S1"],
+            )
+        if model_type is split_v2.CompactCommercialExecution:
+            return split_v2.CompactCommercialExecution(
+                agents=[
+                    split_v2.CompactAgentRecommendation(name="A1", purpose="Search", benefit="Speed"),
+                    split_v2.CompactAgentRecommendation(name="A2", purpose="Analyze", benefit="Evidence"),
+                    split_v2.CompactAgentRecommendation(name="A3", purpose="Report", benefit="Structure"),
+                ],
+                action_package=split_v2.CompactActionPackage(
+                    decision_maker_hypothesis="Digital lead",
+                    contact_reason="Pilot",
+                    demo_scenario=["Run audit"],
+                    first_message="Pilot proposal",
+                    next_action="Demo",
+                ),
+            )
+        raise AssertionError((phase, model_type))
+
+    monkeypatch.setattr(split_v2, "extract_profile_parallel", fake_profile)
+    monkeypatch.setattr(split_v2, "persist_merged_evidence_ledger", lambda merged: None)
+    monkeypatch.setattr(split_v2, "request_json_strict", fake_strict_request)
+
+    result = asyncio.run(
+        split_v2.analyze_with_routerai_split_v2(
+            "https://example.com",
+            "Example",
+            "Official text describes manual process",
+            [],
+        )
+    )
+
+    assert result.commercial_opportunity.score == 72
+    assert result.research_status["commercial_reasoning_state"] == "succeeded"
+    assert result.research_status["commercial_reasoning_retry_used"] is True
+    assert result.research_status["km_reasoning_partial"] is True
+    assert result.research_status["km_reasoning_failed_phases"] == (
+        "km_reasoning_III:ProviderSchemaError"
+    )
+    assert result.readiness.provider_states["routerai"] == "active"
