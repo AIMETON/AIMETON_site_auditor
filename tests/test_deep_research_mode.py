@@ -129,6 +129,28 @@ async def test_deep_mode_has_no_standard_outer_deadline(monkeypatch):
     assert observed == [None]
 
 
+def test_deep_official_frontier_keeps_hubs_and_audit_pages_but_skips_catalog_leaves():
+    from app import external_verification as verify
+
+    kept = [
+        "https://example.org/services/",
+        "https://example.org/company/",
+        "https://example.org/company/requisites/",
+        "https://example.org/company/employees/",
+        "https://example.org/company/licenses/",
+        "https://example.org/company/price-list/",
+    ]
+    skipped = [
+        "https://example.org/services/ortodontiya/",
+        "https://example.org/services/implantatsiya/",
+        "https://example.org/blog/2026/some-post/",
+        "https://example.org/catalog/category/product-123/",
+    ]
+
+    assert all(verify._official_link_is_audit_relevant(url) for url in kept)
+    assert not any(verify._official_link_is_audit_relevant(url) for url in skipped)
+
+
 @pytest.mark.asyncio
 async def test_deep_acquisition_has_no_24_document_cap_and_reuses_robots(monkeypatch, tmp_path):
     from datetime import datetime, timezone
