@@ -17,7 +17,7 @@ from app.evidence_source_projection import (
 )
 from app.external_sources import (
     extract_identity_anchors,
-    to_llm_sources,
+    project_llm_sources,
     query_plan,
 )
 from app.external_verification import verify_external_sources
@@ -373,12 +373,21 @@ async def _run_verified_enriched_site_analysis(
             f"duplicates={postfetch_duplicate_documents}."
         )
 
+    llm_sources, llm_projection = project_llm_sources(verified)
+    if llm_projection.duplicate_official_quotes_removed:
+        notes.append(
+            "Extraction-only first-party quote dedup: "
+            f"input={llm_projection.input_records}, "
+            f"output={llm_projection.output_records}, "
+            f"duplicates_removed={llm_projection.duplicate_official_quotes_removed}."
+        )
+
     try:
         analysis = await analyze_with_routerai(
             url,
             title,
             text,
-            to_llm_sources(verified),
+            llm_sources,
         )
     except Exception as exc:
         analysis = heuristic_analysis(url, title, text)
@@ -482,6 +491,9 @@ async def _run_verified_enriched_site_analysis(
         "evidence_blocks_retained": evidence_blocks,
         "postfetch_duplicate_documents": postfetch_duplicate_documents,
         "transitional_extraction_records": len(verified),
+        "llm_source_records_input": llm_projection.input_records,
+        "llm_source_records_output": llm_projection.output_records,
+        "llm_duplicate_official_quotes_removed": llm_projection.duplicate_official_quotes_removed,
         "verified_documents": evidence_count,
         "unverified_documents": discovery_count + candidate_count,
         "preflight_excluded_documents": sum(s.preflight_decision == "exclude" for s in external_sources),
