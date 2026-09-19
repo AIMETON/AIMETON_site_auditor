@@ -196,3 +196,44 @@ async def test_deep_search_uses_bounded_results_per_query(monkeypatch) -> None:
     assert sources
     assert limits == [DEFAULT_DEEP_RESULTS_PER_QUERY]
     assert DEFAULT_DEEP_RESULTS_PER_QUERY == 8
+
+
+def test_sensitive_verticals_require_sufficient_evidence_level() -> None:
+    weak_registry = _evidence("R-weak", "registry")
+    weak_registry.evidence_level = "weak_signal"
+    weak_finance = _evidence("F-weak", "finance")
+    weak_finance.evidence_level = "weak_signal"
+    weak_court = _evidence("C-weak", "court")
+    weak_court.evidence_level = "weak_signal"
+    weak_ownership = _evidence("O-weak", "ownership")
+    weak_ownership.evidence_level = "weak_signal"
+
+    coverage = assess_coverage(
+        [weak_registry, weak_finance, weak_court, weak_ownership],
+        {"registry", "finance", "court", "ownership"},
+    )
+
+    assert coverage.states["identity"] == "searched_no_evidence"
+    assert coverage.states["financials"] == "searched_no_evidence"
+    assert coverage.states["legal_events"] == "searched_no_evidence"
+    assert coverage.states["ownership"] == "covered"
+    assert coverage.qualifying_documents_by_vertical["identity"] == 0
+    assert coverage.qualifying_documents_by_vertical["financials"] == 0
+    assert coverage.qualifying_documents_by_vertical["legal_events"] == 0
+    assert coverage.qualifying_documents_by_vertical["ownership"] == 1
+
+
+def test_corroborated_sensitive_evidence_closes_vertical_gap() -> None:
+    registry = _evidence("R1", "registry")
+    finance = _evidence("F1", "finance")
+    court = _evidence("C1", "court")
+
+    coverage = assess_coverage(
+        [registry, finance, court],
+        {"registry", "finance", "court"},
+    )
+
+    assert coverage.states["identity"] == "covered"
+    assert coverage.states["financials"] == "covered"
+    assert coverage.states["legal_events"] == "covered"
+    assert coverage.qualifying_documents_by_vertical["identity"] == 1
