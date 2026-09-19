@@ -393,7 +393,7 @@ BOUNDED REASONING DOSSIER:\n{dossier_context}
             prompt=prompt,
             max_tokens=max_tokens,
             timeout_seconds=18.0,
-            reasoning_effort="high",
+            reasoning_enabled=False,
         )
         for phase, codes, model_type, prompt, max_tokens in km_specs
     ]
