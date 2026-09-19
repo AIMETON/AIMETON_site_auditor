@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from app.trace_context import bind_trace_identity, current_trace_identity
 from app.evidence_quality import assess_evidence_quality
+from app.identity_readiness import assess_identity_readiness, identity_release_blocker
 
 from app.search_gateway import SearchDiagnostics
 
@@ -414,6 +415,27 @@ async def _run_verified_enriched_site_analysis(
     _remap_analysis_source_ids(analysis)
     evidence_quality = assess_evidence_quality(analysis.sources)
     analysis.readiness.evidence_quality = evidence_quality.score
+    identity = assess_identity_readiness(analysis.company_facts, sources=analysis.sources)
+    analysis.readiness.identity_state = identity.state
+    analysis.readiness.release_blockers = [
+        blocker
+        for blocker in analysis.readiness.release_blockers
+        if not blocker.startswith("identity_")
+    ]
+    identity_blocker = identity_release_blocker(identity.state)
+    if identity_blocker:
+        analysis.readiness.release_blockers.append(identity_blocker)
+    identity_vertical = next(
+        (vertical for vertical in analysis.readiness.required_verticals if vertical.code == "identity"),
+        None,
+    )
+    if identity_vertical is not None:
+        identity_vertical.state = {
+            "resolved": "verified",
+            "provisional": "partially_verified",
+            "conflicting": "degraded",
+            "unresolved": "not_searched",
+        }[identity.state]
 
     discovery_count = sum(1 for source in external_sources if source.lifecycle_state == "discovery_hint")
     candidate_count = sum(1 for source in external_sources if source.lifecycle_state == "source_candidate")
@@ -507,6 +529,11 @@ async def _run_verified_enriched_site_analysis(
         "evidence_quality_confirmed_documents": evidence_quality.confirmed_documents,
         "evidence_quality_corroborated_documents": evidence_quality.corroborated_documents,
         "evidence_quality_weak_documents": evidence_quality.weak_documents,
+        "identity_state": identity.state,
+        "identity_critical_conflicts": identity.unresolved_critical_conflicts,
+        "identity_conflict_fields": ",".join(identity.conflict_fields),
+        "identity_authoritative_inn_count": len(identity.authoritative_identifiers["inn"]),
+        "identity_authoritative_ogrn_count": len(identity.authoritative_identifiers["ogrn"]),
     }
     if current_research():
         analysis.research_status.update(current_research().snapshot())
