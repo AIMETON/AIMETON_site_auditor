@@ -171,6 +171,47 @@ _SLICE_SOURCE_KEYS = (
     "document_url", "evidence_locator", "evidence_digest",
 )
 
+# Broad profile slices inspect every official-site chunk. Narrow slices inspect only
+# chunks with deterministic topical markers; their external evidence remains routed
+# independently below. This prevents multiplying a large official corpus across all
+# five LLM extractors while retaining relevant first-party management/network/signal text.
+_BROAD_OFFICIAL_SLICES = {"identity", "operations"}
+_OFFICIAL_SLICE_HINTS = {
+    "management": (
+        "директор", "руководител", "генеральн", "главн", "founder", "ceo",
+        "executive", "management", "команда", "врач", "доктор",
+    ),
+    "ownership": (
+        "учредител", "собственник", "владел", "бенефициар", "аффилир",
+        "owner", "ownership", "beneficial", "vk.com", "t.me/", "telegram",
+        "instagram", "youtube", "соцсет",
+    ),
+    "signals": (
+        "суд", "арбитраж", "исполнительн", "отзыв", "ваканси", "новост",
+        "тендер", "патент", "court", "review", "news", "vacanc", "tender",
+        "enforcement", "иск ",
+    ),
+}
+
+
+def _slice_evidence_units(
+    official_text: str,
+    projected_sources: list[dict[str, Any]],
+    slice_name: str,
+) -> list[tuple[str, str]]:
+    official_chunks = chunk_text(official_text, chunk_chars=DEFAULT_EVIDENCE_CHUNK_CHARS)
+    if slice_name not in _BROAD_OFFICIAL_SLICES:
+        hints = _OFFICIAL_SLICE_HINTS.get(slice_name, ())
+        official_chunks = [
+            chunk for chunk in official_chunks
+            if any(hint in chunk.casefold() for hint in hints)
+        ]
+    source_chunks = chunk_sources(projected_sources, chunk_chars=DEFAULT_EVIDENCE_CHUNK_CHARS)
+    units = [(chunk, "[]") for chunk in official_chunks]
+    units.extend(("", chunk) for chunk in source_chunks)
+    # Keep one empty unit so every vertical can deterministically return an empty DTO.
+    return units or [("", "[]")]
+
 
 def _source_slice(
     sources: list[dict[str, Any]],
@@ -294,7 +335,7 @@ async def extract_profile_parallel(
         "signals": project_sources(external_sources, _SIGNAL_KINDS, _SLICE_SOURCE_KEYS),
     }
     units_by_slice = {
-        name: evidence_units(text, projected, max_units=None)
+        name: _slice_evidence_units(text, projected, name)
         for name, projected in projected_by_slice.items()
     }
 

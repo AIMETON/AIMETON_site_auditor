@@ -41,14 +41,14 @@ async def test_deep_extraction_processes_beyond_fast_path_and_retains_many_peopl
             request_json=request, url="https://example.org", title="Company",
             text="x" * (12000 * 17), external_sources=[], accessed_at="2026-09-13T00:00:00Z",
         )
-    assert len(calls) == 85
+    assert len(calls) == 37
     assert all(tokens == 8192 for _, tokens in calls)
     assert len(result.company_facts) == 30
-    assert result.coverage.complete and result.coverage.extraction_units_processed == 85
-    assert control.completed_chunks == 85
+    assert result.coverage.complete and result.coverage.extraction_units_processed == 37
+    assert control.completed_chunks == 37
     assert not deep_research_enabled()
     with sqlite3.connect(tmp_path / "runtime.db") as db:
-        assert db.execute("SELECT COUNT(*) FROM research_run_checkpoints WHERE chunk_key != 'status'").fetchone()[0] == 86
+        assert db.execute("SELECT COUNT(*) FROM research_run_checkpoints WHERE chunk_key != 'status'").fetchone()[0] == 38
 
 
 @pytest.mark.asyncio
