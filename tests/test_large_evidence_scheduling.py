@@ -29,14 +29,17 @@ async def test_ordinary_large_corpus_uses_checkpointed_chunks_without_losing_lat
         if phase == 'profile_management' and 'LATE_FACT' in kwargs['prompt']:
             return model_type(company_facts=[{'field':'executives','value':'Late manager','source_ids':['E39' if external else 'S1']}])
         return model_type()
-    text = '' if external else 'x' * (12000 * 17) + 'LATE_FACT'
+    text = '' if external else 'x' * (12000 * 17) + 'директор LATE_FACT'
     sources = [{'id':f'E{i}', 'query_kind':'official', 'lifecycle_state':'evidence',
                 'url':'https://example.org', 'snippet':'x' * 6500 + ('LATE_FACT' if i == 39 else '')}
                for i in range(40)] if external else []
     result = await extract_profile_parallel(request_json=request,
         url='https://example.org', title='Example', text=text,
         external_sources=sources, accessed_at='2026-09-16T00:00:00Z')
-    assert len(calls) > 80
+    if external:
+        assert len(calls) > 80  # external evidence remains loss-preserving across routed slices
+    else:
+        assert len(calls) == 39  # 18 broad chunks x2 + one management chunk + two empty narrow DTOs
     assert peak <= 4
     assert result.coverage.complete
     assert result.coverage.official_chars_total == len(text)
