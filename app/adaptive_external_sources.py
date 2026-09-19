@@ -201,6 +201,7 @@ async def collect_external_sources_adaptive(
                 url=url,
                 snippet=snippet,
                 accessed_at=accessed_at,
+                published_at=str(item.get("publishedDate") or "").strip() or None,
                 query_kind=query_kind,
                 result_kind=result_kind,
                 source_class=source_class,

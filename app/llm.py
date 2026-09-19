@@ -13,6 +13,7 @@ from app.research_control import record_llm_start, record_llm_usage
 from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
 
 from app.evidence_quality import assess_evidence_quality
+from app.evidence_freshness import assess_source_freshness
 from app.identity_readiness import assess_identity_readiness, identity_release_blocker
 from app.models import (
     EvidenceSource,
@@ -199,6 +200,8 @@ JSON SCHEMA:
             )[:900],
             source_type=str(item.get("source_type") or "external_source"),
             evidence_level=str(item.get("evidence_level") or "unverified_mention"),
+            published_at=item.get("published_at"),
+            freshness=assess_source_freshness(item.get("published_at")),
             document_url=item.get("document_url"),
             document_title=item.get("document_title"),
             document_accessed_at=item.get("document_accessed_at"),

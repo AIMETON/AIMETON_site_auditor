@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from app.research_control import record_llm_start, record_llm_usage
 from app.identity_readiness import assess_identity_readiness, identity_release_blocker
 from app.evidence_quality import assess_evidence_quality
+from app.evidence_freshness import assess_source_freshness
 from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
 from app.models import (
     ActionPackage,
@@ -265,6 +266,8 @@ def _build_sources(
                 ),
                 source_type=_safe_source_type(item.get("source_type")),
                 evidence_level=_safe_evidence_level(item.get("evidence_level")),
+                published_at=item.get("published_at"),
+                freshness=assess_source_freshness(item.get("published_at")),
                 document_url=item.get("document_url"),
                 document_title=item.get("document_title"),
                 document_accessed_at=item.get("document_accessed_at"),

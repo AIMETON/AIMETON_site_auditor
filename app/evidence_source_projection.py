@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.evidence_freshness import assess_source_freshness
 import re
 
 from app.external_sources import source_type
@@ -200,6 +201,8 @@ def collapse_verified_evidence(
                 evidence_quote=source.evidence_quote,
                 source_type=source_type(source.source_class),
                 evidence_level=source.evidence_level,
+                published_at=source.published_at,
+                freshness=assess_source_freshness(source.published_at),
                 document_url=source.document_url,
                 document_title=source.document_title,
                 document_accessed_at=source.document_accessed_at,
@@ -250,6 +253,8 @@ def merge_document_sources(
             "evidence_quote": source.evidence_quote or current.evidence_quote,
             "source_type": source.source_type,
             "evidence_level": source.evidence_level,
+            "published_at": source.published_at or current.published_at,
+            "freshness": source.freshness if source.freshness != "unassessed" else current.freshness,
             "document_url": source.document_url or current.document_url,
             "document_title": source.document_title or current.document_title,
             "document_accessed_at": source.document_accessed_at or current.document_accessed_at,

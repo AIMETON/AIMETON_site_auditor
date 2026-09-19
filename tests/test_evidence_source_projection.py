@@ -131,3 +131,13 @@ def test_parent_id_only_strips_transitional_block_suffix():
     assert evidence_parent_id("H1-b17-4000") == "H1"
     assert evidence_parent_id("R-H2") == "R-H2"
     assert evidence_parent_id("company-b-name") == "company-b-name"
+
+
+def test_public_projection_preserves_publication_date_and_marks_stale_evidence(monkeypatch):
+    parent = _source("H20", quote="dated registry evidence", digest="sha256:" + "8" * 64)
+    parent.published_at = "2020-01-01T00:00:00Z"
+
+    projected = collapse_verified_evidence([parent])
+
+    assert projected[0].published_at == "2020-01-01T00:00:00Z"
+    assert projected[0].freshness == "stale"
