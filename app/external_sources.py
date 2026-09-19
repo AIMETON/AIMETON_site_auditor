@@ -10,6 +10,7 @@ from uuid import uuid4
 import httpx
 
 from app.heuristics import heuristic_analysis
+from app.evidence_freshness import assess_source_freshness
 from app.llm import analyze_with_routerai
 from app.models import IntelligenceSource, SiteAnalysis, SourceKind
 from app.search_gateway import (
@@ -324,6 +325,7 @@ def _llm_source_payload(source: IntelligenceSource) -> dict:
             else source.snippet
         ),
         "accessed_at": source.accessed_at, "published_at": source.published_at,
+        "freshness": assess_source_freshness(source.published_at),
         "query_kind": source.query_kind,
         "result_kind": source.result_kind, "source_class": source.source_class,
         "classification_state": source.classification_state,
