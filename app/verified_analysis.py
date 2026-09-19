@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from urllib.parse import urlparse
+import re
 from uuid import uuid4
 
 from app.trace_context import bind_trace_identity, current_trace_identity
@@ -29,7 +30,7 @@ from app.external_verification import verify_external_sources
 from app.heuristics import heuristic_analysis
 from app.identity_anchor_guard import guard_identity_anchors
 from app.routerai_runtime import run_bounded_routerai_analysis as analyze_with_routerai
-from app.models import IntelligenceSource, SiteAnalysis, SourceKind
+from app.models import CompanyFact, IntelligenceSource, SiteAnalysis, SourceKind
 from app.research_control import deep_research_enabled, current_research
 from app.search_result_triage import SearchTriageSummary, triage_search_candidates
 from app.research_coverage_controller import (
@@ -45,6 +46,57 @@ from datetime import datetime, timezone
 
 def _host(url: str) -> str:
     return (urlparse(url).hostname or "").lower()
+
+
+_EVIDENCE_CHILD_ID = re.compile(r"^(?P<parent>.+)-b(?P<block>\d+)-(?P<offset>\d+)$")
+
+
+def _ordered_official_evidence(verified: list[IntelligenceSource]) -> list[tuple[str, str]]:
+    """Return traceable first-party evidence grouped in document/block order."""
+    grouped: dict[str, list[tuple[int, int, str]]] = {}
+    for item in verified:
+        if item.source_class != "official" or not str(item.evidence_quote or "").strip():
+            continue
+        match = _EVIDENCE_CHILD_ID.match(str(item.id))
+        if match:
+            parent = match.group("parent")
+            order = (int(match.group("block")), int(match.group("offset")))
+        else:
+            parent = str(item.id)
+            order = (-1, -1)
+        grouped.setdefault(parent, []).append((order[0], order[1], str(item.evidence_quote)))
+
+    result: list[tuple[str, str]] = []
+    for parent in sorted(grouped):
+        parts = sorted(grouped[parent], key=lambda entry: (entry[0], entry[1]))
+        result.append((parent, "\n".join(text for _, _, text in parts)))
+    return result
+
+
+def _deterministic_official_identity_facts(
+    verified: list[IntelligenceSource],
+    official_url: str,
+) -> list[CompanyFact]:
+    """Promote labelled first-party INN/OGRN to sourced facts without LLM dependence."""
+    facts: list[CompanyFact] = []
+    seen: set[tuple[str, str]] = set()
+    for parent_id, text in _ordered_official_evidence(verified):
+        discovered = guard_identity_anchors(
+            extract_identity_anchors(text, official_url),
+            text,
+        )
+        for field, value in (("inn", discovered.inn), ("ogrn", discovered.ogrn)):
+            if not value or (field, value) in seen:
+                continue
+            seen.add((field, value))
+            facts.append(CompanyFact(
+                field=field,
+                value=value,
+                confidence="Высокая",
+                source_ids=[parent_id],
+                note="Deterministic identifier from verified first-party requisites evidence.",
+            ))
+    return facts
 
 
 def _remap_analysis_source_ids(analysis: SiteAnalysis) -> None:
@@ -221,12 +273,12 @@ async def _run_verified_enriched_site_analysis(
         include_official=True,
     )
 
-    # Requisites may only occur on a discovered first-party subpage. Use
-    # that fetched content to form one bounded registry follow-up wave.
+    # Requisites may only occur on a discovered first-party subpage. Rebuild
+    # traceable evidence in document/block order so HTML that splits "ИНН:" from
+    # its numeric value cannot hide a legal identifier from deterministic follow-up.
+    deterministic_identity_facts = _deterministic_official_identity_facts(verified, url)
     if not anchors.inn and not anchors.ogrn and not (current_research() and current_research().stop_requested):
-        official_text = "\n".join(
-            item.evidence_quote or "" for item in verified if item.source_class == "official"
-        )
+        official_text = "\n".join(text for _, text in _ordered_official_evidence(verified))
         discovered = guard_identity_anchors(extract_identity_anchors(official_text, url), official_text)
         if discovered.inn or discovered.ogrn:
             anchors, dadata_result, dadata_facts, follow_notes = await enrich_identity_with_dadata(discovered)
@@ -410,7 +462,7 @@ async def _run_verified_enriched_site_analysis(
         )
 
     existing_fact_keys = {(fact.field, fact.value, fact.note) for fact in analysis.company_facts}
-    for fact in dadata_facts:
+    for fact in [*deterministic_identity_facts, *dadata_facts]:
         key = (fact.field, fact.value, fact.note)
         if key not in existing_fact_keys:
             analysis.company_facts.append(fact)
