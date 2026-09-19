@@ -65,6 +65,7 @@ class CompactCommercialOpportunity(BaseModel):
     expected_value: CompactText180
     score: int = Field(ge=0, le=100)
     qualification: Literal["Приоритетная", "Перспективная", "Наблюдение", "Недостаточно данных"]
+    source_ids: list[str] = Field(default_factory=list, max_length=8)
 
 
 class CompactAgentRecommendation(BaseModel):

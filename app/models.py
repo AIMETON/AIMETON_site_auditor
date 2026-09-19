@@ -119,6 +119,10 @@ class CommercialOpportunity(BaseModel):
     expected_value: str
     score: int = Field(ge=0, le=100)
     qualification: Literal["Приоритетная", "Перспективная", "Наблюдение", "Недостаточно данных"]
+    source_ids: list[str] = Field(
+        default_factory=list,
+        description="EvidenceSource.id, непосредственно поддерживающие коммерческую гипотезу",
+    )
 
 
 class ActionPackage(BaseModel):
