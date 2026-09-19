@@ -9,6 +9,11 @@ from app.models import CommercialOpportunity, CompanyFact, EconomicSignal, Evide
 
 _TOKEN = re.compile(r"[0-9]+|[A-Za-zА-Яа-яЁё]{4,}")
 _CHILD_ID = re.compile(r"^(?P<parent>.+)-b\d+-\d+$")
+_METRIC_CLAIM = re.compile(
+    r"(?<!\d)(\d+(?:[.,]\d+)?)(?:\s*[-–—]\s*(\d+(?:[.,]\d+)?))?\s*"
+    r"(%|процент\w*|мин(?:ут\w*)?|час\w*|дн(?:я|ей|и)?|руб(?:\.|лей)?|₽)",
+    re.IGNORECASE,
+)
 _STOPWORDS = {
     "aimeton", "анализ", "аудит", "бизнес", "возможность", "возможности",
     "гипотеза", "данные", "компания", "компании", "может", "нужно", "проблема",
@@ -25,6 +30,7 @@ class CommercialSupportAssessment:
     cited_source_ids: tuple[str, ...]
     direct_support_source_ids: tuple[str, ...]
     matched_terms: tuple[str, ...]
+    unsupported_expected_value_metrics: tuple[str, ...] = ()
 
     @property
     def direct_support_count(self) -> int:
@@ -36,6 +42,7 @@ class CommercialSupportAssessment:
             "cited_source_ids": list(self.cited_source_ids),
             "direct_support_source_ids": list(self.direct_support_source_ids),
             "matched_terms": list(self.matched_terms),
+            "unsupported_expected_value_metrics": list(self.unsupported_expected_value_metrics),
             "direct_support_count": self.direct_support_count,
         }
 
@@ -68,6 +75,28 @@ def _source_text(source: EvidenceSource) -> str:
     return " ".join(str(item or "") for item in parts)
 
 
+def _metric_claim_keys(value: str) -> set[str]:
+    result: set[str] = set()
+    for match in _METRIC_CLAIM.finditer(str(value or "")):
+        first, second, raw_unit = match.groups()
+        numbers = [first.replace(",", ".")]
+        if second:
+            numbers.append(second.replace(",", "."))
+        unit = raw_unit.casefold()
+        if unit == "%" or unit.startswith("процент"):
+            normalized_unit = "%"
+        elif unit.startswith("мин"):
+            normalized_unit = "minute"
+        elif unit.startswith("час"):
+            normalized_unit = "hour"
+        elif unit.startswith("дн"):
+            normalized_unit = "day"
+        else:
+            normalized_unit = "rub"
+        result.add(f"{'-'.join(numbers)}:{normalized_unit}")
+    return result
+
+
 def assess_commercial_support(
     opportunity: CommercialOpportunity,
     *,
@@ -88,12 +117,18 @@ def assess_commercial_support(
         for source_id in opportunity.source_ids
         if _parent_id(source_id) in source_by_id
     ))
+    expected_value_metrics = _metric_claim_keys(opportunity.expected_value)
+    direct_metric_keys: set[str] = set()
+    for source_id in cited:
+        direct_metric_keys.update(_metric_claim_keys(_source_text(source_by_id[source_id])))
+    unsupported_expected_value_metrics = tuple(sorted(expected_value_metrics - direct_metric_keys))
     if not cited or not claim_terms:
         return CommercialSupportAssessment(
             state="unsupported",
             cited_source_ids=cited,
             direct_support_source_ids=(),
             matched_terms=(),
+            unsupported_expected_value_metrics=unsupported_expected_value_metrics,
         )
 
     direct_sources: list[str] = []
@@ -130,6 +165,7 @@ def assess_commercial_support(
         cited_source_ids=cited,
         direct_support_source_ids=tuple(direct_sources),
         matched_terms=tuple(sorted(matches)),
+        unsupported_expected_value_metrics=unsupported_expected_value_metrics,
     )
 
 
@@ -137,10 +173,16 @@ def enforce_commercial_support(
     opportunity: CommercialOpportunity,
     assessment: CommercialSupportAssessment,
 ) -> CommercialOpportunity:
-    """Enforce the existing contract that 80+ requires direct problem evidence."""
-    if opportunity.score < 80 or assessment.state == "supported":
-        return opportunity
-    qualification = opportunity.qualification
-    if qualification == "Приоритетная":
-        qualification = "Перспективная"
-    return opportunity.model_copy(update={"score": 79, "qualification": qualification})
+    """Enforce direct support for priority and reject invented quantitative KPI claims."""
+    updates: dict[str, object] = {}
+    if opportunity.score >= 80 and assessment.state != "supported":
+        qualification = opportunity.qualification
+        if qualification == "Приоритетная":
+            qualification = "Перспективная"
+        updates.update({"score": 79, "qualification": qualification})
+    if assessment.unsupported_expected_value_metrics:
+        updates["expected_value"] = (
+            "Потенциальный эффект требует проверки на пилоте; "
+            "количественные KPI без прямого подтверждения не заявляются."
+        )
+    return opportunity.model_copy(update=updates) if updates else opportunity
