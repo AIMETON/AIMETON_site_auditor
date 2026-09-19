@@ -14,6 +14,7 @@ from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runt
 
 from app.evidence_quality import assess_evidence_quality
 from app.evidence_freshness import assess_source_freshness
+from app.fact_conflicts import assess_financial_conflicts
 from app.identity_readiness import assess_identity_readiness, identity_release_blocker
 from app.models import (
     EvidenceSource,
@@ -249,6 +250,7 @@ JSON SCHEMA:
     evidence_quality = assess_evidence_quality(result.sources)
     identity = assess_identity_readiness(result.company_facts, sources=result.sources)
     identity_blocker = identity_release_blocker(identity.state)
+    financial_conflicts = assess_financial_conflicts(result.company_facts, sources=result.sources)
     verticals = []
     for code, fields in vertical_fields.items():
         if code == "identity":
@@ -258,6 +260,8 @@ JSON SCHEMA:
                 "conflicting": "degraded",
                 "unresolved": "not_searched",
             }[identity.state]
+        elif code == "financials" and financial_conflicts.unresolved_critical_conflicts:
+            state = "degraded"
         else:
             state = (
                 "partially_verified"
@@ -275,6 +279,8 @@ JSON SCHEMA:
     ]
     if identity_blocker:
         blockers.append(identity_blocker)
+    if financial_conflicts.unresolved_critical_conflicts:
+        blockers.append("financial_fact_conflict")
     result.readiness = PreliminaryResultReadiness(
         analysis_state="schema_validated",
         identity_state=identity.state,
