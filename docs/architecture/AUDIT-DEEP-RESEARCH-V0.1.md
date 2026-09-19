@@ -17,8 +17,12 @@ one detailed company audit or dialogue refinement. Default remains standard.
   caps. All acquired evidence units reach all relevant extraction verticals.
   Per-call context/output limits remain; truncated output triggers evidence
   subdivision and extraction, never truncation of the returned fact list.
-- Official-site links are followed until the discovered frontier is exhausted
-  or stopped, with canonical-URL deduplication and robots checks. External
+- Official-site links are followed until the audit-relevant frontier is exhausted
+  or stopped, with canonical-URL deduplication and robots checks. Deep mode keeps
+  shallow information hubs and deeper corporate/legal/team/price pages, but does
+  not recursively expand generic service/product/blog leaf catalogs whose hub
+  pages already expose the category structure. This is relevance routing, not a
+  total-document cap; more than 24 relevant documents remain admissible. External
   discovery documents are fetched and identity-verified. Concurrency is four;
   technical request, byte, redirect and provider limits remain. Acquisition
   failures and incomplete evidence coverage remain visible.
