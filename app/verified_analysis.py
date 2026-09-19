@@ -6,6 +6,7 @@ from uuid import uuid4
 from app.trace_context import bind_trace_identity, current_trace_identity
 from app.evidence_quality import assess_evidence_quality
 from app.evidence_freshness import summarize_source_freshness
+from app.fact_conflicts import assess_financial_conflicts
 from app.identity_readiness import assess_identity_readiness, identity_release_blocker
 
 from app.search_gateway import SearchDiagnostics
@@ -418,15 +419,21 @@ async def _run_verified_enriched_site_analysis(
     freshness_summary = summarize_source_freshness(analysis.sources)
     analysis.readiness.evidence_quality = evidence_quality.score
     identity = assess_identity_readiness(analysis.company_facts, sources=analysis.sources)
+    financial_conflicts = assess_financial_conflicts(
+        analysis.company_facts,
+        sources=analysis.sources,
+    )
     analysis.readiness.identity_state = identity.state
     analysis.readiness.release_blockers = [
         blocker
         for blocker in analysis.readiness.release_blockers
-        if not blocker.startswith("identity_")
+        if not blocker.startswith("identity_") and blocker != "financial_fact_conflict"
     ]
     identity_blocker = identity_release_blocker(identity.state)
     if identity_blocker:
         analysis.readiness.release_blockers.append(identity_blocker)
+    if financial_conflicts.unresolved_critical_conflicts:
+        analysis.readiness.release_blockers.append("financial_fact_conflict")
     identity_vertical = next(
         (vertical for vertical in analysis.readiness.required_verticals if vertical.code == "identity"),
         None,
@@ -438,6 +445,13 @@ async def _run_verified_enriched_site_analysis(
             "conflicting": "degraded",
             "unresolved": "not_searched",
         }[identity.state]
+
+    financial_vertical = next(
+        (vertical for vertical in analysis.readiness.required_verticals if vertical.code == "financials"),
+        None,
+    )
+    if financial_vertical is not None and financial_conflicts.unresolved_critical_conflicts:
+        financial_vertical.state = "degraded"
 
     discovery_count = sum(1 for source in external_sources if source.lifecycle_state == "discovery_hint")
     candidate_count = sum(1 for source in external_sources if source.lifecycle_state == "source_candidate")
@@ -545,6 +559,8 @@ async def _run_verified_enriched_site_analysis(
         "evidence_freshness_stale": freshness_summary["stale"],
         "evidence_freshness_not_yet_valid": freshness_summary["not_yet_valid"],
         "evidence_freshness_unassessed": freshness_summary["unassessed"],
+        "financial_critical_conflicts": financial_conflicts.unresolved_critical_conflicts,
+        "financial_conflict_fields": ",".join(financial_conflicts.conflict_fields),
         "identity_state": identity.state,
         "identity_critical_conflicts": identity.unresolved_critical_conflicts,
         "identity_conflict_fields": ",".join(identity.conflict_fields),
