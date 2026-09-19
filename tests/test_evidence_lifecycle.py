@@ -12,7 +12,7 @@ from app.document_pipeline.models import (
     FetchPath,
     FetchedDocument,
 )
-from app.external_sources import to_llm_sources
+from app.external_sources import project_llm_sources, to_llm_sources
 from app.heuristics import heuristic_analysis
 from app.models import IntelligenceSource
 from app.sef.models import Document, DocumentFetchState
@@ -186,3 +186,42 @@ def test_evidence_source_requires_traceable_document_fields_when_created_by_runt
     assert source.document_url is None
     assert source.document_accessed_at is None
     assert source.verification_note.startswith("Поисковый сниппет")
+
+
+def test_llm_projection_deduplicates_only_repeated_official_quote_within_query_kind():
+    def evidence(source_id: str, *, source_class: str, query_kind: str, quote: str) -> IntelligenceSource:
+        return IntelligenceSource(
+            id=source_id,
+            title=source_id,
+            url=f"https://example.com/{source_id}",
+            accessed_at="2026-09-19T00:00:00+00:00",
+            source_class=source_class,
+            query_kind=query_kind,
+            result_kind=query_kind,
+            classification_state="classified",
+            lifecycle_state="evidence",
+            evidence_level="confirmed_fact" if source_class == "official" else "corroborated_signal",
+            document_url=f"https://example.com/{source_id}",
+            document_title=source_id,
+            document_accessed_at="2026-09-19T00:00:00+00:00",
+            document_digest="sha256:" + (source_id[-1:] or "0") * 64,
+            evidence_quote=quote,
+            evidence_locator="body/p[1]",
+            evidence_digest="sha256:" + ("a" if source_id.endswith("1") else "b") * 64,
+            fetch_path="static",
+        )
+
+    sources = [
+        evidence("O1", source_class="official", query_kind="official", quote=" Общий   телефон клиники "),
+        evidence("O2", source_class="official", query_kind="official", quote="общий телефон КЛИНИКИ"),
+        evidence("O3", source_class="official", query_kind="contact", quote="общий телефон клиники"),
+        evidence("R1", source_class="registry", query_kind="official", quote="общий телефон клиники"),
+    ]
+
+    projected, stats = project_llm_sources(sources)
+
+    assert [item["id"] for item in projected] == ["O1", "O3", "R1"]
+    assert stats.input_records == 4
+    assert stats.output_records == 3
+    assert stats.duplicate_official_quotes_removed == 1
+    assert to_llm_sources(sources) == projected

@@ -299,8 +299,22 @@ async def collect_external_sources(
     return sources, notes, SearchDiagnostics.aggregate(diagnostics)
 
 
-def to_llm_sources(sources: list[IntelligenceSource]) -> list[dict]:
-    return [{
+@dataclass(frozen=True)
+class LlmSourceProjectionStats:
+    input_records: int
+    output_records: int
+    duplicate_official_quotes_removed: int
+
+    def safe_dict(self) -> dict[str, int]:
+        return {
+            "input_records": self.input_records,
+            "output_records": self.output_records,
+            "duplicate_official_quotes_removed": self.duplicate_official_quotes_removed,
+        }
+
+
+def _llm_source_payload(source: IntelligenceSource) -> dict:
+    return {
         "id": source.id, "title": source.title, "url": source.url,
         "snippet": (
             source.evidence_quote
@@ -321,7 +335,44 @@ def to_llm_sources(sources: list[IntelligenceSource]) -> list[dict]:
         "evidence_locator": source.evidence_locator,
         "evidence_digest": source.evidence_digest,
         "fetch_path": source.fetch_path,
-    } for source in sources]
+    }
+
+
+def project_llm_sources(
+    sources: list[IntelligenceSource],
+) -> tuple[list[dict], LlmSourceProjectionStats]:
+    """Build a compact model-only source projection without mutating evidence.
+
+    Repeated first-party chrome is frequently retained on several official pages.
+    It remains in the persistent/public evidence ledger, but an identical normalized
+    quote only needs to be shown once per semantic query_kind to the extractor.
+    Independent external sources are never collapsed here.
+    """
+    projected: list[dict] = []
+    seen_official_quotes: set[tuple[str, str]] = set()
+    removed = 0
+
+    for source in sources:
+        if source.lifecycle_state == "evidence" and source.source_class == "official":
+            quote = " ".join(str(source.evidence_quote or "").split()).strip().casefold()
+            if quote:
+                key = (str(source.query_kind or "unknown"), quote)
+                if key in seen_official_quotes:
+                    removed += 1
+                    continue
+                seen_official_quotes.add(key)
+        projected.append(_llm_source_payload(source))
+
+    return projected, LlmSourceProjectionStats(
+        input_records=len(sources),
+        output_records=len(projected),
+        duplicate_official_quotes_removed=removed,
+    )
+
+
+def to_llm_sources(sources: list[IntelligenceSource]) -> list[dict]:
+    projected, _ = project_llm_sources(sources)
+    return projected
 
 
 async def run_enriched_site_analysis(url: str, title: str, text: str) -> SiteAnalysis:
