@@ -334,7 +334,7 @@ def test_reasoning_failure_preserves_extracted_company_facts(monkeypatch):
             economic_signals=[], risks_and_assumptions=[], coverage=_coverage(),
         )
     async def fail(*args):
-        raise TimeoutError("reasoning")
+        raise SplitSynthesisPhaseError("commercial_execution", "OutputTruncated")
     monkeypatch.setattr(split_v2, "extract_profile_parallel", extract)
     monkeypatch.setattr(split_v2, "_reason_and_assemble", fail)
     result = asyncio.run(split_v2.analyze_with_routerai_split_v2("https://example.org", "Example", "Official text"))
@@ -342,6 +342,8 @@ def test_reasoning_failure_preserves_extracted_company_facts(monkeypatch):
     assert result.company_facts[0].source_ids == ["S1"]
     assert result.readiness.provider_states["routerai"] == "reasoning_failed_extraction_preserved"
     assert result.readiness.client_release_eligible is False
+    assert result.research_status["commercial_reasoning_error_phase"] == "commercial_execution"
+    assert result.research_status["commercial_reasoning_phase_error_type"] == "OutputTruncated"
 
 
 def test_partial_km_failure_does_not_cancel_commercial_and_opportunity_retries(monkeypatch):
