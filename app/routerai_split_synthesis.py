@@ -288,6 +288,7 @@ def _readiness(
     company_facts: list[CompanyFact],
     sources: list[EvidenceSource],
     commercial_score: int,
+    commercial_support_state: str = "unsupported",
 ) -> PreliminaryResultReadiness:
     fact_fields = {item.field for item in company_facts if item.source_ids}
     vertical_fields = {
@@ -328,6 +329,8 @@ def _readiness(
         blockers.append(identity_blocker)
     if financial_conflicts.unresolved_critical_conflicts:
         blockers.append("financial_fact_conflict")
+    if commercial_support_state == "unsupported":
+        blockers.append("commercial_claim_support_insufficient")
     return PreliminaryResultReadiness(
         analysis_state="schema_validated",
         identity_state=identity.state,
@@ -412,6 +415,7 @@ def _assemble_site_analysis(
             company_facts=profile.company_facts,
             sources=sources,
             commercial_score=commercial.commercial_opportunity.score,
+            commercial_support_state=commercial_support.state,
         ),
     )
 
