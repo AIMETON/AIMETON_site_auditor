@@ -11,6 +11,7 @@ from app.models import CompanyFact, EconomicSignal
 from app.research_control import ResearchControl, bind_research, current_research, deep_research_enabled
 from app.routerai_evidence_units import (
     DEFAULT_EVIDENCE_CHUNK_CHARS,
+    DEEP_EVIDENCE_CHUNK_CHARS,
     DEFAULT_MAX_FAST_PATH_UNITS,
     EvidenceCoverage,
     EvidenceCoverageOverflow,
@@ -198,15 +199,17 @@ def _slice_evidence_units(
     official_text: str,
     projected_sources: list[dict[str, Any]],
     slice_name: str,
+    *,
+    chunk_chars: int = DEFAULT_EVIDENCE_CHUNK_CHARS,
 ) -> list[tuple[str, str]]:
-    official_chunks = chunk_text(official_text, chunk_chars=DEFAULT_EVIDENCE_CHUNK_CHARS)
+    official_chunks = chunk_text(official_text, chunk_chars=chunk_chars)
     if slice_name not in _BROAD_OFFICIAL_SLICES:
         hints = _OFFICIAL_SLICE_HINTS.get(slice_name, ())
         official_chunks = [
             chunk for chunk in official_chunks
             if any(hint in chunk.casefold() for hint in hints)
         ]
-    source_chunks = chunk_sources(projected_sources, chunk_chars=DEFAULT_EVIDENCE_CHUNK_CHARS)
+    source_chunks = chunk_sources(projected_sources, chunk_chars=chunk_chars)
     units = [(chunk, "[]") for chunk in official_chunks]
     units.extend(("", chunk) for chunk in source_chunks)
     # Keep one empty unit so every vertical can deterministically return an empty DTO.
@@ -316,7 +319,9 @@ async def extract_profile_parallel(
     accessed_at: str,
 ) -> MergedProfileExtraction:
     """Coverage-preserving map→merge extraction followed by compact reasoning."""
-    chunked = deep_research_enabled()
+    deep = deep_research_enabled()
+    chunked = deep
+    chunk_chars = DEEP_EVIDENCE_CHUNK_CHARS if deep else DEFAULT_EVIDENCE_CHUNK_CHARS
     control = current_research()
     processed_units = 0
     incomplete_reasons = []
@@ -335,7 +340,7 @@ async def extract_profile_parallel(
         "signals": project_sources(external_sources, _SIGNAL_KINDS, _SLICE_SOURCE_KEYS),
     }
     units_by_slice = {
-        name: _slice_evidence_units(text, projected, name)
+        name: _slice_evidence_units(text, projected, name, chunk_chars=chunk_chars)
         for name, projected in projected_by_slice.items()
     }
 
@@ -554,9 +559,9 @@ business_effect и реальные source_ids. Не повторяй профи
         + _flatten_attr(signal_results, "risks_and_assumptions")
     )
 
-    official_chunks = chunk_text(text)
+    official_chunks = chunk_text(text, chunk_chars=chunk_chars)
     source_chunk_count = sum(
-        len(chunk_sources(projected, chunk_chars=DEFAULT_EVIDENCE_CHUNK_CHARS))
+        len(chunk_sources(projected, chunk_chars=chunk_chars))
         for projected in projected_by_slice.values()
     )
     unit_count = sum(len(units) for units in units_by_slice.values())
