@@ -79,6 +79,40 @@ def test_chunk_primitives_preserve_all_text_and_late_sources() -> None:
     assert recovered[-1]["snippet"] == "late-source-marker"
 
 
+def test_official_text_is_not_multiplied_across_all_extraction_verticals() -> None:
+    neutral_a = "services and prices " + "a" * (DEFAULT_EVIDENCE_CHUNK_CHARS - 20)
+    management = "Наш генеральный директор Иван Иванов " + "b" * (DEFAULT_EVIDENCE_CHUNK_CHARS - 40)
+    neutral_c = "contacts and schedule " + "c" * 100
+    text = neutral_a + management + neutral_c
+
+    projected = {name: [] for name in ("identity", "management", "ownership", "operations", "signals")}
+    units = {
+        name: profile._slice_evidence_units(text, sources, name)
+        for name, sources in projected.items()
+    }
+
+    official_chunks = chunk_text(text)
+    assert len(units["identity"]) == len(official_chunks)
+    assert len(units["operations"]) == len(official_chunks)
+    assert sum(bool(official) for official, _ in units["management"]) == 1
+    assert sum(bool(official) for official, _ in units["ownership"]) == 0
+    assert sum(bool(official) for official, _ in units["signals"]) == 0
+    assert sum(len(items) for items in units.values()) < len(official_chunks) * 5
+
+
+def test_narrow_official_routing_keeps_first_party_ownership_and_signal_chunks() -> None:
+    ownership = "Учредитель и собственник клиники указан на странице. Telegram: t.me/example"
+    signal = "Новости клиники и отзывы пациентов. Судебных споров не указано."
+    filler = "x" * DEFAULT_EVIDENCE_CHUNK_CHARS
+    text = ownership + filler + signal
+
+    ownership_units = profile._slice_evidence_units(text, [], "ownership")
+    signal_units = profile._slice_evidence_units(text, [], "signals")
+
+    assert any("Учредитель" in official for official, _ in ownership_units)
+    assert any("отзывы" in official for official, _ in signal_units)
+
+
 def test_vertical_dto_bounds_keep_each_chunk_compact() -> None:
     fact_schema = profile.CompactCompanyFact.model_json_schema()
     management_fact_schema = profile.ManagementCompanyFact.model_json_schema()
