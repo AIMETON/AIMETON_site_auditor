@@ -491,6 +491,14 @@ async def _run_verified_enriched_site_analysis(
 
     analysis.readiness.provider_states["search"] = diagnostics.state
     analysis.research_queries = [query for _, query in attempted_queries]
+    if not progressive_search:
+        search_stop_reason = "fixed_query_plan_complete"
+    elif coverage.evidence_sufficient:
+        search_stop_reason = "evidence_sufficient"
+    elif search_waves_executed >= MAX_PROGRESSIVE_WAVES:
+        search_stop_reason = "bounded_waves_exhausted_with_evidence_gaps"
+    else:
+        search_stop_reason = "bounded_plan_ended_with_evidence_gaps"
     analysis.research_status = {
         "extraction_input_coverage_complete": False,
         **analysis.research_status,
@@ -501,6 +509,8 @@ async def _run_verified_enriched_site_analysis(
         "search_queries_available": len(full_plan),
         "search_queries_executed": len(attempted_queries),
         "search_coverage_complete": coverage.search_complete,
+        "search_evidence_sufficient": coverage.evidence_sufficient,
+        "search_stop_reason": search_stop_reason,
         "search_coverage_missing_verticals": ",".join(coverage.missing_verticals),
         "search_coverage_searched_no_evidence": ",".join(coverage.searched_without_evidence),
         "search_optional_wave_model_used": optional_wave_model_used,

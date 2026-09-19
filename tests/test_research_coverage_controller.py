@@ -237,3 +237,47 @@ def test_corroborated_sensitive_evidence_closes_vertical_gap() -> None:
     assert coverage.states["financials"] == "covered"
     assert coverage.states["legal_events"] == "covered"
     assert coverage.qualifying_documents_by_vertical["identity"] == 1
+
+
+def test_search_complete_does_not_claim_evidence_sufficiency() -> None:
+    all_mandatory_kinds = {
+        kind
+        for kinds in (
+            ("official", "registry"),
+            ("contact",),
+            ("ownership",),
+            ("finance",),
+            ("workforce", "jobs"),
+            ("arbitration", "court", "enforcement"),
+            ("other",),
+        )
+        for kind in kinds
+    }
+
+    coverage = assess_coverage([], all_mandatory_kinds)
+
+    assert coverage.search_complete is True
+    assert coverage.evidence_sufficient is False
+    assert set(coverage.searched_without_evidence) == {
+        "identity", "contacts", "ownership", "financials",
+        "workforce", "legal_events", "operations",
+    }
+    assert coverage.safe_dict()["evidence_sufficient"] is False
+
+
+def test_evidence_sufficiency_requires_every_mandatory_vertical_covered() -> None:
+    verified = [
+        _evidence("I1", "official"),
+        _evidence("C1", "contact"),
+        _evidence("O1", "ownership"),
+        _evidence("F1", "finance"),
+        _evidence("W1", "workforce"),
+        _evidence("L1", "court"),
+        _evidence("P1", "other"),
+    ]
+    searched = {item.query_kind for item in verified}
+
+    coverage = assess_coverage(verified, searched)
+
+    assert coverage.search_complete is True
+    assert coverage.evidence_sufficient is True
