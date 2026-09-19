@@ -79,8 +79,8 @@ def _ranked_facts(
     ranked = sorted(
         items,
         key=lambda pair: (
-            -_authority_score(pair[1].source_ids, authority_by_id)[0],
-            -_authority_score(pair[1].source_ids, authority_by_id)[1],
+            -_authority_score(pair[1].source_ids, authority_by_id, group_by_id)[0],
+            -_authority_score(pair[1].source_ids, authority_by_id, group_by_id)[1],
             -_CONFIDENCE.get(pair[1].confidence, 0),
             -int(bool(pair[1].period)),
             pair[0],
@@ -105,7 +105,7 @@ def build_reasoning_dossier(
     omitted: dict[str, int] = {}
     for field in sorted(grouped):
         limit = FIELD_LIMITS.get(field, DEFAULT_FACT_LIMIT)
-        ranked = _ranked_facts(grouped[field], source_authority_by_id)
+        ranked = _ranked_facts(grouped[field], source_authority_by_id, source_group_by_id)
         selected[field] = ranked[:limit]
         if len(ranked) > limit:
             omitted[field] = len(ranked) - limit
