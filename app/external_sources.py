@@ -287,7 +287,9 @@ async def collect_external_sources(
         result_kind = classify_result(title, snippet)
         sources.append(IntelligenceSource(
             id=f"H{len(sources) + 1}", title=title, url=url, snippet=snippet,
-            accessed_at=accessed_at, query_kind=query_kind, result_kind=result_kind,
+            accessed_at=accessed_at,
+            published_at=str(item.get("publishedDate") or "").strip() or None,
+            query_kind=query_kind, result_kind=result_kind,
             source_class=source_class,
             classification_state=classification_state(source_class, result_kind),
             lifecycle_state="discovery_hint",
@@ -321,7 +323,8 @@ def _llm_source_payload(source: IntelligenceSource) -> dict:
             if source.lifecycle_state == "evidence"
             else source.snippet
         ),
-        "accessed_at": source.accessed_at, "query_kind": source.query_kind,
+        "accessed_at": source.accessed_at, "published_at": source.published_at,
+        "query_kind": source.query_kind,
         "result_kind": source.result_kind, "source_class": source.source_class,
         "classification_state": source.classification_state,
         "lifecycle_state": source.lifecycle_state,
@@ -336,6 +339,7 @@ def _llm_source_payload(source: IntelligenceSource) -> dict:
         "evidence_digest": source.evidence_digest,
         "fetch_path": source.fetch_path,
     }
+
 
 
 def project_llm_sources(
