@@ -47,6 +47,8 @@ class EvidenceSource(BaseModel):
     evidence_level: Literal[
         "confirmed_fact", "corroborated_signal", "weak_signal", "unverified_mention"
     ] = "unverified_mention"
+    published_at: str | None = None
+    freshness: Literal["current", "stale", "not_yet_valid", "unassessed"] = "unassessed"
     document_url: str | None = None
     document_title: str | None = None
     document_accessed_at: str | None = None
@@ -315,6 +317,7 @@ class IntelligenceSource(BaseModel):
     classification_state: Literal["classified", "ambiguous", "unknown"] = "unknown"
     lifecycle_state: Literal["discovery_hint", "source_candidate", "evidence"] = "discovery_hint"
     evidence_level: Literal["confirmed_fact", "corroborated_signal", "weak_signal", "unverified_mention"] = "unverified_mention"
+    published_at: str | None = None
     document_url: str | None = None
     document_title: str | None = None
     document_accessed_at: str | None = None
