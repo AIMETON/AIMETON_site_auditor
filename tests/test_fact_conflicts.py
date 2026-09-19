@@ -1,5 +1,6 @@
 from app.fact_conflicts import assess_financial_conflicts, normalize_financial_value
 from app.models import CompanyFact, EvidenceSource
+from app.routerai_split_synthesis import _readiness
 
 
 def _source(identifier: str, level: str = "corroborated_signal") -> EvidenceSource:
@@ -92,3 +93,19 @@ def test_missing_period_is_not_assumed_to_be_same_reporting_period():
     )
 
     assert assessment.unresolved_critical_conflicts == 0
+
+
+def test_split_readiness_marks_financial_vertical_degraded_on_conflict():
+    facts = [
+        CompanyFact(field="revenue", value="10 млн руб.", period="2025", source_ids=["A1"]),
+        CompanyFact(field="revenue", value="12 млн руб.", period="2025", source_ids=["B1"]),
+    ]
+    readiness = _readiness(
+        company_facts=facts,
+        sources=[_source("A1"), _source("B1")],
+        commercial_score=50,
+    )
+
+    financial = next(item for item in readiness.required_verticals if item.code == "financials")
+    assert financial.state == "degraded"
+    assert "financial_fact_conflict" in readiness.release_blockers
