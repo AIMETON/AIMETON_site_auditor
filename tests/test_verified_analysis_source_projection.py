@@ -151,11 +151,21 @@ async def test_official_requisites_evidence_triggers_identifier_followup_and_dad
         evidence_digest="sha256:" + "b" * 64,
         fetch_path="static",
     )
-    child = parent.model_copy(deep=True)
-    child.id = "OFFICIAL-b4-0"
-    child.query_kind = "registry"
-    child.evidence_quote = 'ООО "АЛЕКС ДЕНТ" ИНН 2462215501 ОГРН 1112468013030'
-    child.evidence_digest = "sha256:" + "c" * 64
+    child_specs = [
+        ("OFFICIAL-b4-0", 'ООО "АЛЕКС ДЕНТ"', "c"),
+        ("OFFICIAL-b5-0", "ОГРН:", "d"),
+        ("OFFICIAL-b6-0", "1112468013030", "e"),
+        ("OFFICIAL-b7-0", "ИНН:", "f"),
+        ("OFFICIAL-b8-0", "2462215501", "1"),
+    ]
+    children = []
+    for child_id, quote, digest_char in child_specs:
+        child = parent.model_copy(deep=True)
+        child.id = child_id
+        child.query_kind = "registry"
+        child.evidence_quote = quote
+        child.evidence_digest = "sha256:" + digest_char * 64
+        children.append(child)
 
     collect_calls = 0
 
@@ -176,7 +186,7 @@ async def test_official_requisites_evidence_triggers_identifier_followup_and_dad
     async def verify(*args, **kwargs):
         nonlocal verify_calls
         verify_calls += 1
-        return [parent, child] if verify_calls == 1 else []
+        return [parent, *children] if verify_calls == 1 else []
 
     dadata_anchors = []
 
@@ -193,7 +203,7 @@ async def test_official_requisites_evidence_triggers_identifier_followup_and_dad
     monkeypatch.setattr(audit, "enrich_identity_with_dadata", dadata)
     monkeypatch.setattr(audit, "analyze_with_routerai", synthesize)
 
-    await audit._run_verified_enriched_site_analysis(
+    result = await audit._run_verified_enriched_site_analysis(
         "https://aleksdent24.ru/",
         "Алекс Дент",
         "Стоматология Алекс Дент в Красноярске",
@@ -203,4 +213,7 @@ async def test_official_requisites_evidence_triggers_identifier_followup_and_dad
     assert dadata_anchors[0].inn is None
     assert dadata_anchors[1].inn == "2462215501"
     assert dadata_anchors[1].ogrn == "1112468013030"
+    facts = {(fact.field, fact.value): fact for fact in result.company_facts}
+    assert facts[("inn", "2462215501")].source_ids == ["OFFICIAL"]
+    assert facts[("ogrn", "1112468013030")].source_ids == ["OFFICIAL"]
     assert collect_calls == 2
