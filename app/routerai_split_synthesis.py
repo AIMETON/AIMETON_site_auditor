@@ -210,6 +210,7 @@ def _safe_evidence_level(value: Any) -> str:
 def _referenced_source_ids(
     profile: ProfileExtraction,
     km: BusinessMachineSynthesis,
+    commercial: CommercialSynthesis | None = None,
 ) -> set[str]:
     ids = {"S1"}
     for fact in profile.company_facts:
@@ -218,6 +219,8 @@ def _referenced_source_ids(
         ids.update(signal.source_ids)
     for cell in km.business_machine_4x4:
         ids.update(cell.source_ids)
+    if commercial is not None:
+        ids.update(commercial.commercial_opportunity.source_ids)
     return ids
 
 
@@ -330,6 +333,7 @@ def _assemble_site_analysis(
     referenced_ids = _referenced_source_ids(
         profile,
         BusinessMachineSynthesis(business_machine_4x4=km_cells),
+        commercial,
     )
     sources = _build_sources(
         title=title,
@@ -347,6 +351,11 @@ def _assemble_site_analysis(
         signal.source_ids = [source_id for source_id in signal.source_ids if source_id in known_ids]
     for cell in km_cells:
         cell.source_ids = [source_id for source_id in cell.source_ids if source_id in known_ids]
+    commercial.commercial_opportunity.source_ids = [
+        source_id
+        for source_id in commercial.commercial_opportunity.source_ids
+        if source_id in known_ids
+    ]
 
     return SiteAnalysis(
         research_status={"extraction_input_coverage_complete": bool(getattr(profile, "coverage", {}).get("complete", False))},
@@ -430,6 +439,7 @@ EXTRACTED PROFILE:
     commercial_prompt = f"""Ты — AI-продажник AIMETON. На основе только извлечённого профиля выбери одну наиболее доказанную коммерческую AI-возможность.
 Сначала учитывай подтверждённые экономические сигналы и пробелы, затем предложи реалистичное решение, 3–10 AI-агентов/инструментов и пакет первого контакта.
 Оценка 80+ допустима только при прямом подтверждении проблемы, масштаба и реалистичного пилота. Не обещай неподтверждённый эффект.
+Для commercial_opportunity укажи source_ids, которые непосредственно подтверждают problem_hypothesis; не перечисляй источники, не связанные с проблемой.
 
 EXTRACTED PROFILE:
 {profile_context}
