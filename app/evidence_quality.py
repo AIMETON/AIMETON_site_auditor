@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from app.models import EvidenceSource
+from app.search_gateway.gateway import canonical_url
 
 
 _EVIDENCE_LEVEL_WEIGHT = {
@@ -37,12 +38,12 @@ class EvidenceQualityAssessment:
 
 
 def _document_key(source: EvidenceSource) -> str:
-    return str(
-        source.document_digest
-        or source.document_url
-        or source.url
-        or source.id
-    )
+    url = canonical_url(str(source.document_url or source.url or ""))
+    if url:
+        return "url:" + url
+    if source.document_digest:
+        return "digest:" + str(source.document_digest)
+    return "id:" + str(source.id)
 
 
 def assess_evidence_quality(
