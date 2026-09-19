@@ -16,6 +16,7 @@ from app.research_control import record_llm_start, record_llm_usage
 from app.identity_readiness import assess_identity_readiness, identity_release_blocker
 from app.evidence_quality import assess_evidence_quality
 from app.evidence_freshness import assess_source_freshness
+from app.fact_conflicts import assess_financial_conflicts
 from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
 from app.models import (
     ActionPackage,
@@ -299,6 +300,7 @@ def _readiness(
     evidence_quality = assess_evidence_quality(sources)
     identity = assess_identity_readiness(company_facts, sources=sources)
     identity_blocker = identity_release_blocker(identity.state)
+    financial_conflicts = assess_financial_conflicts(company_facts, sources=sources)
     verticals = []
     for code, fields in vertical_fields.items():
         if code == "identity":
@@ -308,6 +310,8 @@ def _readiness(
                 "conflicting": "degraded",
                 "unresolved": "not_searched",
             }[identity.state]
+        elif code == "financials" and financial_conflicts.unresolved_critical_conflicts:
+            state = "degraded"
         else:
             state = "partially_verified" if fields and fact_fields.intersection(fields) else "not_searched"
         verticals.append(PreliminaryVerticalStatus(code=code, state=state))
@@ -321,6 +325,8 @@ def _readiness(
     ]
     if identity_blocker:
         blockers.append(identity_blocker)
+    if financial_conflicts.unresolved_critical_conflicts:
+        blockers.append("financial_fact_conflict")
     return PreliminaryResultReadiness(
         analysis_state="schema_validated",
         identity_state=identity.state,
