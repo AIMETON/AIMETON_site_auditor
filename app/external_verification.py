@@ -75,7 +75,7 @@ _RELATED_LOCATORS = ("aside", "sidebar", "related", "recommend", "similar")
 # navigable leaf URL. Shallow hubs expose the site's information architecture;
 # deeper corporate pages are retained when their path signals audit-bearing data.
 _AUDIT_RELEVANT_DEEP_PATH_MARKERS = {
-    "about", "company", "contacts", "contact", "requisites", "rekvizity",
+    "contacts", "contact", "requisites", "rekvizity", "history",
     "employees", "employee", "team", "doctors", "doctor", "specialists",
     "reviews", "documents", "document", "licenses", "license", "vacancies",
     "vacancy", "jobs", "job", "price", "price-list", "prices",
