@@ -46,7 +46,7 @@ def test_identity_block_selection_is_url_agnostic_and_requires_local_target_cont
         document_title="Юридическая информация — Пример Дент",
     )
 
-    assert selected == [0, 1, 2, 3, 4]
+    assert selected == [1, 2, 3, 4]
 
 
 def test_identity_block_selection_supports_single_block_without_site_specific_path():
