@@ -157,14 +157,12 @@ def _official_identity_block_indices(
     anchors: Any = None,
     document_title: str = "",
 ) -> list[int]:
-    """Retain first-party legal-id blocks only when local context is target-like.
+    """Retain target-scoped first-party legal-id label/value pairs.
 
-    The rule is DOM- and URL-agnostic: label/value may be split across adjacent
-    blocks. Footer/sidebar/related containers are excluded, and a valid-looking
-    identifier is not force-promoted merely because it appears on the target domain.
-    The surrounding window must overlap the known target name or the document title,
-    which prevents partner/vendor identifiers on first-party legal pages from being
-    silently promoted as the audited company's identity.
+    The rule is URL- and DOM-agnostic. A label may share a block with its value or
+    precede it by up to two safe blocks. Target context is evaluated separately from
+    the identifier pair, so a nearby vendor identifier cannot be swept in merely
+    because another target identifier exists in the same section.
     """
     safe: list[bool] = []
     texts: list[str] = []
@@ -182,23 +180,51 @@ def _official_identity_block_indices(
 
     entity_names = _entity_names(company_name, anchors) if anchors is not None else []
     title_tokens = _identity_context_tokens(document_title)
+    label_re = re.compile(r"(?<![А-Яа-яЁё])(?:ИНН|ОГРН)\s*[:№]?", re.IGNORECASE)
     selected: set[int] = set()
-    for start in range(len(blocks)):
-        stop = min(len(blocks), start + 6)
-        window_indices = [index for index in range(start, stop) if safe[index]]
-        if not window_indices:
-            continue
-        window = " ".join(texts[index] for index in window_indices)
-        if not _OFFICIAL_IDENTITY_MARKER.search(window):
+
+    for label_index, label_text in enumerate(texts):
+        if not safe[label_index] or not label_re.search(label_text):
             continue
 
-        folded_window = _fold(window)
-        explicit_target_name = any(name in folded_window for name in entity_names)
-        contextual_overlap = bool(_identity_context_tokens(window) & title_tokens)
+        pair_indices: list[int] = []
+        for value_index in range(label_index, min(len(blocks), label_index + 3)):
+            if not safe[value_index]:
+                break
+            candidate_indices = list(range(label_index, value_index + 1))
+            pair_text = " ".join(texts[index] for index in candidate_indices)
+            if _OFFICIAL_IDENTITY_MARKER.search(pair_text):
+                pair_indices = candidate_indices
+                break
+        if not pair_indices:
+            continue
+
+        context_start = max(0, label_index - 3)
+        context_indices = [
+            index for index in range(context_start, pair_indices[-1] + 1) if safe[index]
+        ]
+        context = " ".join(texts[index] for index in context_indices)
+        folded_context = _fold(context)
+        explicit_target_name = any(name in folded_context for name in entity_names)
+        contextual_overlap = bool(_identity_context_tokens(context) & title_tokens)
         if not explicit_target_name and not contextual_overlap:
             continue
 
-        for index in window_indices:
+        pair_text = " ".join(texts[index] for index in pair_indices)
+        pair_tokens = _identity_context_tokens(pair_text)
+        if title_tokens and pair_tokens and not (pair_tokens & title_tokens):
+            # If the identifier pair itself names an organization, that name must
+            # overlap the target document title. Bare label/value pairs have no
+            # lexical entity tokens and are allowed to inherit nearby target context.
+            legal_form_present = bool(re.search(
+                r"(?<![A-Za-zА-Яа-яЁё])(?:ООО|АО|ПАО|ЗАО|ОАО|ИП)(?![A-Za-zА-Яа-яЁё])",
+                pair_text,
+                re.IGNORECASE,
+            ))
+            if legal_form_present:
+                continue
+
+        for index in pair_indices:
             if _OFFICIAL_IDENTITY_COMPONENT.search(texts[index]):
                 selected.add(index)
     return sorted(selected)
