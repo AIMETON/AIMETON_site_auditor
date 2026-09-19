@@ -56,7 +56,8 @@ async def analyze_with_routerai(url: str, title: str, text: str, external_source
 1. S1 — официальный сайт. Внешние источники имеют id E1, E2 и далее. Используй только эти id.
 2. Не создавай URL, цифры, людей, контакты и факты, отсутствующие во входных данных.
 3. Поисковый сниппет — сигнал. Высокая уверенность допустима для официального источника, государственного реестра или двух независимых согласующихся источников.
-4. Для каждого факта, сигнала и элемента КМ указывай source_ids.
+4. Для каждого факта, сигнала, элемента КМ и commercial_opportunity указывай source_ids.
+Для commercial_opportunity используй только источники, непосредственно подтверждающие problem_hypothesis.
 5. Не найдено — пиши «Нет данных», а не делай вывод об отсутствии.
 6. Финансовые показатели всегда сопровождай периодом. Не смешивай выручку, прибыль, активы, налоги и оборот.
 7. Учредитель не автоматически является фактическим владельцем. Аффилированность и бенефициарность маркируй как гипотезу до подтверждения.
@@ -215,6 +216,11 @@ JSON SCHEMA:
         fact.source_ids = [source_id for source_id in fact.source_ids if source_id in known_ids]
     for cell in result.business_machine_4x4:
         cell.source_ids = [source_id for source_id in cell.source_ids if source_id in known_ids]
+    result.commercial_opportunity.source_ids = [
+        source_id
+        for source_id in result.commercial_opportunity.source_ids
+        if source_id in known_ids
+    ]
     fact_fields = {item.field for item in result.company_facts if item.source_ids}
     vertical_fields = {
         "identity": {
