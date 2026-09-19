@@ -120,6 +120,7 @@ def test_split_v2_stages_km_quadrant_ii_cells_and_commercial_execution(monkeypat
                 expected_value="Reduce manual work",
                 score=72,
                 qualification="Перспективная",
+                source_ids=["S1", "MISSING"],
             )
         if model_type is split_v2.CompactCommercialExecution:
             assert '"score":72' in kwargs["prompt"]
@@ -202,6 +203,7 @@ def test_split_v2_stages_km_quadrant_ii_cells_and_commercial_execution(monkeypat
         "IV-I",
     ]
     assert result.commercial_opportunity.score == 72
+    assert result.commercial_opportunity.source_ids == ["S1"]
     assert result.readiness.provider_states["routerai"] == "active"
 
 
@@ -301,6 +303,7 @@ def test_split_v2_commercial_envelopes_are_bounded_and_expandable() -> None:
         expected_value="Faster evidence",
         score=70,
         qualification="Перспективная",
+        source_ids=["S1"],
     )
     execution = split_v2.CompactCommercialExecution(
         agents=[
@@ -320,6 +323,7 @@ def test_split_v2_commercial_envelopes_are_bounded_and_expandable() -> None:
     assert isinstance(expanded, CommercialSynthesis)
     assert len(expanded.agents) == 3
     assert expanded.commercial_opportunity.score == 70
+    assert expanded.commercial_opportunity.source_ids == ["S1"]
 
 
 def test_reasoning_failure_preserves_extracted_company_facts(monkeypatch):
