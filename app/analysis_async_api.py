@@ -786,10 +786,12 @@ async def _run_analysis_body(
             detail=_heartbeat_detail(_trace_runtime_snapshot(mission_id, analysis_id)),
             next_action="Зафиксировать итоговый результат миссии.",
         )
-        check_execution()
+        # Once enriched analysis has returned, no paid/provider work remains.
+        # A stop racing this final commit must not discard an already-computed dossier.
         control = CONTROLS.get(analysis_id)
-        if control and control.stop_requested:
-            raise ResearchInterrupted(control.stop_reason or "stopped_by_user")
+        late_stop_requested = bool(control and control.stop_requested)
+        if late_stop_requested:
+            result.research_status["completion_after_stop_requested"] = True
         record_legacy_site_turn(
             orchestrator,
             mission_id,
@@ -806,9 +808,11 @@ async def _run_analysis_body(
             event_code="mission.completed",
             state="completed",
             icon_key="check-circle",
-            message=("Исследование остановлено; частичный результат сохранён."
-                     if CONTROLS.get(analysis_id) and CONTROLS[analysis_id].stop_requested
-                     else "Анализ завершён. Результат готов."),
+            message=(
+                "Остановка запрошена после завершения аналитики; готовый результат сохранён."
+                if late_stop_requested
+                else "Анализ завершён. Результат готов."
+            ),
         )
     except (FetchError, httpx.HTTPError, ValueError):
         record_legacy_site_turn(
@@ -860,6 +864,18 @@ async def _run_analysis(*, source_url: str, mission_id: str, analysis_id: str) -
         await run_controlled(CONTROLS.get(analysis_id), lambda: _run_analysis_body(
             source_url=source_url, mission_id=mission_id, analysis_id=analysis_id))
     except ResearchInterrupted as exc:
+        # run_controlled performs a final stop check after the operation returns.
+        # If the body already committed a complete result, that late stop is a no-op:
+        # never rewrite a terminal completed dossier as failed.
+        with _LOCK:
+            committed = _ANALYSES.get(analysis_id)
+            completed_result_committed = bool(
+                committed
+                and committed.get("state") == "completed"
+                and committed.get("result") is not None
+            )
+        if completed_result_committed:
+            return
         record_legacy_site_turn(get_mission_orchestrator(), mission_id, final_url=source_url, succeeded=False)
         _append_event(analysis_id, phase=exc.reason, event_code="mission.failed", state="failed",
                       icon_key="clock", message="Исследование остановлено по настройкам пользователя.",
