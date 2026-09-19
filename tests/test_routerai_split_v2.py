@@ -167,14 +167,16 @@ def test_split_v2_stages_km_quadrant_ii_cells_and_commercial_execution(monkeypat
     }
     for quadrant in ("I", "III", "IV"):
         km_kwargs = phase_kwargs[f"km_reasoning_{quadrant}"]
-        assert km_kwargs["reasoning_effort"] == "high"
+        assert km_kwargs["reasoning_enabled"] is False
+        assert "reasoning_effort" not in km_kwargs
         assert km_kwargs["max_tokens"] == 1200
         assert km_kwargs["timeout_seconds"] == 18.0
         assert "Engineering company" in km_kwargs["prompt"]
         assert f"квадрант {quadrant}" in km_kwargs["prompt"]
     for suffix in ("I", "II", "III", "IV"):
         km_kwargs = phase_kwargs[f"km_reasoning_II_{suffix}"]
-        assert km_kwargs["reasoning_effort"] == "high"
+        assert km_kwargs["reasoning_enabled"] is False
+        assert "reasoning_effort" not in km_kwargs
         assert km_kwargs["max_tokens"] == 700
         assert km_kwargs["timeout_seconds"] == 18.0
         assert "Engineering company" in km_kwargs["prompt"]
