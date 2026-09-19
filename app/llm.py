@@ -12,6 +12,7 @@ import httpx
 from app.research_control import record_llm_start, record_llm_usage
 from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
 
+from app.evidence_quality import assess_evidence_quality
 from app.models import (
     EvidenceSource,
     PreliminaryResultReadiness,
@@ -235,18 +236,11 @@ JSON SCHEMA:
         },
         "legal_events": set(),
     }
-    confirmed_sources = sum(
-        source.evidence_level in {"confirmed_fact", "corroborated_signal"}
-        and source.document_digest is not None
-        and source.evidence_digest is not None
-        for source in result.sources
-    )
+    evidence_quality = assess_evidence_quality(result.sources)
     result.readiness = PreliminaryResultReadiness(
         analysis_state="schema_validated",
         profile_completeness=min(len(fact_fields) / 25, 1),
-        evidence_quality=(
-            confirmed_sources / len(result.sources) if result.sources else 0
-        ),
+        evidence_quality=evidence_quality.score,
         commercial_priority=result.commercial_opportunity.score,
         required_verticals=[
             PreliminaryVerticalStatus(
