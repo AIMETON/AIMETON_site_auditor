@@ -230,3 +230,21 @@ async def test_subdivision_keeps_successful_child_when_later_child_fails(monkeyp
             external_sources=[], accessed_at="2026-09-13T00:00:00Z")
     assert any("BEGIN" in fact.value for fact in result.company_facts)
     assert not result.coverage.complete
+
+
+def test_official_requisites_identifier_blocks_are_forced_into_evidence():
+    from app import external_verification as verify
+
+    blocks = [
+        NS(text="О клинике Алекс Дент", locator="body/main/p[1]"),
+        NS(
+            text='ООО "АЛЕКС ДЕНТ" ИНН 2462215501 ОГРН 1112468013030',
+            locator="body/main/div[4]",
+        ),
+        NS(
+            text='Правообладатель каталога ИНН 9999999999 ОГРН 1234567890123',
+            locator="footer/legal",
+        ),
+    ]
+
+    assert verify._official_identity_block_indices(blocks) == [1]
