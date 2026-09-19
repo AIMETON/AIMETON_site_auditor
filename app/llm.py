@@ -297,6 +297,8 @@ JSON SCHEMA:
         blockers.append(identity_blocker)
     if financial_conflicts.unresolved_critical_conflicts:
         blockers.append("financial_fact_conflict")
+    if commercial_support.state == "unsupported":
+        blockers.append("commercial_claim_support_insufficient")
     result.readiness = PreliminaryResultReadiness(
         analysis_state="schema_validated",
         identity_state=identity.state,
