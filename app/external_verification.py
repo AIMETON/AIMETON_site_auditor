@@ -160,9 +160,12 @@ def _official_identity_block_indices(blocks: list[Any]) -> list[int]:
             joined = " ".join(text for _, text in window)
             if not _OFFICIAL_IDENTITY_MARKER.search(joined):
                 continue
-            start = max(0, position - 1)
-            end = min(len(primary), position + width + 1)
-            selected.update(index for index, _ in primary[start:end])
+            if width == 1:
+                selected.add(primary[position][0])
+            else:
+                start = max(0, position - 1)
+                end = min(len(primary), position + width + 1)
+                selected.update(index for index, _ in primary[start:end])
             break
     return sorted(selected)
 
