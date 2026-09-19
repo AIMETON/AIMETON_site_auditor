@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from app.trace_context import bind_trace_identity, current_trace_identity
 from app.evidence_quality import assess_evidence_quality
+from app.evidence_freshness import summarize_source_freshness
 from app.identity_readiness import assess_identity_readiness, identity_release_blocker
 
 from app.search_gateway import SearchDiagnostics
@@ -414,6 +415,7 @@ async def _run_verified_enriched_site_analysis(
     analysis.sources = merge_document_sources(analysis.sources, document_evidence)
     _remap_analysis_source_ids(analysis)
     evidence_quality = assess_evidence_quality(analysis.sources)
+    freshness_summary = summarize_source_freshness(analysis.sources)
     analysis.readiness.evidence_quality = evidence_quality.score
     identity = assess_identity_readiness(analysis.company_facts, sources=analysis.sources)
     analysis.readiness.identity_state = identity.state
@@ -539,6 +541,10 @@ async def _run_verified_enriched_site_analysis(
         "evidence_quality_confirmed_documents": evidence_quality.confirmed_documents,
         "evidence_quality_corroborated_documents": evidence_quality.corroborated_documents,
         "evidence_quality_weak_documents": evidence_quality.weak_documents,
+        "evidence_freshness_current": freshness_summary["current"],
+        "evidence_freshness_stale": freshness_summary["stale"],
+        "evidence_freshness_not_yet_valid": freshness_summary["not_yet_valid"],
+        "evidence_freshness_unassessed": freshness_summary["unassessed"],
         "identity_state": identity.state,
         "identity_critical_conflicts": identity.unresolved_critical_conflicts,
         "identity_conflict_fields": ",".join(identity.conflict_fields),
