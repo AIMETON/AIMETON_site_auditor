@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from app.research_control import record_llm_start, record_llm_usage
 from app.identity_readiness import assess_identity_readiness, identity_release_blocker
 from app.evidence_quality import assess_evidence_quality
+from app.commercial_support import assess_commercial_support, enforce_commercial_support
 from app.evidence_freshness import assess_source_freshness
 from app.fact_conflicts import assess_financial_conflicts
 from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
@@ -377,9 +378,24 @@ def _assemble_site_analysis(
         for source_id in commercial.commercial_opportunity.source_ids
         if source_id in known_ids
     ]
+    commercial_support = assess_commercial_support(
+        commercial.commercial_opportunity,
+        facts=profile.company_facts,
+        signals=profile.economic_signals,
+        sources=sources,
+    )
+    commercial.commercial_opportunity = enforce_commercial_support(
+        commercial.commercial_opportunity,
+        commercial_support,
+    )
 
     return SiteAnalysis(
-        research_status={"extraction_input_coverage_complete": bool(getattr(profile, "coverage", {}).get("complete", False))},
+        research_status={
+            "extraction_input_coverage_complete": bool(getattr(profile, "coverage", {}).get("complete", False)),
+            "commercial_support_state": commercial_support.state,
+            "commercial_support_direct_sources": commercial_support.direct_support_count,
+            "commercial_support_terms": ",".join(commercial_support.matched_terms),
+        },
         url=url,
         company_name=profile.company_name or title or url,
         business_summary=profile.business_summary,
