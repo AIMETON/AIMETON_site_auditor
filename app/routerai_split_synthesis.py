@@ -13,6 +13,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from app.research_control import record_llm_start, record_llm_usage
+from app.evidence_quality import assess_evidence_quality
 from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
 from app.models import (
     ActionPackage,
@@ -288,17 +289,11 @@ def _readiness(
         "ownership": {"founders", "executives", "beneficial_owners", "affiliates"},
         "legal_events": set(),
     }
-    document_keys = {source.document_url or source.url for source in sources}
-    confirmed_documents = {
-        source.document_url or source.url for source in sources
-        if source.evidence_level in {"confirmed_fact", "corroborated_signal"}
-        and source.document_digest is not None
-        and source.evidence_digest is not None
-    }
+    evidence_quality = assess_evidence_quality(sources)
     return PreliminaryResultReadiness(
         analysis_state="schema_validated",
         profile_completeness=min(len(fact_fields) / 25, 1),
-        evidence_quality=(len(confirmed_documents) / len(document_keys) if document_keys else 0),
+        evidence_quality=evidence_quality.score,
         commercial_priority=commercial_score,
         required_verticals=[
             PreliminaryVerticalStatus(
