@@ -71,6 +71,41 @@ _RELATED_MARKERS = (
 )
 _RELATED_LOCATORS = ("aside", "sidebar", "related", "recommend", "similar")
 
+# Deep research must exhaust the audit-relevant first-party frontier, not every
+# navigable leaf URL. Shallow hubs expose the site's information architecture;
+# deeper corporate pages are retained when their path signals audit-bearing data.
+_AUDIT_RELEVANT_DEEP_PATH_MARKERS = {
+    "about", "company", "contacts", "contact", "requisites", "rekvizity",
+    "employees", "employee", "team", "doctors", "doctor", "specialists",
+    "reviews", "documents", "document", "licenses", "license", "vacancies",
+    "vacancy", "jobs", "job", "price", "price-list", "prices",
+}
+_AUDIT_HUB_PATH_MARKERS = {
+    "services", "service", "production", "products", "product", "catalog",
+    "blog", "news", "company", "about",
+}
+
+
+def _official_link_is_audit_relevant(url: str) -> bool:
+    path = urlparse(url).path or "/"
+    segments = [segment.casefold() for segment in path.split("/") if segment]
+    if len(segments) <= 1:
+        return True
+    # Keep deeper corporate/legal/team pages, while avoiding recursive expansion
+    # through large service/product/blog leaf catalogs whose hubs already summarize
+    # the category for company profiling.
+    if len(segments) <= 3 and any(
+        marker in segment
+        for segment in segments
+        for marker in _AUDIT_RELEVANT_DEEP_PATH_MARKERS
+    ):
+        return True
+    if len(segments) == 2 and any(
+        marker in segments[0] for marker in _AUDIT_HUB_PATH_MARKERS
+    ) and segments[1] in {"index", "list", "all"}:
+        return True
+    return False
+
 
 def _identifier(prefix: str, value: str) -> str:
     digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:24]
@@ -321,10 +356,12 @@ async def verify_external_sources(
     seen_urls = {canonical_url(str(item.url)) for item in sources}
     pipeline = get_document_pipeline()
     verified: list[IntelligenceSource] = []
+    frontier_skipped_non_audit_leaf = 0
     mission_id = _identifier("mission_external_verify", company_name)
     correlation_id = _identifier("corr_external_verify", company_name)
 
     async def verify_one(source_item):
+        nonlocal frontier_skipped_non_audit_leaf
         url = str(source_item.url)
         host = _host(url)
         if not host:
@@ -393,6 +430,9 @@ async def verify_external_sources(
                         or re.search(r"\.(?:png|jpe?g|gif|webp|svg|css|js|zip|mp4|mp3)$", urlparse(link_url).path, re.I)):
                     continue
                 seen_urls.add(link_url)
+                if not _official_link_is_audit_relevant(link_url):
+                    frontier_skipped_non_audit_leaf += 1
+                    continue
                 discovered = IntelligenceSource(
                     id=_identifier("D", link_url), title=link.text or link_url, url=link_url,
                     accessed_at=datetime.now(timezone.utc).isoformat(), query_kind="official",
@@ -518,6 +558,7 @@ async def verify_external_sources(
                     "sources": [item.model_dump(mode="json") for item in sources],
                     "evidence": [item.model_dump(mode="json") for item in verified],
                     "documents_attempted": index, "frontier_size": len(pending),
+                    "frontier_skipped_non_audit_leaf": frontier_skipped_non_audit_leaf,
                 })
         else:
             await asyncio.wait_for(
