@@ -335,6 +335,8 @@ async def analyze_with_routerai_split_v2(url: str, title: str, text: str, extern
             "commercial_reasoning_state": "stopped" if stopped else "failed",
             "commercial_score_available": False,
             "commercial_reasoning_error_type": type(exc).__name__,
+            "commercial_reasoning_error_phase": str(getattr(exc, "phase", "") or ""),
+            "commercial_reasoning_phase_error_type": str(getattr(exc, "error_type", "") or ""),
             **dossier_status,
         })
         result.risks_and_assumptions.append(
@@ -408,14 +410,39 @@ BOUNDED REASONING DOSSIER:\n{dossier_context}
         ),
         return_exceptions=True,
     )
-    for outcome in gathered:
+
+    km_successes: list[tuple[tuple[str, ...], BaseModel]] = []
+    km_failed_phases: list[str] = []
+    for (phase, codes, _, _, _), outcome in zip(km_specs, gathered[:-1], strict=True):
         if isinstance(outcome, BaseException):
-            raise outcome
-    km_result = _merge_km_results([
-        (codes, result)
-        for (_, codes, _, _, _), result in zip(km_specs, gathered[:-1], strict=True)
-    ])
+            if isinstance(outcome, ResearchStopped):
+                raise outcome
+            error_type = str(getattr(outcome, "error_type", type(outcome).__name__))
+            km_failed_phases.append(f"{phase}:{error_type}")
+            continue
+        km_successes.append((codes, outcome))
+    km_result = _merge_km_results(km_successes)
+
     opportunity_result = gathered[-1]
+    commercial_retry_used = False
+    if isinstance(opportunity_result, BaseException):
+        if isinstance(opportunity_result, ResearchStopped):
+            raise opportunity_result
+        commercial_retry_used = True
+        retry_prompt = (
+            opportunity_prompt
+            + "\n\nRETRY MODE: верни только поля схемы предельно кратко; "
+              "не добавляй пояснения за пределами JSON."
+        )
+        opportunity_result = await request_json_strict(
+            "commercial_opportunity_reasoning_retry",
+            CompactCommercialOpportunity,
+            system="Возвращай только валидный компактный JSON по схеме без пояснений.",
+            prompt=retry_prompt,
+            max_tokens=1500,
+            timeout_seconds=25.0,
+            reasoning_enabled=False,
+        )
 
     opportunity_context = json.dumps(
         opportunity_result.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")
@@ -442,7 +469,7 @@ SELECTED OPPORTUNITY:\n{opportunity_context}
         reasoning_enabled=False,
     )
 
-    return _assemble_site_analysis(
+    result = _assemble_site_analysis(
         url=url,
         title=title,
         text=text,
@@ -452,3 +479,14 @@ SELECTED OPPORTUNITY:\n{opportunity_context}
         commercial=_expand_commercial(opportunity_result, execution_result),
         accessed_at=accessed_at,
     )
+    result.research_status.update({
+        "km_reasoning_partial": bool(km_failed_phases),
+        "km_reasoning_failed_phases": ",".join(km_failed_phases),
+        "commercial_reasoning_retry_used": commercial_retry_used,
+    })
+    if km_failed_phases:
+        result.risks_and_assumptions.append(
+            "Часть KM reasoning-фаз завершилась ошибкой и была исключена без потери "
+            "коммерческого synthesis: " + ", ".join(km_failed_phases)
+        )
+    return result
