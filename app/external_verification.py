@@ -124,6 +124,34 @@ def _fold(value: str | None) -> str:
     return " ".join(str(value or "").split()).casefold()
 
 
+_OFFICIAL_IDENTITY_MARKER = re.compile(
+    r"\b(?:ИНН|ОГРН)\s*[:№]?\s*(?:\d[\s-]?){10,15}\b",
+    re.IGNORECASE,
+)
+
+
+def _official_identity_block_indices(blocks: list[Any]) -> list[int]:
+    """Keep explicit labelled legal identifiers from first-party primary content.
+
+    Model/block triage is allowed to be conservative, but an official requisites
+    block containing a labelled INN/OGRN must remain visible to deterministic
+    identity extraction. Footer/sidebar/related blocks remain excluded.
+    """
+    selected: list[int] = []
+    for index, block in enumerate(blocks):
+        text = str(getattr(block, "text", "") or "").strip()
+        locator = str(getattr(block, "locator", "") or "")
+        if not text or not _OFFICIAL_IDENTITY_MARKER.search(text):
+            continue
+        if _is_related_context(text, locator):
+            continue
+        locator_folded = _fold(locator)
+        if any(marker in locator_folded for marker in ("footer", "aside", "sidebar")):
+            continue
+        selected.append(index)
+    return selected
+
+
 def _source_kind(source_class: str) -> SourceKind:
     if source_class == "official":
         return SourceKind.FIRST_PARTY
@@ -507,8 +535,34 @@ async def verify_external_sources(
                     "model_used": triage.model_used,
                     "model_unavailable": triage.model_unavailable,
                 })
-            for decision in triage.kept:
-                block_index = int(decision.block_id[1:])
+            kept_by_index = {
+                int(decision.block_id[1:]): decision
+                for decision in triage.kept
+            }
+            forced_identity = (
+                _official_identity_block_indices(list(fetched.blocks))
+                if source_is_official
+                else []
+            )
+            block_plan: list[tuple[int, str, str, str]] = [
+                (
+                    block_index,
+                    decision.query_kind,
+                    decision.entity_relation,
+                    decision.reason,
+                )
+                for block_index, decision in kept_by_index.items()
+            ]
+            for block_index in forced_identity:
+                if block_index not in kept_by_index:
+                    block_plan.append((
+                        block_index,
+                        "registry",
+                        "target",
+                        "deterministic labelled INN/OGRN on official primary content",
+                    ))
+            block_plan.sort(key=lambda item: item[0])
+            for block_index, query_kind, entity_relation, reason in block_plan:
                 evidence_block = fetched.blocks[block_index]
                 for offset in range(0, len(evidence_block.text), 4000):
                     fragment = evidence_block.text[offset:offset + 4000]
@@ -519,13 +573,13 @@ async def verify_external_sources(
                     )
                     record = source_item.model_copy(deep=True)
                     record.id = f"{source_item.id}-b{block_index}-{offset}"
-                    record.query_kind = decision.query_kind
+                    record.query_kind = query_kind
                     record.evidence_quote = promotion.evidence.quote
                     record.evidence_locator = promotion.evidence.locator
                     record.evidence_digest = promotion.evidence.digest
                     record.verification_note = (
                         source_item.verification_note
-                        + f" Evidence triage: {decision.entity_relation}/{decision.query_kind}; {decision.reason}."
+                        + f" Evidence triage: {entity_relation}/{query_kind}; {reason}."
                     )
                     verified.append(record)
 

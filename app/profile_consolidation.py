@@ -23,6 +23,10 @@ _REJECTED_RELATIONS = {
     "publisher", "competitor", "counterparty", "mentioned_only", "unknown",
 }
 _CONFIDENCE_RANK = {"Низкая": 0, "Средняя": 1, "Высокая": 2}
+_STANDALONE_MONEY = re.compile(
+    r"^(?:от\s*)?\d[\d\s.,]*(?:₽|руб(?:\.|лей)?)\.?$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -32,6 +36,7 @@ class ConsolidationStats:
     placeholders_removed: int
     semantic_duplicates_merged: int
     foreign_sensitive_facts_rejected: int
+    low_information_other_removed: int
     input_signals: int
     output_signals: int
 
@@ -42,6 +47,7 @@ class ConsolidationStats:
             "placeholders_removed": self.placeholders_removed,
             "semantic_duplicates_merged": self.semantic_duplicates_merged,
             "foreign_sensitive_facts_rejected": self.foreign_sensitive_facts_rejected,
+            "low_information_other_removed": self.low_information_other_removed,
             "input_signals": self.input_signals,
             "output_signals": self.output_signals,
         }
@@ -58,6 +64,15 @@ def _clean_text(value: str) -> str:
 
 def _is_placeholder(value: str) -> bool:
     return bool(_PLACEHOLDER.fullmatch(_clean_text(value)))
+
+
+def _is_low_information_other(fact: CompanyFact) -> bool:
+    """Reject orphan monetary values that have no business object attached.
+
+    A price such as "от 1 200 руб." is not a standalone company fact. Labeled
+    product/service prices remain intact because their text contains semantic context.
+    """
+    return fact.field == "other" and bool(_STANDALONE_MONEY.fullmatch(_clean_text(fact.value)))
 
 
 def _normalized_key(field: str, value: str) -> str:
@@ -236,8 +251,13 @@ def consolidate_merged_profile(merged, *, external_sources: list[dict[str, Any]]
     placeholders, merges formatting-equivalent facts and rejects sensitive facts
     whose known provenance is only publisher/competitor/mentioned-only evidence.
     """
+    filtered_facts = [
+        fact for fact in merged.company_facts
+        if not _is_low_information_other(fact)
+    ]
+    low_information_other_removed = len(merged.company_facts) - len(filtered_facts)
     facts, placeholders, duplicates, foreign = consolidate_facts(
-        merged.company_facts,
+        filtered_facts,
         external_sources=external_sources,
     )
     signals = consolidate_signals(merged.economic_signals)
@@ -247,14 +267,16 @@ def consolidate_merged_profile(merged, *, external_sources: list[dict[str, Any]]
         placeholders_removed=placeholders,
         semantic_duplicates_merged=duplicates,
         foreign_sensitive_facts_rejected=foreign,
+        low_information_other_removed=low_information_other_removed,
         input_signals=len(merged.economic_signals),
         output_signals=len(signals),
     )
     risks = list(merged.risks_and_assumptions)
-    if placeholders or duplicates or foreign:
+    if placeholders or duplicates or foreign or low_information_other_removed:
         risks.append(
             "Консолидация профиля перед reasoning: "
             f"удалено пустых/служебных фактов={placeholders}, "
+            f"удалено standalone price/no-context other={low_information_other_removed}, "
             f"объединено семантических дублей={duplicates}, "
             f"отклонено sensitive-фактов с чужим provenance={foreign}."
         )

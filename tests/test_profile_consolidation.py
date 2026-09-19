@@ -94,3 +94,33 @@ def test_merged_profile_prefers_consolidated_brand_over_first_chunk_seo_title():
 
     assert clean.company_name == "Алекс Дент"
     assert {fact.field for fact in clean.company_facts} == {"legal_name", "brand_name"}
+
+
+def test_merged_profile_drops_orphan_prices_but_keeps_labeled_commercial_facts():
+    coverage = EvidenceCoverage(
+        official_chars_total=100, official_chunks_total=1, official_chunks_processed=1,
+        sources_total=1, sources_processed=1, source_chunks_total=1, source_chunks_processed=1,
+        extraction_units_total=2, extraction_units_processed=2, complete=True,
+    )
+    merged = MergedProfileExtraction(
+        company_name="Алекс Дент",
+        business_summary="Стоматологическая клиника",
+        evidence=[],
+        company_facts=[
+            CompanyFact(field="other", value="от 1 200 руб.", source_ids=["S1"]),
+            CompanyFact(field="other", value="69 000 ₽", source_ids=["S1"]),
+            CompanyFact(field="other", value="Имплантация под ключ — от 69 000 ₽", source_ids=["S1"]),
+            CompanyFact(field="products", value="Имплантация", source_ids=["S1"]),
+        ],
+        economic_signals=[],
+        risks_and_assumptions=[],
+        coverage=coverage,
+    )
+
+    clean, stats = consolidate_merged_profile(merged, external_sources=[])
+
+    assert [fact.value for fact in clean.company_facts] == [
+        "Имплантация под ключ — от 69 000 ₽",
+        "Имплантация",
+    ]
+    assert stats.low_information_other_removed == 2
