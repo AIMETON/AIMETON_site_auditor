@@ -4,6 +4,7 @@ from app.research_execution import active_settings
 
 import asyncio
 import json
+import re
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
@@ -170,6 +171,34 @@ def _merge_km_results(requests: list[tuple[tuple[str, ...], BaseModel]]) -> Busi
     return BusinessMachineSynthesis(business_machine_4x4=cells[:16])
 
 
+_SOURCE_LEVEL_RANK = {
+    "confirmed_fact": 3,
+    "corroborated_signal": 2,
+    "weak_signal": 1,
+    "unverified_mention": 0,
+}
+_CHILD_SOURCE_ID = re.compile(r"^(?P<parent>.+)-b\d+-\d+$")
+
+
+def _reasoning_source_authority(external_sources: list[dict]) -> dict[str, str]:
+    authority = {"S1": "confirmed_fact"}
+    for source in external_sources:
+        if source.get("lifecycle_state") != "evidence":
+            continue
+        source_id = str(source.get("id") or "")
+        if not source_id:
+            continue
+        match = _CHILD_SOURCE_ID.match(source_id)
+        parent_id = match.group("parent") if match else source_id
+        level = str(source.get("evidence_level") or "unverified_mention")
+        if level not in _SOURCE_LEVEL_RANK:
+            level = "unverified_mention"
+        current = authority.get(parent_id, "unverified_mention")
+        if _SOURCE_LEVEL_RANK[level] > _SOURCE_LEVEL_RANK[current]:
+            authority[parent_id] = level
+    return authority
+
+
 def _full_reasoning_profile(merged) -> FullReasoningProfile:
     return FullReasoningProfile(
         company_name=merged.company_name,
@@ -195,6 +224,9 @@ def _km_quadrant_prompt(quadrant: str, codes: tuple[str, ...], dossier_context: 
 confidence, source_ids и sales_relevance. Не создавай факты сверх dossier.
 Поля fact_counts_by_field и omitted_fact_counts_by_field показывают полноту проекции:
 не интерпретируй omitted как отсутствие фактов в полном evidence ledger.
+source_authority_by_id — deterministic provenance-level: confirmed_fact сильнее
+corroborated_signal, тот сильнее weak_signal. При конфликте предпочитай более сильный
+provenance, а не только заявленный confidence модели.
 Если данных в dossier нет, используй status=\"Нет данных\" и не компенсируй пробелы
 фантазией. Coverage metadata — только агрегаты полноты, не факты компании.
 Пиши кратко. Не включай ячейки других квадрантов.
@@ -235,7 +267,10 @@ async def analyze_with_routerai_split_v2(url: str, title: str, text: str, extern
     persist_merged_evidence_ledger(raw_merged)
     merged, consolidation = consolidate_merged_profile(raw_merged, external_sources=external_sources)
     profile = _full_reasoning_profile(merged)
-    dossier = build_reasoning_dossier(profile)
+    dossier = build_reasoning_dossier(
+        profile,
+        source_authority_by_id=_reasoning_source_authority(external_sources),
+    )
     dossier_status = _dossier_status(dossier)
     try:
         if current_research() and current_research().stop_requested:
@@ -290,8 +325,11 @@ reasoning dossier выбери одну наиболее доказанную к
 реалистичное AIMETON-решение, ожидаемую ценность, score и qualification. Не формируй
 агентов, demo или текст первого контакта на этом этапе. Оценка 80+ допустима только
 при прямом подтверждении проблемы, масштаба и реалистичного пилота. Не обещай
-неподтверждённый эффект. omitted counters означают только то, что повторяющиеся
-низкоприоритетные факты остались в полном ledger вне reasoning context.
+неподтверждённый эффект. source_authority_by_id — deterministic provenance-level:
+confirmed_fact сильнее corroborated_signal, тот сильнее weak_signal; при конфликте
+опирайся на более сильный provenance, а не на одно лишь confidence. omitted counters
+означают только то, что повторяющиеся низкоприоритетные факты остались в полном
+ledger вне reasoning context.
 
 BOUNDED REASONING DOSSIER:\n{dossier_context}
 """
@@ -355,8 +393,10 @@ BOUNDED REASONING DOSSIER:\n{dossier_context}
     execution_prompt = f"""Собери компактный пакет исполнения для уже выбранной
 коммерческой возможности. Не переоценивай и не заменяй выбранную возможность.
 Верни 3–5 конкретных AI-агентов/инструментов и пакет первого контакта. Каждый пункт
-должен быть совместим с bounded dossier; ничего не выдумывай. Это структурирование
-уже принятого решения, глубокое рассуждение не требуется.
+должен быть совместим с bounded dossier; ничего не выдумывай. Не повышай уверенность
+поверх source_authority_by_id: weak_signal не превращается в подтверждённый факт
+только потому, что он удобен для продажи. Это структурирование уже принятого решения,
+глубокое рассуждение не требуется.
 
 BOUNDED REASONING DOSSIER:\n{dossier_context}
 
