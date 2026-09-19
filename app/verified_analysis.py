@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from app.trace_context import bind_trace_identity, current_trace_identity
+from app.evidence_quality import assess_evidence_quality
 
 from app.search_gateway import SearchDiagnostics
 
@@ -411,6 +412,8 @@ async def _run_verified_enriched_site_analysis(
     document_evidence = collapse_verified_evidence(verified)
     analysis.sources = merge_document_sources(analysis.sources, document_evidence)
     _remap_analysis_source_ids(analysis)
+    evidence_quality = assess_evidence_quality(analysis.sources)
+    analysis.readiness.evidence_quality = evidence_quality.score
 
     discovery_count = sum(1 for source in external_sources if source.lifecycle_state == "discovery_hint")
     candidate_count = sum(1 for source in external_sources if source.lifecycle_state == "source_candidate")
@@ -499,12 +502,12 @@ async def _run_verified_enriched_site_analysis(
         "preflight_excluded_documents": sum(s.preflight_decision == "exclude" for s in external_sources),
         "official_input_chars": len(text),
         "registry_authority_verified": False,
+        "evidence_quality_unique_documents": evidence_quality.unique_documents,
+        "evidence_quality_traceable_documents": evidence_quality.traceable_documents,
+        "evidence_quality_confirmed_documents": evidence_quality.confirmed_documents,
+        "evidence_quality_corroborated_documents": evidence_quality.corroborated_documents,
+        "evidence_quality_weak_documents": evidence_quality.weak_documents,
     }
-    if evidence_count:
-        analysis.readiness.evidence_quality = max(
-            analysis.readiness.evidence_quality,
-            min(1.0, 0.25 + 0.08 * evidence_count),
-        )
     if current_research():
         analysis.research_status.update(current_research().snapshot())
         if current_research().stop_requested:
