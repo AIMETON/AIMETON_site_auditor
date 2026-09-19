@@ -135,13 +135,36 @@ _OFFICIAL_IDENTITY_COMPONENT = re.compile(
     re.IGNORECASE,
 )
 
+_IDENTITY_CONTEXT_STOPWORDS = {
+    "компания", "клиника", "официальный", "официальная", "сайт", "страница",
+    "реквизиты", "контакты", "политика", "обработка", "данные", "информация",
+    "company", "official", "website", "contacts", "privacy", "policy", "information",
+}
 
-def _official_identity_block_indices(blocks: list[Any]) -> list[int]:
-    """Keep labelled legal identifiers even when label/value are split by the DOM.
 
-    Real requisites pages often render the INN/OGRN label and digits in adjacent
-    blocks. Scan small first-party windows, but retain only identity-bearing blocks
-    from primary content; footer/sidebar/related-company containers remain excluded.
+def _identity_context_tokens(value: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[0-9A-Za-zА-Яа-яЁё-]{4,}", _fold(value))
+        if token not in _IDENTITY_CONTEXT_STOPWORDS and not token.isdigit()
+    }
+
+
+def _official_identity_block_indices(
+    blocks: list[Any],
+    *,
+    company_name: str = "",
+    anchors: Any = None,
+    document_title: str = "",
+) -> list[int]:
+    """Retain first-party legal-id blocks only when local context is target-like.
+
+    The rule is DOM- and URL-agnostic: label/value may be split across adjacent
+    blocks. Footer/sidebar/related containers are excluded, and a valid-looking
+    identifier is not force-promoted merely because it appears on the target domain.
+    The surrounding window must overlap the known target name or the document title,
+    which prevents partner/vendor identifiers on first-party legal pages from being
+    silently promoted as the audited company's identity.
     """
     safe: list[bool] = []
     texts: list[str] = []
@@ -157,15 +180,24 @@ def _official_identity_block_indices(blocks: list[Any]) -> list[int]:
         safe.append(not blocked)
         texts.append(text)
 
+    entity_names = _entity_names(company_name, anchors) if anchors is not None else []
+    title_tokens = _identity_context_tokens(document_title)
     selected: set[int] = set()
     for start in range(len(blocks)):
-        stop = min(len(blocks), start + 4)
+        stop = min(len(blocks), start + 6)
         window_indices = [index for index in range(start, stop) if safe[index]]
         if not window_indices:
             continue
         window = " ".join(texts[index] for index in window_indices)
         if not _OFFICIAL_IDENTITY_MARKER.search(window):
             continue
+
+        folded_window = _fold(window)
+        explicit_target_name = any(name in folded_window for name in entity_names)
+        contextual_overlap = bool(_identity_context_tokens(window) & title_tokens)
+        if not explicit_target_name and not contextual_overlap:
+            continue
+
         for index in window_indices:
             if _OFFICIAL_IDENTITY_COMPONENT.search(texts[index]):
                 selected.add(index)
@@ -560,7 +592,12 @@ async def verify_external_sources(
                 for decision in triage.kept
             }
             forced_identity = (
-                _official_identity_block_indices(list(fetched.blocks))
+                _official_identity_block_indices(
+                    list(fetched.blocks),
+                    company_name=company_name,
+                    anchors=anchors,
+                    document_title=str(getattr(fetched.document, "title", "") or ""),
+                )
                 if source_is_official
                 else []
             )
@@ -579,7 +616,7 @@ async def verify_external_sources(
                         block_index,
                         "registry",
                         "target",
-                        "deterministic labelled INN/OGRN on official primary content",
+                        "deterministic labelled INN/OGRN in target-like first-party context",
                     ))
             block_plan.sort(key=lambda item: item[0])
             seen_fragments: set[tuple[str, str]] = set()
