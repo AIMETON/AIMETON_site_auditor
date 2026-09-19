@@ -7,6 +7,7 @@ import json
 import re
 from datetime import datetime, timezone
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field
 
@@ -200,6 +201,33 @@ def _reasoning_source_authority(external_sources: list[dict]) -> dict[str, str]:
     return authority
 
 
+def _reasoning_source_groups(url: str, external_sources: list[dict]) -> dict[str, str]:
+    def host_group(value: str) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        parsed = urlsplit(raw if "://" in raw else "https://" + raw)
+        host = (parsed.hostname or "").casefold().removeprefix("www.")
+        return "host:" + host if host else ""
+
+    groups: dict[str, str] = {}
+    root_group = host_group(url)
+    if root_group:
+        groups["S1"] = root_group
+    for source in external_sources:
+        if source.get("lifecycle_state") != "evidence":
+            continue
+        source_id = str(source.get("id") or "")
+        if not source_id:
+            continue
+        match = _CHILD_SOURCE_ID.match(source_id)
+        parent_id = match.group("parent") if match else source_id
+        group = host_group(str(source.get("document_url") or source.get("url") or ""))
+        if group:
+            groups[parent_id] = group
+    return groups
+
+
 def _full_reasoning_profile(merged) -> FullReasoningProfile:
     return FullReasoningProfile(
         company_name=merged.company_name,
@@ -271,6 +299,7 @@ async def analyze_with_routerai_split_v2(url: str, title: str, text: str, extern
     dossier = build_reasoning_dossier(
         profile,
         source_authority_by_id=_reasoning_source_authority(external_sources),
+        source_group_by_id=_reasoning_source_groups(url, external_sources),
     )
     dossier_status = _dossier_status(dossier)
     try:
