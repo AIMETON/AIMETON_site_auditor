@@ -151,21 +151,30 @@ def _official_identity_block_indices(blocks: list[Any]) -> list[int]:
             continue
         primary.append((index, text))
 
-    selected: set[int] = set()
+    direct_positions = {
+        position
+        for position, (_, text) in enumerate(primary)
+        if _OFFICIAL_IDENTITY_MARKER.search(text)
+    }
+    selected: set[int] = {primary[position][0] for position in direct_positions}
+
+    # Only construct neighbour windows when no block already carries a complete
+    # labelled identifier. This prevents a self-contained requisites block from
+    # pulling unrelated preceding content into the forced evidence set.
     for position in range(len(primary)):
-        for width in (1, 2, 3):
+        for width in (2, 3):
             window = primary[position:position + width]
             if len(window) != width:
+                continue
+            window_positions = set(range(position, position + width))
+            if window_positions.intersection(direct_positions):
                 continue
             joined = " ".join(text for _, text in window)
             if not _OFFICIAL_IDENTITY_MARKER.search(joined):
                 continue
-            if width == 1:
-                selected.add(primary[position][0])
-            else:
-                start = max(0, position - 1)
-                end = min(len(primary), position + width + 1)
-                selected.update(index for index, _ in primary[start:end])
+            start = max(0, position - 1)
+            end = min(len(primary), position + width + 1)
+            selected.update(index for index, _ in primary[start:end])
             break
     return sorted(selected)
 
