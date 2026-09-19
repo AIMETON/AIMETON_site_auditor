@@ -57,7 +57,12 @@ def source_authority_map(sources: Iterable[EvidenceSource]) -> dict[str, str]:
     authority: dict[str, str] = {"S1": "confirmed_fact"}
     for source in sources:
         source_id = _parent_source_id(str(source.id))
-        level = str(source.evidence_level or "unverified_mention")
+        traceable = bool(source.document_digest and source.evidence_digest)
+        level = (
+            str(source.evidence_level or "unverified_mention")
+            if traceable or source_id == "S1"
+            else "unverified_mention"
+        )
         if level not in _AUTHORITY_RANK:
             level = "unverified_mention"
         current = authority.get(source_id, "unverified_mention")
