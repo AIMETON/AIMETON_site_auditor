@@ -125,32 +125,46 @@ def _fold(value: str | None) -> str:
 
 
 _OFFICIAL_IDENTITY_MARKER = re.compile(
-    r"\b(?:ИНН|ОГРН)\s*[:№]?\s*(?:\d[\s-]?){10,15}\b",
+    r"\bИНН\s*[:№]?\s*(?:\d{10}|\d{12})\b"
+    r"|\bОГРН\s*[:№]?\s*(?:\d{13}|\d{15})\b",
     re.IGNORECASE,
 )
 
 
 def _official_identity_block_indices(blocks: list[Any]) -> list[int]:
-    """Keep explicit labelled legal identifiers from first-party primary content.
+    """Keep labelled legal identifiers even when HTML splits label/value blocks.
 
-    Model/block triage is allowed to be conservative, but an official requisites
-    block containing a labelled INN/OGRN must remain visible to deterministic
-    identity extraction. Footer/sidebar/related blocks remain excluded.
+    Real requisites pages often render an OGRN/INN label and its numeric value in
+    adjacent elements. Block triage must not make deterministic identity extraction
+    depend on that presentation detail. Scan small primary-content windows and retain
+    the matched blocks plus one neighbour on each side so legal name and identifier
+    labels stay together. Footer/sidebar/related content remains excluded.
     """
-    selected: list[int] = []
+    primary: list[tuple[int, str]] = []
     for index, block in enumerate(blocks):
         text = str(getattr(block, "text", "") or "").strip()
         locator = str(getattr(block, "locator", "") or "")
-        if not text or not _OFFICIAL_IDENTITY_MARKER.search(text):
-            continue
-        if _is_related_context(text, locator):
+        if not text or _is_related_context(text, locator):
             continue
         locator_folded = _fold(locator)
         if any(marker in locator_folded for marker in ("footer", "aside", "sidebar")):
             continue
-        selected.append(index)
-    return selected
+        primary.append((index, text))
 
+    selected: set[int] = set()
+    for position in range(len(primary)):
+        for width in (1, 2, 3):
+            window = primary[position:position + width]
+            if len(window) != width:
+                continue
+            joined = " ".join(text for _, text in window)
+            if not _OFFICIAL_IDENTITY_MARKER.search(joined):
+                continue
+            start = max(0, position - 1)
+            end = min(len(primary), position + width + 1)
+            selected.update(index for index, _ in primary[start:end])
+            break
+    return sorted(selected)
 
 def _source_kind(source_class: str) -> SourceKind:
     if source_class == "official":
