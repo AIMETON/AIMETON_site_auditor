@@ -50,6 +50,22 @@ DEFAULT_DEEP_RESULTS_PER_QUERY = 8
 MAX_PROGRESSIVE_WAVES = 3
 MAX_OPTIONAL_QUERIES_PER_WAVE = 6
 
+_EVIDENCE_LEVEL_RANK = {
+    "unverified_mention": 0,
+    "weak_signal": 1,
+    "corroborated_signal": 2,
+    "confirmed_fact": 3,
+}
+_MIN_VERTICAL_EVIDENCE_LEVEL = {
+    "identity": "corroborated_signal",
+    "contacts": "weak_signal",
+    "ownership": "weak_signal",
+    "financials": "corroborated_signal",
+    "workforce": "weak_signal",
+    "legal_events": "corroborated_signal",
+    "operations": "weak_signal",
+}
+
 
 @dataclass(frozen=True)
 class CoverageSnapshot:
@@ -57,6 +73,7 @@ class CoverageSnapshot:
     searched_kinds: frozenset[SourceKind]
     evidence_kinds: frozenset[SourceKind]
     evidence_documents_by_kind: dict[SourceKind, int]
+    qualifying_documents_by_vertical: dict[str, int]
 
     @property
     def missing_verticals(self) -> tuple[str, ...]:
@@ -86,6 +103,7 @@ class CoverageSnapshot:
                 str(kind): count
                 for kind, count in sorted(self.evidence_documents_by_kind.items())
             },
+            "qualifying_documents_by_vertical": dict(self.qualifying_documents_by_vertical),
         }
 
 
@@ -129,20 +147,40 @@ def evidence_query_kinds(
     return frozenset(_document_kinds(verified))
 
 
+def _qualifying_documents_by_vertical(
+    verified: Iterable[IntelligenceSource],
+) -> dict[str, set[str]]:
+    qualifying = {vertical: set() for vertical in MANDATORY_VERTICAL_KINDS}
+    for item in verified:
+        if item.lifecycle_state != "evidence":
+            continue
+        level = _EVIDENCE_LEVEL_RANK.get(str(item.evidence_level), 0)
+        parent_id = evidence_parent_id(item.id)
+        for vertical, kinds in MANDATORY_VERTICAL_KINDS.items():
+            minimum = _EVIDENCE_LEVEL_RANK[_MIN_VERTICAL_EVIDENCE_LEVEL[vertical]]
+            if item.query_kind in kinds and level >= minimum:
+                qualifying[vertical].add(parent_id)
+    return qualifying
+
+
 def assess_coverage(
     verified: Iterable[IntelligenceSource],
     searched_kinds: Iterable[SourceKind],
 ) -> CoverageSnapshot:
     searched = frozenset(searched_kinds)
+    verified = list(verified)
     document_kinds = _document_kinds(verified)
     evidence = frozenset(document_kinds)
+    qualifying = _qualifying_documents_by_vertical(verified)
     states: dict[str, CoverageState] = {}
 
     for vertical, kinds in MANDATORY_VERTICAL_KINDS.items():
         kind_set = set(kinds)
-        if evidence.intersection(kind_set):
+        if qualifying[vertical]:
             states[vertical] = "covered"
         elif searched.intersection(kind_set):
+            # Searched evidence below the vertical's authority threshold is not
+            # sufficient to close the gap; bounded recovery remains eligible.
             states[vertical] = "searched_no_evidence"
         else:
             states[vertical] = "missing"
@@ -154,6 +192,10 @@ def assess_coverage(
         evidence_documents_by_kind={
             kind: len(documents)
             for kind, documents in document_kinds.items()
+        },
+        qualifying_documents_by_vertical={
+            vertical: len(documents)
+            for vertical, documents in qualifying.items()
         },
     )
 
