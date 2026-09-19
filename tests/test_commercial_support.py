@@ -111,3 +111,39 @@ def test_child_source_id_matches_parent_document_support():
 
     assert assessment.state == "supported"
     assert assessment.cited_source_ids == ("H1",)
+
+
+def test_unsupported_quantitative_expected_value_is_replaced():
+    opportunity = _opportunity(score=72, source_ids=["S1"]).model_copy(update={
+        "expected_value": "Снижение нагрузки на 30-40% и ответ за 1-2 минуты",
+    })
+    assessment = assess_commercial_support(
+        opportunity,
+        sources=[_source("S1", "Ручная обработка заявок клиентов выполняется администраторами.")],
+    )
+
+    enforced = enforce_commercial_support(opportunity, assessment)
+
+    assert assessment.unsupported_expected_value_metrics == ("1-2:minute", "30-40:%")
+    assert "30-40%" not in enforced.expected_value
+    assert "1-2" not in enforced.expected_value
+    assert "количественные KPI" in enforced.expected_value
+
+
+def test_directly_evidenced_quantitative_expected_value_is_preserved():
+    opportunity = _opportunity(score=72, source_ids=["S1"]).model_copy(update={
+        "expected_value": "Снижение нагрузки на 30-40% и ответ за 1-2 минуты",
+    })
+    assessment = assess_commercial_support(
+        opportunity,
+        sources=[_source(
+            "S1",
+            "Ручная обработка заявок клиентов. Пилот показал снижение нагрузки на 30-40% "
+            "и время ответа 1-2 минуты.",
+        )],
+    )
+
+    enforced = enforce_commercial_support(opportunity, assessment)
+
+    assert assessment.unsupported_expected_value_metrics == ()
+    assert enforced.expected_value == opportunity.expected_value
