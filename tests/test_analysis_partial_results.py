@@ -12,7 +12,7 @@ from app.research_settings import ResearchSettings
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('outcome', ['timeout', 'stop', 'error', 'success', 'restart'])
+@pytest.mark.parametrize('outcome', ['timeout', 'late_stop', 'stop', 'error', 'success', 'restart'])
 async def test_acquired_site_partial_survives_interruption_without_claiming_completion(tmp_path, monkeypatch, outcome):
     monkeypatch.setenv('AIMETON_RUNTIME_DB', str(tmp_path / 'runtime.db'))
     monkeypatch.setenv('AIMETON_TRACE_DB', str(tmp_path / 'runtime.db'))
@@ -31,6 +31,10 @@ async def test_acquired_site_partial_survives_interruption_without_claiming_comp
         if outcome in ('timeout', 'restart'):
             await asyncio.Event().wait()
         if outcome == 'stop':
+            control.stop_requested = True
+            control.stop_reason = 'stopped_by_user'
+            raise api.ResearchInterrupted('stopped_by_user')
+        if outcome == 'late_stop':
             control.stop_requested = True
             control.stop_reason = 'stopped_by_user'
         if outcome == 'error':
@@ -61,8 +65,11 @@ async def test_acquired_site_partial_survives_interruption_without_claiming_comp
     assert partial['readiness']['client_release_eligible'] is False
     assert 'audit_not_completed' in partial['readiness']['release_blockers']
     assert partial['readiness']['provider_states']['external_enrichment'] == 'not_completed'
-    assert recovered['state'] == ('completed' if outcome == 'success' else 'stalled' if outcome == 'restart' else 'failed')
-    assert (recovered['result'] is not None) == (outcome == 'success')
+    completed = outcome in {'success', 'late_stop'}
+    assert recovered['state'] == ('completed' if completed else 'stalled' if outcome == 'restart' else 'failed')
+    assert (recovered['result'] is not None) == completed
+    if outcome == 'late_stop':
+        assert recovered['result']['research_status']['completion_after_stop_requested'] is True
     reset_mission_orchestrator()
 
 
