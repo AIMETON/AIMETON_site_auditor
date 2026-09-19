@@ -247,7 +247,12 @@ def test_official_requisites_identifier_blocks_are_forced_into_evidence():
         ),
     ]
 
-    assert verify._official_identity_block_indices(blocks) == [1]
+    assert verify._official_identity_block_indices(
+        blocks,
+        company_name="Алекс Дент",
+        anchors=NS(legal_name='ООО "АЛЕКС ДЕНТ"'),
+        document_title="Реквизиты Алекс Дент",
+    ) == [1]
 
     split_blocks = [
         NS(text="О клинике Алекс Дент", locator="body/main/p[1]"),
@@ -257,4 +262,9 @@ def test_official_requisites_identifier_blocks_are_forced_into_evidence():
         NS(text="2462215501", locator="body/main/div[5]/span[2]"),
         NS(text="ИНН: 9999999999", locator="footer/legal"),
     ]
-    assert verify._official_identity_block_indices(split_blocks) == [1, 2, 3, 4]
+    assert verify._official_identity_block_indices(
+        split_blocks,
+        company_name="Алекс Дент",
+        anchors=NS(legal_name='ООО "АЛЕКС ДЕНТ"'),
+        document_title="Реквизиты Алекс Дент",
+    ) == [1, 2, 3, 4]
