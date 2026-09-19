@@ -13,6 +13,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from app.research_control import record_llm_start, record_llm_usage
+from app.identity_readiness import assess_identity_readiness, identity_release_blocker
 from app.evidence_quality import assess_evidence_quality
 from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
 from app.models import (
@@ -290,28 +291,39 @@ def _readiness(
         "legal_events": set(),
     }
     evidence_quality = assess_evidence_quality(sources)
+    identity = assess_identity_readiness(company_facts, sources=sources)
+    identity_blocker = identity_release_blocker(identity.state)
+    verticals = []
+    for code, fields in vertical_fields.items():
+        if code == "identity":
+            state = {
+                "resolved": "verified",
+                "provisional": "partially_verified",
+                "conflicting": "degraded",
+                "unresolved": "not_searched",
+            }[identity.state]
+        else:
+            state = "partially_verified" if fields and fact_fields.intersection(fields) else "not_searched"
+        verticals.append(PreliminaryVerticalStatus(code=code, state=state))
+    blockers = [
+        "preliminary_result",
+        "sufficiency_below_l4",
+        "mandatory_verticals_incomplete",
+        "provider_state_unknown",
+        "budget_unknown",
+        "human_review_and_signed_report_required",
+    ]
+    if identity_blocker:
+        blockers.append(identity_blocker)
     return PreliminaryResultReadiness(
         analysis_state="schema_validated",
+        identity_state=identity.state,
         profile_completeness=min(len(fact_fields) / 25, 1),
         evidence_quality=evidence_quality.score,
         commercial_priority=commercial_score,
-        required_verticals=[
-            PreliminaryVerticalStatus(
-                code=code,
-                state=("partially_verified" if fields and fact_fields.intersection(fields) else "not_searched"),
-            )
-            for code, fields in vertical_fields.items()
-        ],
+        required_verticals=verticals,
         provider_states={"routerai": "active"},
-        release_blockers=[
-            "preliminary_result",
-            "identity_unresolved",
-            "sufficiency_below_l4",
-            "mandatory_verticals_incomplete",
-            "provider_state_unknown",
-            "budget_unknown",
-            "human_review_and_signed_report_required",
-        ],
+        release_blockers=blockers,
     )
 
 
