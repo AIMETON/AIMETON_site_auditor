@@ -189,6 +189,26 @@ def consolidate_facts(
     return [merged[key] for key in order], placeholders_removed, duplicates_merged, foreign_rejected
 
 
+def _canonical_company_name(current: str, facts: list[CompanyFact]) -> str:
+    """Prefer consolidated identity facts over a per-chunk free-text name.
+
+    Every identity chunk must emit company_name even when the chunk only carries
+    generic site copy. A later verified registry/brand fact is a stronger canonical
+    identity signal than the first chunk's SEO title.
+    """
+    for field in ("brand_name", "legal_name"):
+        candidates = [
+            fact for fact in facts
+            if fact.field == field and not _is_placeholder(fact.value) and _clean_text(fact.value)
+        ]
+        if candidates:
+            best = max(
+                enumerate(candidates),
+                key=lambda item: (_CONFIDENCE_RANK.get(item[1].confidence, 0), -item[0]),
+            )[1]
+            return _clean_text(best.value)
+    return _clean_text(current)
+
 def consolidate_signals(signals: list[EconomicSignal]) -> list[EconomicSignal]:
     result: list[EconomicSignal] = []
     seen: set[tuple[str, str, str]] = set()
@@ -240,6 +260,7 @@ def consolidate_merged_profile(merged, *, external_sources: list[dict[str, Any]]
         )
     return replace(
         merged,
+        company_name=_canonical_company_name(merged.company_name, facts),
         company_facts=facts,
         economic_signals=signals,
         risks_and_assumptions=risks,

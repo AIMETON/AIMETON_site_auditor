@@ -1,7 +1,9 @@
 import pytest
 
 from app.models import CompanyFact, EconomicSignal
-from app.profile_consolidation import consolidate_facts, consolidate_signals
+from app.profile_consolidation import consolidate_facts, consolidate_merged_profile, consolidate_signals
+from app.routerai_evidence_units import EvidenceCoverage
+from app.routerai_profile_extraction import MergedProfileExtraction
 
 
 def test_semantic_fact_dedup_merges_sources_and_removes_placeholders():
@@ -67,3 +69,28 @@ def test_signal_dedup_keeps_one_normalized_signal_and_parent_sources():
 
     assert len(merged) == 1
     assert merged[0].source_ids == ["F"]
+
+
+def test_merged_profile_prefers_consolidated_brand_over_first_chunk_seo_title():
+    coverage = EvidenceCoverage(
+        official_chars_total=100, official_chunks_total=1, official_chunks_processed=1,
+        sources_total=1, sources_processed=1, source_chunks_total=1, source_chunks_processed=1,
+        extraction_units_total=2, extraction_units_processed=2, complete=True,
+    )
+    merged = MergedProfileExtraction(
+        company_name="Стоматология Красноярск цены доступные для частной клиники",
+        business_summary="Стоматологическая клиника",
+        evidence=[],
+        company_facts=[
+            CompanyFact(field="legal_name", value='ООО "АЛЕКС ДЕНТ"', confidence="Высокая", source_ids=["R1"]),
+            CompanyFact(field="brand_name", value="Алекс Дент", confidence="Высокая", source_ids=["S1"]),
+        ],
+        economic_signals=[],
+        risks_and_assumptions=[],
+        coverage=coverage,
+    )
+
+    clean, _ = consolidate_merged_profile(merged, external_sources=[])
+
+    assert clean.company_name == "Алекс Дент"
+    assert {fact.field for fact in clean.company_facts} == {"legal_name", "brand_name"}
