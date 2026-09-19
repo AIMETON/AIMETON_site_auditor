@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from app.trace_context import bind_trace_identity, current_trace_identity
 from app.evidence_quality import assess_evidence_quality
+from app.commercial_support import assess_commercial_support, enforce_commercial_support
 from app.evidence_freshness import summarize_source_freshness
 from app.fact_conflicts import assess_financial_conflicts
 from app.identity_readiness import assess_identity_readiness, identity_release_blocker
@@ -53,6 +54,9 @@ def _remap_analysis_source_ids(analysis: SiteAnalysis) -> None:
         signal.source_ids = collapse_source_ids(signal.source_ids)
     for cell in analysis.business_machine_4x4:
         cell.source_ids = collapse_source_ids(cell.source_ids)
+    analysis.commercial_opportunity.source_ids = collapse_source_ids(
+        analysis.commercial_opportunity.source_ids
+    )
 
 
 def _merge_search_triage(
@@ -423,17 +427,31 @@ async def _run_verified_enriched_site_analysis(
         analysis.company_facts,
         sources=analysis.sources,
     )
+    commercial_support = assess_commercial_support(
+        analysis.commercial_opportunity,
+        facts=analysis.company_facts,
+        signals=analysis.economic_signals,
+        sources=analysis.sources,
+    )
+    analysis.commercial_opportunity = enforce_commercial_support(
+        analysis.commercial_opportunity,
+        commercial_support,
+    )
+    analysis.readiness.commercial_priority = analysis.commercial_opportunity.score
     analysis.readiness.identity_state = identity.state
     analysis.readiness.release_blockers = [
         blocker
         for blocker in analysis.readiness.release_blockers
-        if not blocker.startswith("identity_") and blocker != "financial_fact_conflict"
+        if not blocker.startswith("identity_")
+        and blocker not in {"financial_fact_conflict", "commercial_claim_support_insufficient"}
     ]
     identity_blocker = identity_release_blocker(identity.state)
     if identity_blocker:
         analysis.readiness.release_blockers.append(identity_blocker)
     if financial_conflicts.unresolved_critical_conflicts:
         analysis.readiness.release_blockers.append("financial_fact_conflict")
+    if commercial_support.state == "unsupported":
+        analysis.readiness.release_blockers.append("commercial_claim_support_insufficient")
     identity_vertical = next(
         (vertical for vertical in analysis.readiness.required_verticals if vertical.code == "identity"),
         None,
@@ -561,6 +579,9 @@ async def _run_verified_enriched_site_analysis(
         "evidence_freshness_unassessed": freshness_summary["unassessed"],
         "financial_critical_conflicts": financial_conflicts.unresolved_critical_conflicts,
         "financial_conflict_fields": ",".join(financial_conflicts.conflict_fields),
+        "commercial_support_state": commercial_support.state,
+        "commercial_support_direct_sources": commercial_support.direct_support_count,
+        "commercial_support_terms": ",".join(commercial_support.matched_terms),
         "identity_state": identity.state,
         "identity_critical_conflicts": identity.unresolved_critical_conflicts,
         "identity_conflict_fields": ",".join(identity.conflict_fields),

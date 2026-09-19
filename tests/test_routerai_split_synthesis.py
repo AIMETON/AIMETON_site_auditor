@@ -285,3 +285,27 @@ def test_split_pipeline_extracts_once_then_runs_two_reasoning_phases(monkeypatch
     assert result.company_name == "Example"
     assert result.commercial_opportunity.qualification == "Перспективная"
     assert result.business_machine_4x4[0].code == "I-I"
+
+
+def test_split_assembly_caps_unsupported_priority_claim_and_surfaces_blocker() -> None:
+    commercial = _commercial()
+    commercial.commercial_opportunity.score = 85
+    commercial.commercial_opportunity.qualification = "Приоритетная"
+    commercial.commercial_opportunity.source_ids = ["S1"]
+    commercial.commercial_opportunity.problem_hypothesis = "Ручная обработка заявок клиентов"
+
+    result = split._assemble_site_analysis(
+        url="https://example.com",
+        title="Example",
+        text="Официальный сайт описывает услуги и контакты.",
+        external_sources=[],
+        profile=_profile(),
+        km=_km(),
+        commercial=commercial,
+        accessed_at="2026-09-19T00:00:00+00:00",
+    )
+
+    assert result.commercial_opportunity.score == 79
+    assert result.commercial_opportunity.qualification == "Перспективная"
+    assert result.research_status["commercial_support_state"] == "unsupported"
+    assert "commercial_claim_support_insufficient" in result.readiness.release_blockers

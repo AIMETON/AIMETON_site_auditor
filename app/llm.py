@@ -13,6 +13,7 @@ from app.research_control import record_llm_start, record_llm_usage
 from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
 
 from app.evidence_quality import assess_evidence_quality
+from app.commercial_support import assess_commercial_support, enforce_commercial_support
 from app.evidence_freshness import assess_source_freshness
 from app.fact_conflicts import assess_financial_conflicts
 from app.identity_readiness import assess_identity_readiness, identity_release_blocker
@@ -226,6 +227,21 @@ JSON SCHEMA:
         for source_id in result.commercial_opportunity.source_ids
         if source_id in known_ids
     ]
+    commercial_support = assess_commercial_support(
+        result.commercial_opportunity,
+        facts=result.company_facts,
+        signals=result.economic_signals,
+        sources=result.sources,
+    )
+    result.commercial_opportunity = enforce_commercial_support(
+        result.commercial_opportunity,
+        commercial_support,
+    )
+    result.research_status.update({
+        "commercial_support_state": commercial_support.state,
+        "commercial_support_direct_sources": commercial_support.direct_support_count,
+        "commercial_support_terms": ",".join(commercial_support.matched_terms),
+    })
     fact_fields = {item.field for item in result.company_facts if item.source_ids}
     vertical_fields = {
         "identity": {
@@ -281,6 +297,8 @@ JSON SCHEMA:
         blockers.append(identity_blocker)
     if financial_conflicts.unresolved_critical_conflicts:
         blockers.append("financial_fact_conflict")
+    if commercial_support.state == "unsupported":
+        blockers.append("commercial_claim_support_insufficient")
     result.readiness = PreliminaryResultReadiness(
         analysis_state="schema_validated",
         identity_state=identity.state,
