@@ -135,13 +135,34 @@ _OFFICIAL_IDENTITY_COMPONENT = re.compile(
     re.IGNORECASE,
 )
 
+_IDENTITY_CONTEXT_STOPWORDS = {
+    "компания", "клиника", "официальный", "официальная", "сайт", "страница",
+    "реквизиты", "контакты", "политика", "обработка", "данные", "информация",
+    "company", "official", "website", "contacts", "privacy", "policy", "information",
+}
 
-def _official_identity_block_indices(blocks: list[Any]) -> list[int]:
-    """Keep labelled legal identifiers even when label/value are split by the DOM.
 
-    Real requisites pages often render the INN/OGRN label and digits in adjacent
-    blocks. Scan small first-party windows, but retain only identity-bearing blocks
-    from primary content; footer/sidebar/related-company containers remain excluded.
+def _identity_context_tokens(value: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[0-9A-Za-zА-Яа-яЁё-]{4,}", _fold(value))
+        if token not in _IDENTITY_CONTEXT_STOPWORDS and not token.isdigit()
+    }
+
+
+def _official_identity_block_indices(
+    blocks: list[Any],
+    *,
+    company_name: str = "",
+    anchors: Any = None,
+    document_title: str = "",
+) -> list[int]:
+    """Retain target-scoped first-party legal-id label/value pairs.
+
+    The rule is URL- and DOM-agnostic. A label may share a block with its value or
+    precede it by up to two safe blocks. Target context is evaluated separately from
+    the identifier pair, so a nearby vendor identifier cannot be swept in merely
+    because another target identifier exists in the same section.
     """
     safe: list[bool] = []
     texts: list[str] = []
@@ -157,16 +178,53 @@ def _official_identity_block_indices(blocks: list[Any]) -> list[int]:
         safe.append(not blocked)
         texts.append(text)
 
+    entity_names = _entity_names(company_name, anchors) if anchors is not None else []
+    title_tokens = _identity_context_tokens(document_title)
+    label_re = re.compile(r"(?<![А-Яа-яЁё])(?:ИНН|ОГРН)\s*[:№]?", re.IGNORECASE)
     selected: set[int] = set()
-    for start in range(len(blocks)):
-        stop = min(len(blocks), start + 4)
-        window_indices = [index for index in range(start, stop) if safe[index]]
-        if not window_indices:
+
+    for label_index, label_text in enumerate(texts):
+        if not safe[label_index] or not label_re.search(label_text):
             continue
-        window = " ".join(texts[index] for index in window_indices)
-        if not _OFFICIAL_IDENTITY_MARKER.search(window):
+
+        pair_indices: list[int] = []
+        for value_index in range(label_index, min(len(blocks), label_index + 3)):
+            if not safe[value_index]:
+                break
+            candidate_indices = list(range(label_index, value_index + 1))
+            pair_text = " ".join(texts[index] for index in candidate_indices)
+            if _OFFICIAL_IDENTITY_MARKER.search(pair_text):
+                pair_indices = candidate_indices
+                break
+        if not pair_indices:
             continue
-        for index in window_indices:
+
+        context_start = max(0, label_index - 3)
+        context_indices = [
+            index for index in range(context_start, pair_indices[-1] + 1) if safe[index]
+        ]
+        context = " ".join(texts[index] for index in context_indices)
+        folded_context = _fold(context)
+        explicit_target_name = any(name in folded_context for name in entity_names)
+        contextual_overlap = bool(_identity_context_tokens(context) & title_tokens)
+        if not explicit_target_name and not contextual_overlap:
+            continue
+
+        pair_text = " ".join(texts[index] for index in pair_indices)
+        pair_tokens = _identity_context_tokens(pair_text)
+        if title_tokens and pair_tokens and not (pair_tokens & title_tokens):
+            # If the identifier pair itself names an organization, that name must
+            # overlap the target document title. Bare label/value pairs have no
+            # lexical entity tokens and are allowed to inherit nearby target context.
+            legal_form_present = bool(re.search(
+                r"(?<![A-Za-zА-Яа-яЁё])(?:ООО|АО|ПАО|ЗАО|ОАО|ИП)(?![A-Za-zА-Яа-яЁё])",
+                pair_text,
+                re.IGNORECASE,
+            ))
+            if legal_form_present:
+                continue
+
+        for index in pair_indices:
             if _OFFICIAL_IDENTITY_COMPONENT.search(texts[index]):
                 selected.add(index)
     return sorted(selected)
@@ -560,7 +618,12 @@ async def verify_external_sources(
                 for decision in triage.kept
             }
             forced_identity = (
-                _official_identity_block_indices(list(fetched.blocks))
+                _official_identity_block_indices(
+                    list(fetched.blocks),
+                    company_name=company_name,
+                    anchors=anchors,
+                    document_title=str(getattr(fetched.document, "title", "") or ""),
+                )
                 if source_is_official
                 else []
             )
@@ -579,7 +642,7 @@ async def verify_external_sources(
                         block_index,
                         "registry",
                         "target",
-                        "deterministic labelled INN/OGRN on official primary content",
+                        "deterministic labelled INN/OGRN in target-like first-party context",
                     ))
             block_plan.sort(key=lambda item: item[0])
             seen_fragments: set[tuple[str, str]] = set()

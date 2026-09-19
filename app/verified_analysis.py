@@ -49,27 +49,46 @@ def _host(url: str) -> str:
 
 
 _EVIDENCE_CHILD_ID = re.compile(r"^(?P<parent>.+)-b(?P<block>\d+)-(?P<offset>\d+)$")
+_EVIDENCE_RELATION = re.compile(r"Evidence triage:\s*([a-z_]+)/[a-z_]+;")
+_NON_TARGET_IDENTITY_RELATIONS = {
+    "affiliate", "counterparty", "competitor", "publisher", "mentioned_only", "unknown",
+}
 
 
 def _ordered_official_evidence(verified: list[IntelligenceSource]) -> list[tuple[str, str]]:
-    """Rebuild traceable first-party evidence in deterministic document/block order."""
-    grouped: dict[str, list[tuple[int, int, str]]] = {}
+    """Rebuild target-scoped first-party evidence in deterministic block order.
+
+    When block-level evidence exists, it is authoritative for projection: parent
+    quotes are omitted to avoid re-introducing a vendor/publisher identifier that
+    block triage already classified as non-target.
+    """
+    grouped: dict[str, dict[str, list[tuple[int, int, str]]]] = {}
     for item in verified:
         if item.source_class != "official" or not str(item.evidence_quote or "").strip():
             continue
         match = _EVIDENCE_CHILD_ID.match(str(item.id))
+        parent_id = match.group("parent") if match else str(item.id)
+        bucket = grouped.setdefault(parent_id, {"parent": [], "child": []})
         if match:
-            parent_id = match.group("parent")
-            order = (int(match.group("block")), int(match.group("offset")))
+            relation_match = _EVIDENCE_RELATION.search(str(item.verification_note or ""))
+            relation = relation_match.group(1) if relation_match else ""
+            if relation in _NON_TARGET_IDENTITY_RELATIONS:
+                continue
+            bucket["child"].append((
+                int(match.group("block")),
+                int(match.group("offset")),
+                str(item.evidence_quote),
+            ))
         else:
-            parent_id = str(item.id)
-            order = (-1, -1)
-        grouped.setdefault(parent_id, []).append((order[0], order[1], str(item.evidence_quote)))
+            bucket["parent"].append((-1, -1, str(item.evidence_quote)))
 
     ordered: list[tuple[str, str]] = []
     for parent_id in sorted(grouped):
-        parts = sorted(grouped[parent_id], key=lambda item: (item[0], item[1]))
-        ordered.append((parent_id, "\n".join(text for _, _, text in parts)))
+        bucket = grouped[parent_id]
+        parts = bucket["child"] or bucket["parent"]
+        parts = sorted(parts, key=lambda item: (item[0], item[1]))
+        if parts:
+            ordered.append((parent_id, "\n".join(text for _, _, text in parts)))
     return ordered
 
 
@@ -94,7 +113,7 @@ def _deterministic_official_identity_facts(
                 value=value,
                 confidence="Высокая",
                 source_ids=[parent_id],
-                note="Deterministic identifier from verified first-party requisites evidence.",
+                note="Deterministic identifier from verified target-scoped first-party identity evidence.",
             ))
     return facts
 
