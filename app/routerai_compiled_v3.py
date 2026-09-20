@@ -163,6 +163,7 @@ def compile_company_context(
     root = _compact_text(text)[:MAX_ROOT_TEXT_CHARS]
     base = {
         "official_url": url,
+        "official_root_source_id": "S1",
         "title": title,
         "official_root_text": root,
         "documents": [],
