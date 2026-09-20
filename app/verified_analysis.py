@@ -10,6 +10,7 @@ from app.commercial_support import assess_commercial_support, enforce_commercial
 from app.evidence_freshness import summarize_source_freshness
 from app.fact_conflicts import assess_financial_conflicts
 from app.identity_readiness import assess_identity_readiness, identity_release_blocker
+from app.profile_consolidation import consolidate_facts, filter_supported_relation_facts
 
 from app.search_gateway import SearchDiagnostics
 
@@ -665,9 +666,23 @@ async def _run_verified_enriched_site_analysis(
             analysis.company_facts.append(fact)
             existing_fact_keys.add(key)
 
+    (
+        analysis.company_facts,
+        final_placeholders_removed,
+        final_duplicates_merged,
+        final_foreign_sensitive_rejected,
+    ) = consolidate_facts(
+        analysis.company_facts,
+        external_sources=llm_sources,
+    )
+
     document_evidence = collapse_verified_evidence(verified)
     analysis.sources = merge_document_sources(analysis.sources, document_evidence)
     _remap_analysis_source_ids(analysis)
+    (
+        analysis.company_facts,
+        final_unsupported_relation_facts_rejected,
+    ) = filter_supported_relation_facts(analysis.company_facts)
     evidence_quality = assess_evidence_quality(analysis.sources)
     freshness_summary = summarize_source_freshness(analysis.sources)
     analysis.readiness.evidence_quality = evidence_quality.score
@@ -812,6 +827,11 @@ async def _run_verified_enriched_site_analysis(
         "llm_source_records_input": llm_projection.input_records,
         "llm_source_records_output": llm_projection.output_records,
         "llm_duplicate_official_quotes_removed": llm_projection.duplicate_official_quotes_removed,
+        "llm_official_child_records_collapsed": llm_projection.official_child_records_collapsed,
+        "final_fact_placeholders_removed": final_placeholders_removed,
+        "final_fact_duplicates_merged": final_duplicates_merged,
+        "final_foreign_sensitive_facts_rejected": final_foreign_sensitive_rejected,
+        "final_unsupported_relation_facts_rejected": final_unsupported_relation_facts_rejected,
         "verified_documents": evidence_count,
         "unverified_documents": discovery_count + candidate_count,
         "preflight_excluded_documents": sum(s.preflight_decision == "exclude" for s in external_sources),
