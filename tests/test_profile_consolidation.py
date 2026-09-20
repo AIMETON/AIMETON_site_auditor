@@ -126,6 +126,8 @@ def test_merged_profile_drops_orphan_prices_but_keeps_labeled_commercial_facts()
     assert stats.low_information_other_removed == 2
     assert stats.product_facts_input == 1
     assert stats.product_facts_output == 1
+    assert stats.other_facts_input == 3
+    assert stats.other_facts_output == 1
 
 
 def test_product_dedup_ignores_price_and_promo_variants_but_keeps_distinct_services():
