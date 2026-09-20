@@ -50,6 +50,8 @@ class ConsolidationStats:
     output_signals: int
     product_facts_input: int
     product_facts_output: int
+    other_facts_input: int
+    other_facts_output: int
 
     def safe_dict(self) -> dict[str, int]:
         return {
@@ -63,6 +65,8 @@ class ConsolidationStats:
             "output_signals": self.output_signals,
             "product_facts_input": self.product_facts_input,
             "product_facts_output": self.product_facts_output,
+            "other_facts_input": self.other_facts_input,
+            "other_facts_output": self.other_facts_output,
         }
 
 
@@ -290,6 +294,8 @@ def consolidate_merged_profile(merged, *, external_sources: list[dict[str, Any]]
         output_signals=len(signals),
         product_facts_input=sum(fact.field == "products" for fact in merged.company_facts),
         product_facts_output=sum(fact.field == "products" for fact in facts),
+        other_facts_input=sum(fact.field == "other" for fact in merged.company_facts),
+        other_facts_output=sum(fact.field == "other" for fact in facts),
     )
     risks = list(merged.risks_and_assumptions)
     if placeholders or duplicates or foreign or low_information_other_removed:
