@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.models import CompanyFact, EconomicSignal, SiteAnalysis
-from app.profile_consolidation import consolidate_merged_profile
+from app.profile_consolidation import validate_llm_merged_profile
 from app.research_control import ResearchStopped, current_research
 from app.routerai_compiled_v3 import (
     CompiledProfileResponse,
@@ -274,7 +274,7 @@ async def analyze_with_routerai_focused_v4(
     persist_merged_evidence_ledger(raw)
 
     # Deterministic code below is validation/normalization only, not semantic extraction.
-    merged, consolidation = consolidate_merged_profile(
+    merged, consolidation = validate_llm_merged_profile(
         raw,
         external_sources=external_sources,
     )
