@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.analysis_mode import compiled_two_call_enabled, minimal_llm_routing_enabled
+from app.analysis_mode import compiled_two_call_enabled, focused_multipass_enabled, minimal_llm_routing_enabled
 from app.fast_research_model import request_fast_json
 from app.research_control import deep_research_enabled
 from app.models import SourceKind
@@ -364,7 +364,7 @@ async def triage_document_blocks(
     model_unavailable = False
     if (
         deep_research_enabled()
-        and compiled_two_call_enabled()
+        and (focused_multipass_enabled() or compiled_two_call_enabled())
         and minimal_llm_routing_enabled()
     ):
         for item in ambiguous:
