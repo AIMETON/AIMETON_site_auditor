@@ -4,7 +4,14 @@ from pydantic import BaseModel
 
 from app.heuristics import heuristic_analysis
 from app.llm import analyze_with_routerai, chat_with_routerai
-from app.research_control import ResearchControl, ResearchStopped, bind_research, record_llm_start, record_llm_usage
+from app.research_control import (
+    ResearchControl,
+    ResearchStopped,
+    bind_research,
+    record_identity_resolution_progress,
+    record_llm_start,
+    record_llm_usage,
+)
 from app.routerai_split_synthesis import _request_json
 from app.routerai_strict_request import request_json_strict
 
@@ -70,3 +77,22 @@ def test_missing_or_malformed_usage_stays_unknown(body, monkeypatch, tmp_path):
         record_llm_usage(body)
     assert control.snapshot()["llm_usage_unknown"] == 1
     assert control.llm_usage_reports == 0
+
+
+
+def test_identity_resolution_progress_is_exposed_in_safe_snapshot(monkeypatch, tmp_path):
+    monkeypatch.setenv("AIMETON_RUNTIME_DB", str(tmp_path / "runtime.db"))
+    control = ResearchControl()
+    with bind_research(control):
+        record_identity_resolution_progress(
+            candidates_checked=2,
+            resolution_state="registry_mirror_verified",
+            selected_inn="2462215501",
+            selected_ogrn="1112468013030",
+        )
+    snapshot = control.snapshot()
+    assert snapshot["identity_candidates_checked"] == 2
+    assert snapshot["identity_resolution_state"] == "registry_mirror_verified"
+    assert snapshot["identity_selected"] is True
+    assert snapshot["identity_selected_inn"] == "2462215501"
+    assert snapshot["identity_selected_ogrn"] == "1112468013030"
