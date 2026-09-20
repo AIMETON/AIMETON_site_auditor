@@ -14,7 +14,10 @@ from app.identity_readiness import assess_identity_readiness, identity_release_b
 from app.search_gateway import SearchDiagnostics
 
 from app.adaptive_external_sources import collect_external_sources_adaptive
-from app.dadata_report_bridge import enrich_identity_with_dadata
+from app.dadata_report_bridge import (
+    enrich_identity_with_dadata,
+    enrich_identifier_candidates_with_dadata,
+)
 from app.evidence_source_projection import (
     collapse_source_ids,
     collapse_verified_evidence,
@@ -90,6 +93,51 @@ def _ordered_official_evidence(verified: list[IntelligenceSource]) -> list[tuple
         if parts:
             ordered.append((parent_id, "\n".join(text for _, _, text in parts)))
     return ordered
+
+
+def _all_first_party_identifier_candidates(
+    verified: list[IntelligenceSource],
+) -> list[tuple[str, str, bool]]:
+    """Collect every labelled checksum-valid identifier from first-party evidence.
+
+    target_scoped records receive a positive prior, while competing relations are
+    still retained for DaData enrichment so ownership can be resolved externally.
+    """
+    grouped: dict[tuple[str, bool], list[tuple[int, int, str]]] = {}
+    for item in verified:
+        if item.source_class != "official" or not str(item.evidence_quote or "").strip():
+            continue
+        match = _EVIDENCE_CHILD_ID.match(str(item.id))
+        parent_id = match.group("parent") if match else str(item.id)
+        relation_match = _EVIDENCE_RELATION.search(str(item.verification_note or ""))
+        relation = relation_match.group(1) if relation_match else ""
+        target_scoped = relation not in _NON_TARGET_IDENTITY_RELATIONS
+        block = int(match.group("block")) if match else -1
+        offset = int(match.group("offset")) if match else -1
+        grouped.setdefault((parent_id, target_scoped), []).append(
+            (block, offset, str(item.evidence_quote))
+        )
+
+    candidates: list[tuple[str, str, bool]] = []
+    seen: set[tuple[str, str]] = set()
+    for (_, target_scoped), parts in grouped.items():
+        text = "\n".join(value for _, _, value in sorted(parts))
+        compact = " ".join(text.split())
+        for scheme, pattern in (
+            ("inn", r"\bИНН\s*[:№]?\s*(\d{10}|\d{12})\b"),
+            ("ogrn", r"\bОГРН(?:ИП)?\s*[:№]?\s*(\d{13}|\d{15})\b"),
+        ):
+            for raw in re.findall(pattern, compact, flags=re.IGNORECASE):
+                guarded = guard_identity_anchors(
+                    extract_identity_anchors(f"{scheme.upper()} {raw}", None),
+                    f"{scheme.upper()} {raw}",
+                )
+                value = guarded.inn if scheme == "inn" else guarded.ogrn
+                if not value or (scheme, value) in seen:
+                    continue
+                seen.add((scheme, value))
+                candidates.append((scheme, value, target_scoped))
+    return candidates
 
 
 def _deterministic_official_identity_facts(
@@ -231,6 +279,7 @@ async def _run_verified_enriched_site_analysis(
     anchors, dadata_result, dadata_facts, dadata_notes = await enrich_identity_with_dadata(
         anchors
     )
+    dadata_identifier_candidates_checked = 1 if (anchors.inn or anchors.ogrn) and dadata_result is not None else 0
 
     full_plan = research_queries if research_queries is not None else query_plan(company_hint, anchors=anchors)
     progressive_search = bool(deep and research_queries is None)
@@ -298,9 +347,33 @@ async def _run_verified_enriched_site_analysis(
     if not anchors.inn and not anchors.ogrn and not (current_research() and current_research().stop_requested):
         official_text = "\n".join(text for _, text in _ordered_official_evidence(verified))
         discovered = guard_identity_anchors(extract_identity_anchors(official_text, url), official_text)
+        batch_resolved = False
+        if not discovered.inn and not discovered.ogrn:
+            candidates = _all_first_party_identifier_candidates(verified)
+            (
+                batch_anchors,
+                batch_result,
+                batch_facts,
+                batch_notes,
+                checked_count,
+            ) = await enrich_identifier_candidates_with_dadata(
+                anchors,
+                candidates,
+                company_hint=company_hint,
+            )
+            dadata_identifier_candidates_checked += checked_count
+            dadata_notes.extend(batch_notes)
+            if batch_result is not None and (batch_anchors.inn or batch_anchors.ogrn):
+                anchors = batch_anchors
+                dadata_result = batch_result
+                dadata_facts = batch_facts
+                discovered = batch_anchors
+                batch_resolved = True
         if discovered.inn or discovered.ogrn:
-            anchors, dadata_result, dadata_facts, follow_notes = await enrich_identity_with_dadata(discovered)
-            dadata_notes.extend(follow_notes)
+            if not batch_resolved:
+                anchors, dadata_result, dadata_facts, follow_notes = await enrich_identity_with_dadata(discovered)
+                dadata_identifier_candidates_checked += 1
+                dadata_notes.extend(follow_notes)
             identifier = anchors.inn or anchors.ogrn
             follow_plan = [
                 ("registry", f'"{identifier}" site:egrul.nalog.ru'),
@@ -662,6 +735,7 @@ async def _run_verified_enriched_site_analysis(
         "identity_authoritative_inn_count": len(identity.authoritative_identifiers["inn"]),
         "identity_authoritative_ogrn_count": len(identity.authoritative_identifiers["ogrn"]),
         "deterministic_first_party_identifier_count": len(deterministic_identity_facts),
+        "dadata_identifier_candidates_checked": dadata_identifier_candidates_checked,
     }
     if current_research():
         analysis.research_status.update(current_research().snapshot())
