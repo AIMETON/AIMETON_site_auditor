@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import app.routerai_split_v2 as split_v2
+import app.routerai_profile_extraction as profile_extraction
 from app.models import (
     BusinessMachineCell,
     CompanyFact,
@@ -207,6 +209,8 @@ def test_split_v2_stages_km_quadrant_ii_cells_and_commercial_execution(monkeypat
     assert result.commercial_opportunity.score == 72
     assert result.commercial_opportunity.source_ids == ["S1"]
     assert result.readiness.provider_states["routerai"] == "active"
+    assert result.research_status["extraction_coverage"]["extraction_units_total"] == 5
+    assert result.research_status["extraction_coverage"]["complete"] is True
 
 
 def test_full_reasoning_profile_has_no_legacy_30_fact_or_16_signal_cap() -> None:
@@ -432,3 +436,32 @@ def test_partial_km_failure_does_not_cancel_commercial_and_opportunity_retries(m
         "km_reasoning_III:ProviderSchemaError"
     )
     assert result.readiness.provider_states["routerai"] == "active"
+
+
+def test_profile_extraction_source_projection_excludes_repeated_transport_metadata() -> None:
+    payload = json.loads(profile_extraction._source_slice(
+        [{
+            "id": "D1-b4-0",
+            "title": "Long repeated document title",
+            "query_kind": "other",
+            "result_kind": "other",
+            "source_class": "official",
+            "evidence_level": "confirmed_fact",
+            "snippet": "Имплантация под ключ",
+            "lifecycle_state": "evidence",
+            "url": "https://example.com/services",
+            "document_url": "https://example.com/services",
+            "evidence_locator": "main/section[4]",
+            "evidence_digest": "sha256:" + "a" * 64,
+        }],
+        {"other"},
+    ))
+
+    assert payload == [{
+        "id": "D1-b4-0",
+        "query_kind": "other",
+        "source_class": "official",
+        "evidence_level": "confirmed_fact",
+        "snippet": "Имплантация под ключ",
+        "url": "https://example.com/services",
+    }]

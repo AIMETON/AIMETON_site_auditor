@@ -311,6 +311,7 @@ async def analyze_with_routerai_split_v2(url: str, title: str, text: str, extern
         )
         result.research_status.update({
             "profile_consolidation": consolidation.safe_dict(),
+            "extraction_coverage": profile.coverage,
             "commercial_reasoning_state": "succeeded",
             "commercial_score_available": True,
             **dossier_status,
@@ -332,6 +333,7 @@ async def analyze_with_routerai_split_v2(url: str, title: str, text: str, extern
             result.readiness.release_blockers.append("commercial_reasoning_incomplete")
         result.research_status.update({
             "profile_consolidation": consolidation.safe_dict(),
+            "extraction_coverage": profile.coverage,
             "commercial_reasoning_state": "stopped" if stopped else "failed",
             "commercial_score_available": False,
             "commercial_reasoning_error_type": type(exc).__name__,

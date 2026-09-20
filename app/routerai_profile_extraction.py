@@ -167,9 +167,7 @@ _ALL_ROUTED_KINDS = (
     | _SIGNAL_KINDS
 )
 _SLICE_SOURCE_KEYS = (
-    "id", "title", "query_kind", "result_kind", "source_class",
-    "evidence_level", "snippet", "lifecycle_state", "url",
-    "document_url", "evidence_locator", "evidence_digest",
+    "id", "query_kind", "source_class", "evidence_level", "snippet", "url",
 )
 
 # Broad profile slices inspect every official-site chunk. Narrow slices inspect only
@@ -388,7 +386,10 @@ async def extract_profile_parallel(
                 if control.stop_requested:
                     return []
                 prompt = (f"{instructions}\n{common_rules}\n"
-                          "Сохрани ВСЕ отдельные факты, имена, значения и периоды без сжатия списков.\n"
+                          "Сохрани все независимые факты, имена, значения и периоды. "
+                          "Не размножай один факт из-за повторов, цены, акции или варианта формулировки. "
+                          "Для products используй каноническое название услуги/продукта один раз; "
+                          "цена или промо сами по себе не создают новый product.\n"
                           f"URL: {url}\nTITLE: {title}\nCHUNK: {key}\n"
                           f"OFFICIAL PAGE TEXT CHUNK:\n{official}\nRELEVANT SOURCES CHUNK:\n{sources}")
                 try:
@@ -509,9 +510,15 @@ phones, emails, website, geography. Не извлекай собственник
         system="Возвращай только компактный валидный JSON по схеме.",
         instructions="""Извлеки операционные и экономические факты компании.
 Разрешённые поля: headcount, revenue, profit, assets, taxes, products, customers,
-suppliers, other. Для финансовых значений обязательно указывай period, если он
-виден. Разные периоды одного показателя сохраняй как разные факты. Не формируй
-economic_signals и не делай коммерческое предложение.""",
+suppliers, other. products — это уникальные именованные услуги/товары, а не каждая
+строка прайса, цена, акция, вариант тарифа, навигационная ссылка или повтор одного
+названия на разных страницах. Цена/акция может быть отдельным other только когда это
+самостоятельно значимый факт. other используй только для конкретного проверяемого
+бизнес-факта, который не помещается в именованные поля; не сохраняй как other
+слоганы, UI/навигацию, общие рекламные обещания или повтор описания услуги.
+Для финансовых значений обязательно указывай period, если он виден. Разные периоды
+одного показателя сохраняй как разные факты. Не формируй economic_signals и не
+делай коммерческое предложение.""",
         max_tokens=1100,
         timeout_seconds=22.0,
     )

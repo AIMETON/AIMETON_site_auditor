@@ -27,6 +27,15 @@ _STANDALONE_MONEY = re.compile(
     r"^(?:от\s*)?\d[\d\s.,]*(?:₽|руб(?:\.|лей)?)\.?$",
     re.IGNORECASE,
 )
+_PRODUCT_PRICE = re.compile(
+    r"(?:(?:цена|стоимость)\s*[:\-–—]?\s*)?(?:от\s*)?"
+    r"\d[\d\s.,]*(?:₽|руб(?:\.|лей)?)",
+    re.IGNORECASE,
+)
+_PRODUCT_PROMO_TAG = re.compile(
+    r"\((?:акция|спецпредложение|скидка|цена|стоимость)[^)]*\)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -39,6 +48,10 @@ class ConsolidationStats:
     low_information_other_removed: int
     input_signals: int
     output_signals: int
+    product_facts_input: int
+    product_facts_output: int
+    other_facts_input: int
+    other_facts_output: int
 
     def safe_dict(self) -> dict[str, int]:
         return {
@@ -50,6 +63,10 @@ class ConsolidationStats:
             "low_information_other_removed": self.low_information_other_removed,
             "input_signals": self.input_signals,
             "output_signals": self.output_signals,
+            "product_facts_input": self.product_facts_input,
+            "product_facts_output": self.product_facts_output,
+            "other_facts_input": self.other_facts_input,
+            "other_facts_output": self.other_facts_output,
         }
 
 
@@ -95,6 +112,11 @@ def _normalized_key(field: str, value: str) -> str:
             return f"{host}{path}"
         except Exception:
             pass
+    if field == "products":
+        compact = _PRODUCT_PROMO_TAG.sub(" ", compact)
+        compact = _PRODUCT_PRICE.sub(" ", compact)
+        compact = re.sub(r"\b(?:акция|спецпредложение|скидка)\b", " ", compact, flags=re.IGNORECASE)
+        compact = " ".join(compact.split()).strip(" -–—:;,")
     folded = compact.casefold()
     folded = folded.translate(str.maketrans({
         "«": '"', "»": '"', "„": '"', "“": '"', "”": '"', "’": "'", "`": "'",
@@ -270,6 +292,10 @@ def consolidate_merged_profile(merged, *, external_sources: list[dict[str, Any]]
         low_information_other_removed=low_information_other_removed,
         input_signals=len(merged.economic_signals),
         output_signals=len(signals),
+        product_facts_input=sum(fact.field == "products" for fact in merged.company_facts),
+        product_facts_output=sum(fact.field == "products" for fact in facts),
+        other_facts_input=sum(fact.field == "other" for fact in merged.company_facts),
+        other_facts_output=sum(fact.field == "other" for fact in facts),
     )
     risks = list(merged.risks_and_assumptions)
     if placeholders or duplicates or foreign or low_information_other_removed:
