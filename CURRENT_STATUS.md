@@ -1,3 +1,13 @@
+## DaData compact legal-name matching follow-up — 2026-09-20
+
+Exact-SHA live regression on `d86b688a042b4cf0307c943876bb90434e67e95f` proved that first-party registry candidate retention now works: `dadata_identifier_candidates_checked=2`, and DaData returned one verified registry-mirror record for INN `2462215501` and OGRN `1112468013030`. The remaining identity blocker is downstream ownership scoring, not candidate discovery or provider availability.
+
+The registry record represents the legal name as `ООО "АЛЕКСДЕНТ"`, while the audit target hint is `Алекс Дент`. Existing ownership scoring only intersects lexical tokens, producing `{алекс, дент}` versus `{алексдент}` and therefore `best_score=0`; identity stays unresolved even though both identifiers resolve to the same legal entity.
+
+Active correction `fix/dadata-compact-legal-name-match` adds an exact compact-name form that removes legal-form/generic tokens plus spacing and punctuation differences without fuzzy substring matching. This should accept `Алекс Дент` ↔ `АлексДент` while refusing broader names such as `АльфаДент Сервис` for target `Альфа Дент`. Neutral tests cover both the positive compact-equivalence and negative substring case.
+
+The same live run also confirmed the upstream repair: two candidates reached DaData. Acceptance now requires promotion of the same verified entity to the audit identity, preserving the FNS authority gate and excluding foreign identifiers.
+
 ## First-party registry candidate retention follow-up — 2026-09-20
 
 Owner-authorized exact-SHA regression `35487878111` on `d3f26b993852e795804f477710a986cc0c7249e7` completed successfully but still reported `dadata_identifier_candidates_checked=0`, `deterministic_first_party_identifier_count=0`, provider state `not_attempted_no_identifier`, and identity `unresolved`. Commercial support improved from `unsupported` to `weak` and the opportunity now carries `source_ids=["S1"]`, but legal identity remains absent.
