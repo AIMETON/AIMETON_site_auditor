@@ -147,3 +147,45 @@ def test_directly_evidenced_quantitative_expected_value_is_preserved():
 
     assert assessment.unsupported_expected_value_metrics == ()
     assert enforced.expected_value == opportunity.expected_value
+
+
+def test_empty_commercial_citations_are_recovered_from_supported_sourced_fact():
+    opportunity = _opportunity(source_ids=[]).model_copy(update={
+        "problem_hypothesis": "Сеть использует онлайн запись заявок клиентов",
+    })
+    fact = CompanyFact(
+        field="other",
+        value="Онлайн запись заявок клиентов доступна на сайте",
+        source_ids=["S1"],
+    )
+    assessment = assess_commercial_support(
+        opportunity,
+        facts=[fact],
+        sources=[_source("S1", "Онлайн запись заявок клиентов доступна во всех филиалах сети.")],
+    )
+
+    enforced = enforce_commercial_support(opportunity, assessment)
+
+    assert assessment.state == "supported"
+    assert assessment.cited_source_ids == ("S1",)
+    assert enforced.source_ids == ["S1"]
+
+
+def test_empty_commercial_citations_do_not_recover_unrelated_sourced_fact():
+    opportunity = _opportunity(source_ids=[])
+    fact = CompanyFact(
+        field="products",
+        value="Стоматологические услуги",
+        source_ids=["S1"],
+    )
+    assessment = assess_commercial_support(
+        opportunity,
+        facts=[fact],
+        sources=[_source("S1", "Стоматологические услуги и лицензия клиники.")],
+    )
+
+    enforced = enforce_commercial_support(opportunity, assessment)
+
+    assert assessment.state == "unsupported"
+    assert assessment.cited_source_ids == ()
+    assert enforced.source_ids == []
