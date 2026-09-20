@@ -46,6 +46,15 @@ class FocusedProfileSlice(BaseModel):
     risks_and_assumptions: list[str] = Field(default_factory=list, max_length=16)
 
 
+class FocusedMergedProfileResponse(BaseModel):
+    company_name: str = Field(max_length=180)
+    business_summary: str = Field(max_length=700)
+    evidence: list[str] = Field(default_factory=list, max_length=12)
+    company_facts: list[CompactCompanyFact] = Field(default_factory=list, max_length=100)
+    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=30)
+    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=20)
+
+
 _FOCUS_PASSES: tuple[tuple[str, str], ...] = (
     (
         "identity_governance",
@@ -217,13 +226,13 @@ async def analyze_with_routerai_focused_v4(
 
     merged_llm = await request_json_strict(
         "profile_focused_merge",
-        CompiledProfileResponse,
+        FocusedMergedProfileResponse,
         system=(
             "Возвращай только валидный компактный JSON по схеме. "
             "Семантически объедини focused outputs в единый профиль."
         ),
         prompt=_merge_prompt(focused_results),
-        max_tokens=8_000,
+        max_tokens=6_500,
         timeout_seconds=120.0,
         reasoning_enabled=False,
     )
