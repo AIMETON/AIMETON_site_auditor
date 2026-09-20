@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any
 
@@ -42,6 +44,8 @@ MAX_COMPILED_CONTEXT_CHARS = 120_000
 MAX_ROOT_TEXT_CHARS = 18_000
 MAX_DOCUMENT_CONTEXT_CHARS = 6_000
 MIN_DOCUMENT_CONTEXT_CHARS = 900
+
+_CHILD_SOURCE_ID = re.compile(r"^(?P<parent>.+)-b\d+-\d+$")
 
 _EVIDENCE_RANK = {
     "confirmed_fact": 3,
@@ -90,7 +94,8 @@ def _compact_text(value: Any) -> str:
 def _source_group_key(source: dict[str, Any], index: int) -> str:
     source_id = _compact_text(source.get("id"))
     if source_id:
-        return source_id
+        match = _CHILD_SOURCE_ID.match(source_id)
+        return match.group("parent") if match else source_id
     url = _compact_text(source.get("document_url") or source.get("url"))
     return url or f"source-{index}"
 
@@ -273,7 +278,7 @@ async def analyze_with_routerai_compiled_v3(
         external_sources=external_sources,
     )
     extracted = await request_json_strict(
-        "compiled_profile_extraction",
+        "profile_compiled_extraction",
         CompiledProfileResponse,
         system=(
             "Возвращай только валидный компактный JSON по схеме. "
@@ -364,7 +369,7 @@ async def analyze_with_routerai_compiled_v3(
                 agents=synthesized.agents,
                 action_package=synthesized.action_package,
             ),
-            accessed_at="compiled",
+            accessed_at=datetime.now(timezone.utc).isoformat(),
         )
         synthesis_state = "succeeded"
         synthesis_calls = 1
@@ -379,7 +384,7 @@ async def analyze_with_routerai_compiled_v3(
             profile=profile,
             km=BusinessMachineSynthesis(),
             commercial=_unavailable_commercial(),
-            accessed_at="compiled",
+            accessed_at=datetime.now(timezone.utc).isoformat(),
         )
         result.readiness.provider_states["routerai"] = "reasoning_failed_extraction_preserved"
         result.readiness.analysis_state = "preliminary_hypothesis"
