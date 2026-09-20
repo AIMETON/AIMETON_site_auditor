@@ -306,7 +306,7 @@ async def test_verify_retains_registry_candidates_even_when_triage_keeps_none(mo
     from app.models import IntelligenceSource
 
     blocks = [
-        NS(text="Юридическая информация", locator="body/main/h2"),
+        NS(text="Платёжные данные", locator="body/main/h2"),
         NS(text="ОГРН:", locator="body/main/div[4]/span[1]"),
         NS(text="1112468013030", locator="body/main/div[4]/span[2]"),
         NS(text="ИНН:", locator="body/main/div[5]/span[1]"),
@@ -321,7 +321,7 @@ async def test_verify_retains_registry_candidates_even_when_triage_keeps_none(mo
                 links=[],
                 document=NS(
                     url="https://example.org/legal/",
-                    title="Юридическая информация",
+                    title="Реквизиты",
                     accessed_at=datetime.now(timezone.utc),
                 ),
                 normalized_content_digest="sha256:" + "a" * 64,
@@ -355,7 +355,7 @@ async def test_verify_retains_registry_candidates_even_when_triage_keeps_none(mo
 
     source = IntelligenceSource(
         id="DOC",
-        title="Юридическая информация",
+        title="Реквизиты",
         url="https://example.org/legal/",
         accessed_at="2026-09-20T00:00:00Z",
         source_class="official",
