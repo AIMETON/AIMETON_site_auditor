@@ -159,6 +159,8 @@ def _focus_prompt(*, focus: str, instructions: str, context: str) -> str:
 - Неизвестное не заполняй догадкой.
 - Не делай финальный commercial synthesis.
 - Пиши компактно: это предварительный слой сжатия, который затем объединит отдельный LLM.
+- Не пытайся заполнить максимально допустимое число элементов. Выбирай только наиболее
+  значимые и репрезентативные факты своего фокуса: лучше 12 сильных фактов, чем 30 слабых.
 
 FOCUS: {focus}
 {instructions}
@@ -168,7 +170,7 @@ PREPARED EVIDENCE CONTEXT:
 """
 
 
-def _merge_prompt(focused_results: list[FocusedProfileSlice]) -> str:
+def _merge_prompt(focused_results: list[FocusedPassBase]) -> str:
     payload = [
         item.model_dump(mode="json")
         for item in focused_results
@@ -200,12 +202,13 @@ FOCUSED PASSES:
 async def _run_focused_pass(
     *,
     focus: str,
+    model_type: type[FocusedPassBase],
     instructions: str,
     context: str,
-) -> FocusedProfileSlice:
+) -> FocusedPassBase:
     return await request_json_strict(
         f"profile_focus_{focus}",
-        FocusedProfileSlice,
+        model_type,
         system=(
             "Возвращай только валидный компактный JSON по схеме. "
             "Это один тематический проход по общему evidence context."
@@ -215,7 +218,7 @@ async def _run_focused_pass(
             instructions=instructions,
             context=context,
         ),
-        max_tokens=4_000,
+        max_tokens=5_000,
         timeout_seconds=120.0,
         reasoning_enabled=False,
     )
@@ -247,17 +250,19 @@ async def analyze_with_routerai_focused_v4(
     tasks = [
         _run_focused_pass(
             focus=focus,
+            model_type=model_type,
             instructions=instructions,
             context=context,
         )
-        for focus, instructions in _FOCUS_PASSES
+        for focus, model_type, instructions in _FOCUS_PASSES
     ]
     focus_outcomes = await asyncio.gather(*tasks, return_exceptions=True)
-    focused_results: list[FocusedProfileSlice] = []
+    focused_results: list[FocusedPassBase] = []
     focus_failures: list[str] = []
-    for (focus, _), outcome in zip(_FOCUS_PASSES, focus_outcomes):
+    for (focus, _, _), outcome in zip(_FOCUS_PASSES, focus_outcomes):
         if isinstance(outcome, Exception):
-            focus_failures.append(f"{focus}:{type(outcome).__name__}")
+            error_type = getattr(outcome, "error_type", None) or type(outcome).__name__
+            focus_failures.append(f"{focus}:{error_type}")
             continue
         focused_results.append(outcome)
 
