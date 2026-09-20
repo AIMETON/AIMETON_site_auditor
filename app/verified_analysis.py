@@ -118,8 +118,7 @@ def _all_first_party_identifier_candidates(
             (block, offset, str(item.evidence_quote))
         )
 
-    candidates: list[tuple[str, str, bool]] = []
-    seen: set[tuple[str, str]] = set()
+    candidates: dict[tuple[str, str], bool] = {}
     for (_, target_scoped), parts in grouped.items():
         text = "\n".join(value for _, _, value in sorted(parts))
         compact = " ".join(text.split())
@@ -133,11 +132,14 @@ def _all_first_party_identifier_candidates(
                     f"{scheme.upper()} {raw}",
                 )
                 value = guarded.inn if scheme == "inn" else guarded.ogrn
-                if not value or (scheme, value) in seen:
+                if not value:
                     continue
-                seen.add((scheme, value))
-                candidates.append((scheme, value, target_scoped))
-    return candidates
+                key = (scheme, value)
+                candidates[key] = candidates.get(key, False) or target_scoped
+    return [
+        (scheme, value, target_scoped)
+        for (scheme, value), target_scoped in candidates.items()
+    ]
 
 
 def _deterministic_official_identity_facts(
