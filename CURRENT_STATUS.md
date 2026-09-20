@@ -1,3 +1,15 @@
+## First-party registry candidate retention follow-up — 2026-09-20
+
+Owner-authorized exact-SHA regression `35487878111` on `d3f26b993852e795804f477710a986cc0c7249e7` completed successfully but still reported `dadata_identifier_candidates_checked=0`, `deterministic_first_party_identifier_count=0`, provider state `not_attempted_no_identifier`, and identity `unresolved`. Commercial support improved from `unsupported` to `weak` and the opportunity now carries `source_ids=["S1"]`, but legal identity remains absent.
+
+The second live failure localizes the defect upstream of candidate aggregation. First-party legal identifiers are only visible downstream when block triage keeps them or the stricter target-scoped identity selector forces them into evidence. Therefore a valid labelled INN/OGRN can disappear before DaData if entity triage rejects/omits the block and target context is not strong enough.
+
+Active correction `fix/retain-first-party-registry-candidates` introduces a separate ownership-agnostic retention path for safe checksum-valid labelled INN/OGRN pairs on first-party documents. Such blocks are forced into evidence as `unknown/registry` candidates, not as target identity. Deterministic promotion remains restricted to the existing target-scoped selector; DaData and later entity resolution decide ownership. Footer/sidebar/related-context identifiers and checksum-invalid values remain excluded.
+
+Neutral tests cover checksum validation, footer exclusion, split label/value retention without target context, and an integration case where semantic triage keeps zero blocks but valid first-party legal identifiers still survive into child evidence.
+
+Live comparison against the original `4c10a64...` baseline: products 112→92, evidence blocks 1651→1651, other 37→49, LLM calls 79→72; commercial support `unsupported→weak`. Identity quality is not accepted and requires another exact-SHA live run after this correction is green, merged and converged.
+
 ## Live identity regression follow-up — 2026-09-20
 
 Part of #915. PR #967 merged as `3f449ca3d9e209b13e9a607a033809d987e64dbd`; post-merge Baseline CI, Deploy Stage, DaData configuration, persistence/auth guards and exact-SHA Stage convergence succeeded. Owner-authorized Aleks Dent deep regression run `35481360011` completed successfully at the workflow/runtime level, but failed the identity-quality acceptance: `deterministic_first_party_identifier_count=0`, `dadata_identifier_candidates_checked=0`, provider state remained `not_attempted_no_identifier`, INN/OGRN were absent and identity stayed provisional.
