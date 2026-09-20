@@ -44,15 +44,31 @@ jobs:
         run: |
           set -Eeuo pipefail
           cd "$GITHUB_WORKSPACE"
+          gate_sha="${EXPECTED_SHA:-$GITHUB_SHA}"
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-persistence-gate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           if [[ ! -d .git ]]; then git init; fi
-          git remote remove origin 2>/dev/null || true
-          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          gate_sha="${EXPECTED_SHA:-$GITHUB_SHA}"
-          git fetch --no-tags --depth=1 origin "$gate_sha"
-          git checkout --detach --force FETCH_HEAD
+          if git cat-file -e "${gate_sha}^{commit}" 2>/dev/null; then
+            echo "Reusing locally available exact commit $gate_sha"
+            git checkout --detach --force "$gate_sha"
+          else
+            git remote remove origin 2>/dev/null || true
+            git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            trap 'git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git" 2>/dev/null || true' EXIT
+            fetched=false
+            for attempt in 1 2 3 4 5; do
+              if git fetch --no-tags --depth=1 origin "$gate_sha"; then fetched=true; break; fi
+              test "$attempt" -lt 5
+              sleep $(( attempt * attempt + 1 ))
+            done
+            test "$fetched" = true
+            git checkout --detach --force FETCH_HEAD
+            git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+            trap - EXIT
+          fi
           git reset --hard "$gate_sha"
           git clean -ffdx
+          test "$(git rev-parse HEAD)" = "$gate_sha"
           test -f scripts/require_successful_parent_job.py
           python3 scripts/require_successful_parent_job.py \
             --repository "$GITHUB_REPOSITORY" \

@@ -76,23 +76,43 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "Deploy target: $sha"
 
-      - name: Materialize exact commit without marketplace actions
+      - name: Materialize exact commit with local reuse and bounded retry
         shell: bash
         env:
           DEPLOY_SHA: ${{ steps.target.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
           cd "$GITHUB_WORKSPACE"
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-deploy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           if [[ ! -d .git ]]; then
             git init
           fi
-          git remote remove origin 2>/dev/null || true
-          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --no-tags --depth=1 origin "$DEPLOY_SHA"
-          git checkout --detach --force FETCH_HEAD
+          if git cat-file -e "${DEPLOY_SHA}^{commit}" 2>/dev/null; then
+            echo "Reusing locally available exact commit $DEPLOY_SHA"
+            git checkout --detach --force "$DEPLOY_SHA"
+          else
+            git remote remove origin 2>/dev/null || true
+            git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            trap 'git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git" 2>/dev/null || true' EXIT
+            fetched=false
+            for attempt in 1 2 3 4 5; do
+              if git fetch --no-tags --depth=1 origin "$DEPLOY_SHA"; then
+                fetched=true
+                break
+              fi
+              test "$attempt" -lt 5
+              sleep $(( attempt * attempt + 1 ))
+            done
+            test "$fetched" = true
+            git checkout --detach --force FETCH_HEAD
+            git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+            trap - EXIT
+          fi
           git reset --hard "$DEPLOY_SHA"
           git clean -ffdx
+          test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
 
       - name: Verify checkout identity
         shell: bash
