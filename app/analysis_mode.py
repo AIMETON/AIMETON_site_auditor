@@ -14,3 +14,8 @@ def compiled_two_call_enabled() -> bool:
 def minimal_llm_routing_enabled() -> bool:
     """Keep discovery/triage deterministic when the compiled deep path is active."""
     return os.getenv("AIMETON_MINIMAL_LLM_ROUTING", "1").strip().lower() not in _FALSE_VALUES
+
+
+def focused_multipass_enabled() -> bool:
+    """Enable focused multi-pass profile compression for deep/large audits."""
+    return os.getenv("AIMETON_FOCUSED_MULTIPASS", "1").strip().lower() not in _FALSE_VALUES
