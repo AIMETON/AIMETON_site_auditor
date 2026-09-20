@@ -149,6 +149,9 @@ def assess_commercial_support(
     are stronger than model-derived facts/signals. Derived records may make a claim weakly
     supported, but only direct evidence can authorize an 80+ commercial score.
     """
+    facts = tuple(facts)
+    signals = tuple(signals)
+    sources = tuple(sources)
     claim_terms = _terms(opportunity.problem_hypothesis)
     source_by_id = {_parent_id(source.id): source for source in sources}
     cited = tuple(dict.fromkeys(
