@@ -155,6 +155,7 @@ async def test_deep_runtime_uses_compiled_path(monkeypatch) -> None:
     from app import routerai_runtime as runtime
     from app.heuristics import heuristic_analysis
 
+    monkeypatch.setenv("AIMETON_FOCUSED_MULTIPASS", "0")
     monkeypatch.delenv("AIMETON_COMPILED_TWO_CALL", raising=False)
     calls = []
 
