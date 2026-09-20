@@ -143,3 +143,28 @@ def test_all_first_party_identifier_candidates_keep_competing_entities_for_dadat
 
     assert ("inn", "1234567894", True) in candidates
     assert ("inn", "7707083893", False) in candidates
+
+
+def test_identifier_candidates_do_not_restore_target_scope_from_parent_quote():
+    records = [
+        _official(
+            "DOC",
+            'ООО "ПРИМЕР ДЕНТ" ИНН 1234567894; платежный агент ООО "ПАРТНЕР" ИНН 7707083893',
+        ),
+        _official(
+            "DOC-b1-0",
+            'ООО "ПРИМЕР ДЕНТ" ИНН 1234567894',
+            note="Evidence triage: target/registry; local target identity.",
+        ),
+        _official(
+            "DOC-b2-0",
+            'ООО "ПАРТНЕР" ИНН 7707083893',
+            note="Evidence triage: counterparty/registry; payment processor.",
+        ),
+    ]
+
+    candidates = audit._all_first_party_identifier_candidates(records)
+
+    assert ("inn", "1234567894", True) in candidates
+    assert ("inn", "7707083893", False) in candidates
+    assert ("inn", "7707083893", True) not in candidates
