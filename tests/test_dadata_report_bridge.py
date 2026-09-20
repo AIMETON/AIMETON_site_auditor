@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.dadata_report_bridge import enrich_identity_with_dadata
+from app.dadata_report_bridge import enrich_identity_with_dadata, enrich_identifier_candidates_with_dadata
 from app.entity_resolution.dadata import (
     DaDataLookupResult,
     DaDataPartyRecord,
@@ -79,3 +79,110 @@ async def test_conflicting_mirror_is_visible_but_does_not_replace_identity(monke
     assert updated == anchors
     assert facts
     assert any("конфликтующие/множественные записи" in note for note in notes)
+
+
+
+@pytest.mark.asyncio
+async def test_multi_candidate_resolution_checks_all_and_selects_unique_target(monkeypatch):
+    target = _record()
+    target = DaDataPartyRecord(
+        **{**target.__dict__, "legal_name": 'ООО "АЛЬФА ДЕНТ"', "short_name": "АЛЬФА ДЕНТ"}
+    )
+    other = DaDataPartyRecord(
+        id="dadata_party_other",
+        accessed_at=datetime.now(UTC),
+        response_digest="sha256:" + "b" * 64,
+        query="7811111111",
+        legal_name='ООО "ПАРТНЕР СЕРВИС"',
+        short_name="ПАРТНЕР СЕРВИС",
+        inn="7811111111",
+        kpp="781101001",
+        ogrn="1027800000000",
+        entity_type="LEGAL",
+        branch_type="MAIN",
+        status="ACTIVE",
+        actuality_date=1_785_283_200_000,
+        raw_hid="hid-other",
+    )
+    calls = []
+    class FakeProvider:
+        def lookup(self, query: str):
+            calls.append(query)
+            record = target if query == "7707083893" else other
+            return DaDataLookupResult(
+                state=RegistryMirrorState.VERIFIED,
+                query=query,
+                records=[record],
+                authority_verified=False,
+            )
+    monkeypatch.setattr(
+        "app.dadata_report_bridge.get_dadata_registry_mirror_provider",
+        lambda: FakeProvider(),
+    )
+    anchors = IdentityAnchors(domain="example.org")
+    updated, result, facts, notes, checked = await enrich_identifier_candidates_with_dadata(
+        anchors,
+        [
+            ("inn", "7707083893", True),
+            ("inn", "7811111111", False),
+        ],
+        company_hint="Альфа Дент — стоматология",
+    )
+    assert checked == 2
+    assert calls == ["7707083893", "7811111111"]
+    assert result is not None
+    assert updated.inn == "7707083893"
+    assert updated.legal_name == 'ООО "АЛЬФА ДЕНТ"'
+    assert {fact.value for fact in facts} >= {"7707083893", 'ООО "АЛЬФА ДЕНТ"'}
+    assert any("target candidate selected" in note for note in notes)
+
+
+@pytest.mark.asyncio
+async def test_multi_candidate_resolution_keeps_identity_provisional_on_tie(monkeypatch):
+    def make_record(query: str, suffix: str) -> DaDataPartyRecord:
+        return DaDataPartyRecord(
+            id=f"dadata_party_{suffix}",
+            accessed_at=datetime.now(UTC),
+            response_digest="sha256:" + suffix * 64,
+            query=query,
+            legal_name=f'ООО "АЛЬФА {suffix.upper()}"',
+            short_name=f"АЛЬФА {suffix.upper()}",
+            inn=query,
+            kpp=None,
+            ogrn=None,
+            entity_type="LEGAL",
+            branch_type="MAIN",
+            status="ACTIVE",
+            actuality_date=1_785_283_200_000,
+            raw_hid=f"hid-{suffix}",
+        )
+    records = {
+        "7707083893": make_record("7707083893", "a"),
+        "7811111111": make_record("7811111111", "b"),
+    }
+    class FakeProvider:
+        def lookup(self, query: str):
+            return DaDataLookupResult(
+                state=RegistryMirrorState.VERIFIED,
+                query=query,
+                records=[records[query]],
+                authority_verified=False,
+            )
+    monkeypatch.setattr(
+        "app.dadata_report_bridge.get_dadata_registry_mirror_provider",
+        lambda: FakeProvider(),
+    )
+    anchors = IdentityAnchors(domain="example.org")
+    updated, result, facts, notes, checked = await enrich_identifier_candidates_with_dadata(
+        anchors,
+        [
+            ("inn", "7707083893", False),
+            ("inn", "7811111111", False),
+        ],
+        company_hint="Альфа",
+    )
+    assert checked == 2
+    assert updated == anchors
+    assert result is None
+    assert facts == []
+    assert any("ambiguous" in note for note in notes)
