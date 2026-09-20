@@ -110,6 +110,20 @@ def _identity_name_tokens(value: str | None) -> set[str]:
     return {token for token in tokens if token not in _GENERIC_NAME_TOKENS}
 
 
+def _identity_name_compact(value: str | None) -> str:
+    """Normalize brand/legal-name spacing and punctuation without fuzzy substringing."""
+    tokens = sorted(
+        _identity_name_tokens(value),
+        key=lambda token: (
+            re.search(re.escape(token), str(value or ""), re.IGNORECASE).start()
+            if re.search(re.escape(token), str(value or ""), re.IGNORECASE)
+            else 10_000
+        ),
+    )
+    compact = "".join(tokens)
+    return compact if len(compact) >= 6 else ""
+
+
 def _candidate_match_score(
     record: DaDataPartyRecord,
     *,
@@ -132,6 +146,19 @@ def _candidate_match_score(
     overlap = target_tokens & record_tokens
     if overlap:
         score += 3 + min(3, len(overlap))
+
+    target_compacts = {
+        _identity_name_compact(getattr(anchors, "legal_name", None)),
+        _identity_name_compact(company_hint),
+    }
+    record_compacts = {
+        _identity_name_compact(record.legal_name),
+        _identity_name_compact(record.short_name),
+    }
+    target_compacts.discard("")
+    record_compacts.discard("")
+    if target_compacts & record_compacts:
+        score += 6
     return score
 
 
