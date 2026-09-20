@@ -189,10 +189,15 @@ async def test_official_requisites_evidence_triggers_identifier_followup_and_dad
         return [parent, *children] if verify_calls == 1 else []
 
     dadata_anchors = []
+    batch_calls = []
 
     async def dadata(anchors):
         dadata_anchors.append(anchors)
         return anchors, None, [], []
+
+    async def dadata_batch(anchors, candidates, *, company_hint):
+        batch_calls.append((anchors, candidates, company_hint))
+        return anchors, None, [], ["batch checked"], len(candidates)
 
     async def synthesize(url, title, text, sources):
         return heuristic_analysis(url, title, text)
@@ -201,6 +206,7 @@ async def test_official_requisites_evidence_triggers_identifier_followup_and_dad
     monkeypatch.setattr(audit, "triage_search_candidates", triage)
     monkeypatch.setattr(audit, "verify_external_sources", verify)
     monkeypatch.setattr(audit, "enrich_identity_with_dadata", dadata)
+    monkeypatch.setattr(audit, "enrich_identifier_candidates_with_dadata", dadata_batch)
     monkeypatch.setattr(audit, "analyze_with_routerai", synthesize)
 
     result = await audit._run_verified_enriched_site_analysis(
@@ -209,12 +215,16 @@ async def test_official_requisites_evidence_triggers_identifier_followup_and_dad
         "Стоматология Алекс Дент в Красноярске",
     )
 
-    assert len(dadata_anchors) == 2
+    assert len(dadata_anchors) == 1
     assert dadata_anchors[0].inn is None
-    assert dadata_anchors[1].inn == "2462215501"
-    assert dadata_anchors[1].ogrn == "1112468013030"
+    assert len(batch_calls) == 1
+    _, candidates, company_hint = batch_calls[0]
+    assert company_hint == "Алекс Дент"
+    assert ("inn", "2462215501", True) in candidates
+    assert ("ogrn", "1112468013030", True) in candidates
     facts = {(fact.field, fact.value): fact for fact in result.company_facts}
     assert facts[("inn", "2462215501")].source_ids == ["OFFICIAL"]
     assert facts[("ogrn", "1112468013030")].source_ids == ["OFFICIAL"]
     assert result.research_status["deterministic_first_party_identifier_count"] == 2
+    assert result.research_status["dadata_identifier_candidates_checked"] == 2
     assert collect_calls == 2
