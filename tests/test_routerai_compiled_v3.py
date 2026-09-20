@@ -12,6 +12,7 @@ from app.models import (
     CommercialOpportunity,
 )
 from app.routerai_profile_extraction import CompactCompanyFact, CompactEconomicSignal
+from app.research_control import ResearchControl, bind_research
 
 
 def test_context_compiler_groups_model_records_by_document_id() -> None:
@@ -147,3 +148,31 @@ async def test_compiled_analysis_uses_exactly_two_core_llm_calls(monkeypatch) ->
     assert result.research_status["core_llm_calls"] == 2
     assert result.research_status["extraction_coverage"]["extraction_units_total"] == 1
     assert any(fact.field == "products" for fact in result.company_facts)
+
+
+@pytest.mark.asyncio
+async def test_deep_runtime_uses_compiled_path(monkeypatch) -> None:
+    from app import routerai_runtime as runtime
+    from app.heuristics import heuristic_analysis
+
+    monkeypatch.delenv("AIMETON_COMPILED_TWO_CALL", raising=False)
+    calls = []
+
+    async def compiled_call(url, title, text, sources):
+        calls.append("compiled")
+        return heuristic_analysis(url, title, text)
+
+    async def other_call(*args, **kwargs):
+        calls.append("other")
+        return heuristic_analysis("https://example.org/", "Example", "text")
+
+    monkeypatch.setattr(runtime, "analyze_with_routerai_compiled_v3", compiled_call)
+    monkeypatch.setattr(runtime, "analyze_with_routerai_split_v2", other_call)
+    monkeypatch.setattr(runtime, "analyze_with_routerai", other_call)
+
+    with bind_research(ResearchControl(deep=True)):
+        await runtime.run_bounded_routerai_analysis(
+            "https://example.org/", "Example", "text", []
+        )
+
+    assert calls == ["compiled"]
