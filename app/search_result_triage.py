@@ -7,7 +7,9 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.analysis_mode import compiled_two_call_enabled, minimal_llm_routing_enabled
 from app.fast_research_model import request_fast_json
+from app.research_control import deep_research_enabled
 from app.models import IntelligenceSource, SourceKind
 
 
@@ -141,6 +143,21 @@ async def triage_search_candidates(
     model_used = False
     model_unavailable = False
     model_selected = 0
+    if (
+        deep_research_enabled()
+        and compiled_two_call_enabled()
+        and minimal_llm_routing_enabled()
+    ):
+        ordered = [source for source in sources if source.id in selected]
+        return ordered, SearchTriageSummary(
+            total=len(sources),
+            selected=len(ordered),
+            rejected=len(sources) - len(ordered),
+            deterministic_selected=deterministic_selected,
+            model_selected=0,
+            model_used=False,
+            model_unavailable=False,
+        )
     target = {
         "brand_or_hint": company_name,
         "legal_name": getattr(anchors, "legal_name", None),

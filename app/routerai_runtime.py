@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.research_execution import active_settings
+from app.analysis_mode import compiled_two_call_enabled
 
 import asyncio
 import json
@@ -15,6 +16,7 @@ from app.llm import MODEL, analyze_with_routerai
 from app.models import SiteAnalysis
 from app.research_control import deep_research_enabled
 from app.routerai_evidence_units import DEFAULT_EVIDENCE_CHUNK_CHARS, chunk_text
+from app.routerai_compiled_v3 import analyze_with_routerai_compiled_v3
 from app.routerai_projection_metrics import routerai_projection_metrics
 from app.routerai_split_synthesis import (
     SplitSynthesisPhaseError,
@@ -175,11 +177,16 @@ async def run_bounded_routerai_analysis(
     deep = deep_research_enabled()
     large_input = (len(text) > 30000
                    or len(json.dumps(external_sources or [], ensure_ascii=False, indent=2)) > 52000)
-    use_split = deep or large_input or routerai_split_synthesis_enabled()
+    use_compiled = compiled_two_call_enabled() and (deep or large_input)
+    use_split = not use_compiled and (deep or large_input or routerai_split_synthesis_enabled())
     input_metrics = routerai_input_metrics(text, external_sources)
     input_metrics["unlimited_llm_budget"] = deep
     input_metrics["large_input_split"] = large_input
-    input_metrics["synthesis_mode"] = "split_v2_parallel" if use_split else "legacy_monolith"
+    input_metrics["synthesis_mode"] = (
+        "compiled_v3_two_call"
+        if use_compiled
+        else ("split_v2_parallel" if use_split else "legacy_monolith")
+    )
     started = time.perf_counter()
     _trace(
         operation="llm_started",
@@ -189,7 +196,11 @@ async def run_bounded_routerai_analysis(
         budget_seconds=budget_seconds,
         extra_metadata=input_metrics,
     )
-    analysis_fn = analyze_with_routerai_split_v2 if use_split else analyze_with_routerai
+    analysis_fn = (
+        analyze_with_routerai_compiled_v3
+        if use_compiled
+        else (analyze_with_routerai_split_v2 if use_split else analyze_with_routerai)
+    )
     try:
         result = await asyncio.wait_for(
             analysis_fn(url, title, text, external_sources),
