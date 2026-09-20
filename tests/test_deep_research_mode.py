@@ -296,3 +296,85 @@ def test_first_party_registry_candidates_require_valid_checksum():
     ]
 
     assert verify._official_identifier_candidate_block_indices(blocks) == []
+
+
+@pytest.mark.asyncio
+async def test_verify_retains_registry_candidates_even_when_triage_keeps_none(monkeypatch):
+    from datetime import datetime, timezone
+    from app import external_verification as verify
+    from app.external_sources import IdentityAnchors
+    from app.models import IntelligenceSource
+
+    blocks = [
+        NS(text="Юридическая информация", locator="body/main/h2"),
+        NS(text="ОГРН:", locator="body/main/div[4]/span[1]"),
+        NS(text="1112468013030", locator="body/main/div[4]/span[2]"),
+        NS(text="ИНН:", locator="body/main/div[5]/span[1]"),
+        NS(text="2462215501", locator="body/main/div[5]/span[2]"),
+    ]
+
+    class Pipeline:
+        async def fetch_hint(self, hint, source, policy):
+            return NS(
+                normalized_text=" ".join(block.text for block in blocks),
+                blocks=blocks,
+                links=[],
+                document=NS(
+                    url="https://example.org/legal/",
+                    title="Юридическая информация",
+                    accessed_at=datetime.now(timezone.utc),
+                ),
+                normalized_content_digest="sha256:" + "a" * 64,
+                diagnostics=NS(path=NS(value="static")),
+            )
+
+        def promote_quote(self, fetched, *, locator, quote):
+            return NS(evidence=NS(
+                quote=quote,
+                locator=locator,
+                digest="sha256:" + "b" * 64,
+            ))
+
+    async def screen(*args, **kwargs):
+        return NS(decision="include", reason="official first-party", model_dump=lambda: {
+            "decision": "include",
+            "reason": "official first-party",
+        })
+
+    async def triage(*args, **kwargs):
+        return NS(
+            decisions=[],
+            kept=[],
+            model_used=False,
+            model_unavailable=False,
+        )
+
+    monkeypatch.setattr(verify, "get_document_pipeline", lambda: Pipeline())
+    monkeypatch.setattr(verify, "screen_document", screen)
+    monkeypatch.setattr(verify, "triage_document_blocks", triage)
+
+    source = IntelligenceSource(
+        id="DOC",
+        title="Юридическая информация",
+        url="https://example.org/legal/",
+        accessed_at="2026-09-20T00:00:00Z",
+        source_class="official",
+        query_kind="official",
+    )
+
+    verified = await verify.verify_external_sources(
+        [source],
+        company_name="Example Dental",
+        anchors=IdentityAnchors(domain="example.org"),
+        include_official=True,
+        preserve_blocks=True,
+    )
+
+    child = [item for item in verified if item.id.startswith("DOC-b")]
+    assert [item.id for item in child] == [
+        "DOC-b1-0",
+        "DOC-b2-0",
+        "DOC-b3-0",
+        "DOC-b4-0",
+    ]
+    assert all("Evidence triage: unknown/registry" in item.verification_note for item in child)
