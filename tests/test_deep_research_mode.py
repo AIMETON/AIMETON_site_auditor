@@ -268,3 +268,31 @@ def test_official_requisites_identifier_blocks_are_forced_into_evidence():
         anchors=NS(legal_name='ООО "АЛЕКС ДЕНТ"'),
         document_title="Реквизиты Алекс Дент",
     ) == [1, 2, 3, 4]
+
+
+def test_first_party_registry_candidates_survive_without_target_context():
+    from app import external_verification as verify
+
+    blocks = [
+        NS(text="Платёжные и юридические реквизиты", locator="body/main/h2"),
+        NS(text="ОГРН:", locator="body/main/div[4]/span[1]"),
+        NS(text="1112468013030", locator="body/main/div[4]/span[2]"),
+        NS(text="ИНН:", locator="body/main/div[5]/span[1]"),
+        NS(text="2462215501", locator="body/main/div[5]/span[2]"),
+        NS(text="ИНН: 7707083893", locator="footer/legal"),
+    ]
+
+    assert verify._official_identifier_candidate_block_indices(blocks) == [1, 2, 3, 4]
+
+
+def test_first_party_registry_candidates_require_valid_checksum():
+    from app import external_verification as verify
+
+    blocks = [
+        NS(text="ИНН:", locator="body/main/div[1]"),
+        NS(text="1234567890", locator="body/main/div[2]"),
+        NS(text="ОГРН:", locator="body/main/div[3]"),
+        NS(text="1234567890123", locator="body/main/div[4]"),
+    ]
+
+    assert verify._official_identifier_candidate_block_indices(blocks) == []
