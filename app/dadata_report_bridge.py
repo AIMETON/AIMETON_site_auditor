@@ -124,6 +124,21 @@ def _identity_name_compact(value: str | None) -> str:
     return compact if len(compact) >= 6 else ""
 
 
+def _identity_name_compacts(value: str | None) -> set[str]:
+    """Return exact compact forms for meaningful title/name segments."""
+    raw = str(value or "").strip()
+    if not raw:
+        return set()
+    parts = [
+        part.strip()
+        for part in re.split(r"\s*(?:\||—|–|\s-\s)\s*", raw)
+        if part.strip()
+    ]
+    compacts = {_identity_name_compact(part) for part in parts}
+    compacts.discard("")
+    return compacts
+
+
 def _candidate_match_score(
     record: DaDataPartyRecord,
     *,
@@ -147,16 +162,10 @@ def _candidate_match_score(
     if overlap:
         score += 3 + min(3, len(overlap))
 
-    target_compacts = {
-        _identity_name_compact(getattr(anchors, "legal_name", None)),
-        _identity_name_compact(company_hint),
-    }
-    record_compacts = {
-        _identity_name_compact(record.legal_name),
-        _identity_name_compact(record.short_name),
-    }
-    target_compacts.discard("")
-    record_compacts.discard("")
+    target_compacts = _identity_name_compacts(getattr(anchors, "legal_name", None))
+    target_compacts |= _identity_name_compacts(company_hint)
+    record_compacts = _identity_name_compacts(record.legal_name)
+    record_compacts |= _identity_name_compacts(record.short_name)
     if target_compacts & record_compacts:
         score += 6
     return score
