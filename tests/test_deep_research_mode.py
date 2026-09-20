@@ -115,6 +115,7 @@ def test_anonymous_user_cannot_authorize_uncapped_spend(monkeypatch, tmp_path):
 async def test_deep_mode_has_no_standard_outer_deadline(monkeypatch):
     from app import routerai_runtime as runtime
     from app.heuristics import heuristic_analysis
+    monkeypatch.setenv("AIMETON_COMPILED_TWO_CALL", "false")
     async def synthesize(*args):
         return heuristic_analysis("https://example.org", "Company", "text")
     original_wait_for = asyncio.wait_for
