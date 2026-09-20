@@ -125,7 +125,7 @@ def _candidate_match_score(
     }:
         score += 8
     if target_scoped:
-        score += 4
+        score += 2
 
     target_tokens = _identity_name_tokens(getattr(anchors, "legal_name", None))
     target_tokens |= _identity_name_tokens(company_hint)
@@ -149,14 +149,16 @@ async def enrich_identifier_candidates_with_dadata(
     is promoted to the target identity only when it wins unambiguously by target
     context/name evidence. Merely being present on the audited domain is insufficient.
     """
-    unique: list[tuple[str, str, bool]] = []
-    seen: set[tuple[str, str]] = set()
+    merged_candidates: dict[tuple[str, str], bool] = {}
     for scheme, value, target_scoped in candidates:
-        key = (scheme, value)
-        if not value or key in seen:
+        if not value:
             continue
-        seen.add(key)
-        unique.append((scheme, value, target_scoped))
+        key = (scheme, value)
+        merged_candidates[key] = merged_candidates.get(key, False) or target_scoped
+    unique = [
+        (scheme, value, target_scoped)
+        for (scheme, value), target_scoped in merged_candidates.items()
+    ]
 
     if not unique:
         return anchors, None, [], [
@@ -199,9 +201,23 @@ async def enrich_identifier_candidates_with_dadata(
         )
         return anchors, None, [], notes, checked
 
-    resolved.sort(key=lambda item: (-item[0], item[1]))
-    best_score, _, best_result, best_record = resolved[0]
-    runner_up = resolved[1][0] if len(resolved) > 1 else -1
+    # INN and OGRN lookups for the same legal entity must reinforce each other,
+    # not compete as two different candidates.
+    by_entity: dict[tuple[str, str, str], tuple[int, str, DaDataLookupResult, DaDataPartyRecord]] = {}
+    for item in resolved:
+        score, query, result, record = item
+        entity_key = (
+            str(record.inn or ""),
+            str(record.ogrn or ""),
+            str(record.legal_name or "").casefold(),
+        )
+        current = by_entity.get(entity_key)
+        if current is None or score > current[0]:
+            by_entity[entity_key] = item
+
+    resolved_entities = sorted(by_entity.values(), key=lambda item: (-item[0], item[1]))
+    best_score, _, best_result, best_record = resolved_entities[0]
+    runner_up = resolved_entities[1][0] if len(resolved_entities) > 1 else -1
     if best_score < 4 or best_score == runner_up:
         notes.append(
             f"{DADATA_NOTE_PREFIX}: checked={checked}; candidate ownership ambiguous "
