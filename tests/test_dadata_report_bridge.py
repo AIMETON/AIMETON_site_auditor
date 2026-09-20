@@ -221,3 +221,77 @@ async def test_inn_and_ogrn_for_same_entity_reinforce_instead_of_tie(monkeypatch
     assert updated.inn == "7707083893"
     assert updated.ogrn == "1027700132195"
     assert any("target candidate selected" in note for note in notes)
+
+
+@pytest.mark.asyncio
+async def test_compact_brand_name_matches_spaceless_legal_name(monkeypatch):
+    record = _record().model_copy(update={
+        "query": "2462215501",
+        "legal_name": 'ООО "АЛЕКСДЕНТ"',
+        "short_name": "АЛЕКСДЕНТ",
+        "inn": "2462215501",
+        "ogrn": "1112468013030",
+    })
+    class FakeProvider:
+        def lookup(self, query: str):
+            return DaDataLookupResult(
+                state=RegistryMirrorState.VERIFIED,
+                query=query,
+                records=[record],
+                authority_verified=False,
+            )
+    monkeypatch.setattr(
+        "app.dadata_report_bridge.get_dadata_registry_mirror_provider",
+        lambda: FakeProvider(),
+    )
+    anchors = IdentityAnchors(domain="example.org")
+    updated, result, facts, notes, checked = await enrich_identifier_candidates_with_dadata(
+        anchors,
+        [
+            ("inn", "2462215501", False),
+            ("ogrn", "1112468013030", False),
+        ],
+        company_hint="Алекс Дент",
+    )
+    assert checked == 2
+    assert result is not None
+    assert updated.legal_name == 'ООО "АЛЕКСДЕНТ"'
+    assert updated.inn == "2462215501"
+    assert updated.ogrn == "1112468013030"
+    assert any("target candidate selected" in note for note in notes)
+
+
+@pytest.mark.asyncio
+async def test_compact_name_match_does_not_use_substring(monkeypatch):
+    records = {
+        "7707083893": _record().model_copy(update={
+            "query": "7707083893",
+            "legal_name": 'ООО "АЛЬФАДЕНТ СЕРВИС"',
+            "short_name": "АЛЬФАДЕНТ СЕРВИС",
+            "inn": "7707083893",
+            "ogrn": None,
+        }),
+    }
+    class FakeProvider:
+        def lookup(self, query: str):
+            return DaDataLookupResult(
+                state=RegistryMirrorState.VERIFIED,
+                query=query,
+                records=[records[query]],
+                authority_verified=False,
+            )
+    monkeypatch.setattr(
+        "app.dadata_report_bridge.get_dadata_registry_mirror_provider",
+        lambda: FakeProvider(),
+    )
+    anchors = IdentityAnchors(domain="example.org")
+    updated, result, facts, notes, checked = await enrich_identifier_candidates_with_dadata(
+        anchors,
+        [("inn", "7707083893", False)],
+        company_hint="Альфа Дент",
+    )
+    assert checked == 1
+    assert updated == anchors
+    assert result is not None
+    assert result.state is RegistryMirrorState.UNRESOLVED
+    assert facts == []
