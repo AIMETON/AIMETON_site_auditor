@@ -84,9 +84,8 @@ async def test_conflicting_mirror_is_visible_but_does_not_replace_identity(monke
 
 @pytest.mark.asyncio
 async def test_multi_candidate_resolution_checks_all_and_selects_unique_target(monkeypatch):
-    target = _record()
-    target = DaDataPartyRecord(
-        **{**target.__dict__, "legal_name": 'ООО "АЛЬФА ДЕНТ"', "short_name": "АЛЬФА ДЕНТ"}
+    target = _record().model_copy(
+        update={"legal_name": 'ООО "АЛЬФА ДЕНТ"', "short_name": "АЛЬФА ДЕНТ"}
     )
     other = DaDataPartyRecord(
         id="dadata_party_other",
