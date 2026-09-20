@@ -168,6 +168,7 @@ async def enrich_identifier_candidates_with_dadata(
     provider = get_dadata_registry_mirror_provider()
     notes: list[str] = []
     resolved: list[tuple[int, str, DaDataLookupResult, DaDataPartyRecord]] = []
+    observed_results: list[DaDataLookupResult] = []
     checked = 0
     for scheme, value, target_scoped in unique:
         checked += 1
@@ -178,6 +179,7 @@ async def enrich_identifier_candidates_with_dadata(
                 f"{DADATA_NOTE_PREFIX}: candidate={scheme}:{value}; unavailable — lookup failed."
             )
             continue
+        observed_results.append(result)
         notes.append(
             f"{DADATA_NOTE_PREFIX}: candidate={scheme}:{value}; state={result.state.value}; "
             f"records={len(result.records)}; target_scoped={str(target_scoped).lower()}; "
@@ -199,7 +201,27 @@ async def enrich_identifier_candidates_with_dadata(
         notes.append(
             f"{DADATA_NOTE_PREFIX}: checked={checked}; target candidate не разрешён."
         )
-        return anchors, None, [], notes, checked
+        if not observed_results:
+            return anchors, None, [], notes, checked
+        states = {item.state for item in observed_results}
+        if RegistryMirrorState.CONFLICTING in states:
+            state = RegistryMirrorState.CONFLICTING
+        elif states == {RegistryMirrorState.UNAVAILABLE}:
+            state = RegistryMirrorState.UNAVAILABLE
+        else:
+            state = RegistryMirrorState.UNRESOLVED
+        aggregate = DaDataLookupResult(
+            state=state,
+            query="multi_identifier_candidates",
+            records=[record for item in observed_results for record in item.records],
+            conflicts=(
+                ["multi_identifier_candidates_unresolved"]
+                if state is RegistryMirrorState.CONFLICTING
+                else []
+            ),
+            authority_verified=False,
+        )
+        return anchors, aggregate, [], notes, checked
 
     # INN and OGRN lookups for the same legal entity must reinforce each other,
     # not compete as two different candidates.
@@ -223,7 +245,23 @@ async def enrich_identifier_candidates_with_dadata(
             f"{DADATA_NOTE_PREFIX}: checked={checked}; candidate ownership ambiguous "
             f"(best_score={best_score}, runner_up={runner_up}); identity не повышена."
         )
-        return anchors, None, [], notes, checked
+        ambiguous_state = (
+            RegistryMirrorState.CONFLICTING
+            if best_score == runner_up
+            else RegistryMirrorState.UNRESOLVED
+        )
+        aggregate = DaDataLookupResult(
+            state=ambiguous_state,
+            query="multi_identifier_candidates",
+            records=[item[3] for item in resolved_entities],
+            conflicts=(
+                ["ambiguous_target_ownership"]
+                if ambiguous_state is RegistryMirrorState.CONFLICTING
+                else []
+            ),
+            authority_verified=False,
+        )
+        return anchors, aggregate, [], notes, checked
 
     updated = replace(
         anchors,
