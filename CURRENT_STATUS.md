@@ -1,3 +1,13 @@
+## Live identity regression follow-up — 2026-09-20
+
+Part of #915. PR #967 merged as `3f449ca3d9e209b13e9a607a033809d987e64dbd`; post-merge Baseline CI, Deploy Stage, DaData configuration, persistence/auth guards and exact-SHA Stage convergence succeeded. Owner-authorized Aleks Dent deep regression run `35481360011` completed successfully at the workflow/runtime level, but failed the identity-quality acceptance: `deterministic_first_party_identifier_count=0`, `dadata_identifier_candidates_checked=0`, provider state remained `not_attempted_no_identifier`, INN/OGRN were absent and identity stayed provisional.
+
+The live result falsified the first candidate implementation. Root cause is in candidate discovery, not DaData availability: child evidence was partitioned by target/non-target relation before split labels and numeric values were reconstructed. A structurally adjacent `ИНН:` or `ОГРН:` block and its number therefore disappeared when triage assigned different relation classes to the two blocks.
+
+Active correction `fix/identifier-candidate-cross-relation-split` reconstructs labelled identifiers across adjacent child blocks first, then derives a conservative target prior from the exact blocks spanned by the match. Parent quotes remain excluded when child evidence exists. Unknown/counterparty candidates may be checked by DaData but do not gain target scope. Neutral fixtures cover split relation boundaries and target/non-target scope preservation.
+
+Live comparison versus preceding `4c10a64...`: products 112→107, evidence blocks 1651→1651, other 37→43, LLM calls 79→71. Commercial support remains unsupported with empty source_ids, so this stage is still open. A new exact-SHA live run is required after the correction is green, merged and converged.
+
 ## Multi-identifier DaData identity resolution candidate — 2026-09-20
 
 Part of #915. PR #967 changes legal-identity recovery from "pre-filter a single target identifier, then query DaData" to "collect all checksum-valid first-party identifier candidates, enrich them, then resolve ownership". INN/OGRN found in target, affiliate or counterparty first-party blocks remain eligible for the existing DaData registry-mirror lookup. Responses are clustered by legal entity so INN and OGRN for one organization reinforce rather than compete.

@@ -100,9 +100,13 @@ def _all_first_party_identifier_candidates(
 ) -> list[tuple[str, str, bool]]:
     """Collect every labelled checksum-valid identifier from first-party evidence.
 
-    Block-level evidence is authoritative when available: parent quotes are ignored
-    so a foreign identifier cannot regain target scope after entity triage.
-    Competing child relations are retained for DaData ownership enrichment.
+    Candidate discovery is intentionally recall-oriented: adjacent label/value blocks
+    are reconstructed before entity-relation scope is considered. Relation metadata
+    only supplies a promotion prior after a candidate exists. This allows DaData to
+    inspect competing/unknown entities without treating them as the audit target.
+
+    When block-level evidence exists, parent quotes remain excluded so they cannot
+    re-introduce a foreign identifier with broader target scope after triage.
     """
     grouped: dict[str, dict[str, list[tuple[int, int, str, bool]]]] = {}
     for item in verified:
@@ -114,42 +118,66 @@ def _all_first_party_identifier_candidates(
         relation = relation_match.group(1) if relation_match else ""
         target_scoped = relation not in _NON_TARGET_IDENTITY_RELATIONS
         bucket = grouped.setdefault(parent_id, {"parent": [], "child": []})
-        if match:
-            bucket["child"].append(
-                (
-                    int(match.group("block")),
-                    int(match.group("offset")),
-                    str(item.evidence_quote),
-                    target_scoped,
-                )
-            )
-        else:
-            bucket["parent"].append((-1, -1, str(item.evidence_quote), target_scoped))
+        record = (
+            int(match.group("block")) if match else -1,
+            int(match.group("offset")) if match else -1,
+            str(item.evidence_quote),
+            target_scoped,
+        )
+        bucket["child" if match else "parent"].append(record)
 
     candidates: dict[tuple[str, str], bool] = {}
+    patterns = (
+        ("inn", re.compile(r"\bИНН\s*[:№]?\s*(\d{10}|\d{12})\b", re.IGNORECASE)),
+        ("ogrn", re.compile(r"\bОГРН(?:ИП)?\s*[:№]?\s*(\d{13}|\d{15})\b", re.IGNORECASE)),
+    )
+
     for bucket in grouped.values():
-        selected_parts = bucket["child"] or bucket["parent"]
-        by_scope: dict[bool, list[tuple[int, int, str]]] = {}
-        for block, offset, text, target_scoped in selected_parts:
-            by_scope.setdefault(target_scoped, []).append((block, offset, text))
-        for target_scoped, parts in by_scope.items():
-            text = "\n".join(value for _, _, value in sorted(parts))
-            compact = " ".join(text.split())
-            for scheme, pattern in (
-                ("inn", r"\bИНН\s*[:№]?\s*(\d{10}|\d{12})\b"),
-                ("ogrn", r"\bОГРН(?:ИП)?\s*[:№]?\s*(\d{13}|\d{15})\b"),
-            ):
-                for raw in re.findall(pattern, compact, flags=re.IGNORECASE):
-                    label = "ИНН" if scheme == "inn" else "ОГРН"
-                    guarded = guard_identity_anchors(
-                        extract_identity_anchors(f"{label} {raw}", None),
-                        f"{label} {raw}",
-                    )
-                    value = guarded.inn if scheme == "inn" else guarded.ogrn
-                    if not value:
-                        continue
-                    key = (scheme, value)
-                    candidates[key] = candidates.get(key, False) or target_scoped
+        parts = sorted(bucket["child"] or bucket["parent"], key=lambda item: (item[0], item[1]))
+        if not parts:
+            continue
+
+        # Preserve character ranges for each source block so a match spanning
+        # "ИНН:" and the next numeric block can inherit relation context from
+        # exactly those blocks instead of requiring both to share one triage class.
+        chunks: list[str] = []
+        spans: list[tuple[int, int, bool]] = []
+        cursor = 0
+        for _, _, value, target_scoped in parts:
+            if chunks:
+                chunks.append("\n")
+                cursor += 1
+            start = cursor
+            chunks.append(value)
+            cursor += len(value)
+            spans.append((start, cursor, target_scoped))
+        text = "".join(chunks)
+
+        for scheme, pattern in patterns:
+            for match in pattern.finditer(text):
+                raw = match.group(1)
+                label = "ИНН" if scheme == "inn" else "ОГРН"
+                guarded = guard_identity_anchors(
+                    extract_identity_anchors(f"{label} {raw}", None),
+                    f"{label} {raw}",
+                )
+                value = guarded.inn if scheme == "inn" else guarded.ogrn
+                if not value:
+                    continue
+
+                # A candidate is target-prior only when every evidence block
+                # participating in the labelled match is target-scoped. Unknown
+                # or competing blocks therefore cannot gain target status merely
+                # because they are adjacent to a target label.
+                involved = [
+                    target_scoped
+                    for span_start, span_end, target_scoped in spans
+                    if span_start < match.end() and span_end > match.start()
+                ]
+                target_scoped = bool(involved) and all(involved)
+                key = (scheme, value)
+                candidates[key] = candidates.get(key, False) or target_scoped
+
     return [
         (scheme, value, target_scoped)
         for (scheme, value), target_scoped in candidates.items()

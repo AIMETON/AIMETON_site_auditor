@@ -168,3 +168,63 @@ def test_identifier_candidates_do_not_restore_target_scope_from_parent_quote():
     assert ("inn", "1234567894", True) in candidates
     assert ("inn", "7707083893", False) in candidates
     assert ("inn", "7707083893", True) not in candidates
+
+
+def test_identifier_candidate_survives_split_relation_boundary_for_dadata():
+    records = [
+        _official(
+            "DOC-b4-0",
+            "ИНН:",
+            note="Evidence triage: target/registry; labelled identifier.",
+        ),
+        _official(
+            "DOC-b5-0",
+            "2462215501",
+            note="Evidence triage: unknown/registry; numeric block lacks local entity name.",
+        ),
+        _official(
+            "DOC-b6-0",
+            "ОГРН:",
+            note="Evidence triage: target/registry; labelled identifier.",
+        ),
+        _official(
+            "DOC-b7-0",
+            "1112468013030",
+            note="Evidence triage: unknown/registry; numeric block lacks local entity name.",
+        ),
+    ]
+
+    candidates = audit._all_first_party_identifier_candidates(records)
+
+    assert ("inn", "2462215501", False) in candidates
+    assert ("ogrn", "1112468013030", False) in candidates
+
+
+def test_identifier_candidate_scope_requires_all_spanned_blocks_to_be_target():
+    records = [
+        _official(
+            "DOC-b1-0",
+            "ИНН:",
+            note="Evidence triage: target/registry; target label.",
+        ),
+        _official(
+            "DOC-b2-0",
+            "1234567894",
+            note="Evidence triage: target/registry; target value.",
+        ),
+        _official(
+            "DOC-b3-0",
+            "ИНН:",
+            note="Evidence triage: counterparty/registry; counterparty label.",
+        ),
+        _official(
+            "DOC-b4-0",
+            "7707083893",
+            note="Evidence triage: unknown/registry; counterparty value without local name.",
+        ),
+    ]
+
+    candidates = audit._all_first_party_identifier_candidates(records)
+
+    assert ("inn", "1234567894", True) in candidates
+    assert ("inn", "7707083893", False) in candidates
