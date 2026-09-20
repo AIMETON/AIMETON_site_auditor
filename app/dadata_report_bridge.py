@@ -8,6 +8,7 @@ import re
 
 from app.entity_resolution.dadata import (
     DaDataLookupResult,
+    DaDataPartyRecord,
     RegistryMirrorState,
     get_dadata_registry_mirror_provider,
 )
