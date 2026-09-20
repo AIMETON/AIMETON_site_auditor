@@ -37,7 +37,7 @@ HOST_CLASSES: dict[str, set[str]] = {
 }
 
 NEWS_MARKERS = ("news", "vedomosti", "kommersant", "rbc.ru", "tass.ru", "ria.ru", "interfax", "ngs.ru")
-_LLM_CHILD_ID = re.compile(r"^(?P<parent>.+)-b\\d+-\\d+$")
+_LLM_CHILD_ID = re.compile(r"^(?P<parent>.+)-b\d+-\d+$")
 _LLM_GROUP_SNIPPET_CHARS = 16_000
 
 RESULT_MARKERS: list[tuple[SourceKind, tuple[str, ...]]] = [
