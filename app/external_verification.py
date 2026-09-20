@@ -13,6 +13,7 @@ from app.document_pipeline import get_document_pipeline
 from app.document_preflight import screen_document
 from app.document_pipeline.models import FetchPolicy
 from app.evidence_triage import triage_document_blocks
+from app.entity_resolution.service import _valid_inn, _valid_ogrn
 from app.models import IntelligenceSource
 from app.research_control import current_research, deep_research_enabled
 from app.search_gateway.gateway import canonical_url
@@ -148,6 +149,78 @@ def _identity_context_tokens(value: str) -> set[str]:
         for token in re.findall(r"[0-9A-Za-zА-Яа-яЁё-]{4,}", _fold(value))
         if token not in _IDENTITY_CONTEXT_STOPWORDS and not token.isdigit()
     }
+
+
+def _official_identifier_candidate_block_indices(
+    blocks: list[Any],
+) -> list[int]:
+    """Retain checksum-valid labelled legal identifiers from first-party content.
+
+    This helper is deliberately ownership-agnostic. It preserves safe labelled
+    INN/OGRN pairs so downstream DaData enrichment can determine which legal
+    entity owns them. It does not imply that the identifier belongs to the audit
+    target and therefore must not be used for deterministic identity promotion.
+    """
+    safe: list[bool] = []
+    texts: list[str] = []
+    for block in blocks:
+        text = str(getattr(block, "text", "") or "").strip()
+        locator = str(getattr(block, "locator", "") or "")
+        locator_folded = _fold(locator)
+        blocked = (
+            not text
+            or _is_related_context(text, locator)
+            or any(marker in locator_folded for marker in ("footer", "aside", "sidebar"))
+        )
+        safe.append(not blocked)
+        texts.append(text)
+
+    patterns = (
+        (
+            "inn",
+            re.compile(
+                r"(?<![А-Яа-яЁё])ИНН\s*[:№]?\s*((?:\d[\s-]?){10,12})(?!\d)",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "ogrn",
+            re.compile(
+                r"(?<![А-Яа-яЁё])ОГРН(?:ИП)?\s*[:№]?\s*((?:\d[\s-]?){13,15})(?!\d)",
+                re.IGNORECASE,
+            ),
+        ),
+    )
+    selected: set[int] = set()
+    for label_index in range(len(blocks)):
+        if not safe[label_index]:
+            continue
+        label_text = texts[label_index]
+        if not re.search(r"(?<![А-Яа-яЁё])(?:ИНН|ОГРН(?:ИП)?)\s*[:№]?", label_text, re.IGNORECASE):
+            continue
+        for value_index in range(label_index, min(len(blocks), label_index + 3)):
+            if not safe[value_index]:
+                break
+            indices = list(range(label_index, value_index + 1))
+            pair_text = " ".join(texts[index] for index in indices)
+            matched = False
+            for scheme, pattern in patterns:
+                for match in pattern.finditer(pair_text):
+                    digits = re.sub(r"\D", "", match.group(1))
+                    valid = _valid_inn(digits) if scheme == "inn" else _valid_ogrn(digits)
+                    if not valid:
+                        continue
+                    matched = True
+                    break
+                if matched:
+                    break
+            if not matched:
+                continue
+            for index in indices:
+                if _OFFICIAL_IDENTITY_COMPONENT.search(texts[index]):
+                    selected.add(index)
+            break
+    return sorted(selected)
 
 
 def _official_identity_block_indices(
@@ -627,6 +700,11 @@ async def verify_external_sources(
                 if source_is_official
                 else []
             )
+            forced_identifier_candidates = (
+                _official_identifier_candidate_block_indices(list(fetched.blocks))
+                if source_is_official
+                else []
+            )
             block_plan: list[tuple[int, str, str, str]] = [
                 (
                     block_index,
@@ -636,14 +714,25 @@ async def verify_external_sources(
                 )
                 for block_index, decision in kept_by_index.items()
             ]
+            planned_indices = set(kept_by_index)
             for block_index in forced_identity:
-                if block_index not in kept_by_index:
+                if block_index not in planned_indices:
                     block_plan.append((
                         block_index,
                         "registry",
                         "target",
                         "deterministic labelled INN/OGRN in target-like first-party context",
                     ))
+                    planned_indices.add(block_index)
+            for block_index in forced_identifier_candidates:
+                if block_index not in planned_indices:
+                    block_plan.append((
+                        block_index,
+                        "registry",
+                        "unknown",
+                        "checksum-valid labelled INN/OGRN retained as first-party registry candidate",
+                    ))
+                    planned_indices.add(block_index)
             block_plan.sort(key=lambda item: item[0])
             seen_fragments: set[tuple[str, str]] = set()
             for block_index, query_kind, entity_relation, reason in block_plan:
