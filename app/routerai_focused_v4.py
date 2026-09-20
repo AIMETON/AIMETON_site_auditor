@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -37,12 +37,54 @@ from app.routerai_strict_request import request_json_strict
 from app.compiled_context_ledger import persist_compiled_context
 
 
-class FocusedProfileSlice(BaseModel):
+class FocusedPassBase(BaseModel):
     focus: str = Field(default="", max_length=80)
-    summary: str = Field(default="", max_length=700)
-    company_facts: list[CompactCompanyFact] = Field(default_factory=list, max_length=70)
-    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=24)
-    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=16)
+    summary: str = Field(default="", max_length=520)
+    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=8)
+
+
+class IdentityFocusedFact(CompactCompanyFact):
+    field: Literal[
+        "legal_name", "brand_name", "inn", "ogrn", "registration_status",
+        "address", "phones", "emails", "website", "social_accounts", "geography",
+        "founders", "executives", "beneficial_owners", "affiliates",
+    ]
+
+
+class IdentityFocusedSlice(FocusedPassBase):
+    focus: Literal["identity_governance"] = "identity_governance"
+    company_facts: list[IdentityFocusedFact] = Field(default_factory=list, max_length=24)
+
+
+class OfferingsFocusedFact(CompactCompanyFact):
+    field: Literal["products", "customers", "suppliers", "geography", "other"]
+
+
+class OfferingsFocusedSlice(FocusedPassBase):
+    focus: Literal["offerings_customer_operations"] = "offerings_customer_operations"
+    company_facts: list[OfferingsFocusedFact] = Field(default_factory=list, max_length=32)
+    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=4)
+
+
+class EconomicsFocusedFact(CompactCompanyFact):
+    field: Literal["headcount", "revenue", "profit", "assets", "taxes", "other"]
+
+
+class EconomicsFocusedSlice(FocusedPassBase):
+    focus: Literal["economics_workforce_technology"] = "economics_workforce_technology"
+    company_facts: list[EconomicsFocusedFact] = Field(default_factory=list, max_length=28)
+    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=8)
+
+
+class SignalsFocusedFact(CompactCompanyFact):
+    field: Literal["other"]
+
+
+class SignalsFocusedSlice(FocusedPassBase):
+    focus: Literal["signals_risks_change"] = "signals_risks_change"
+    company_facts: list[SignalsFocusedFact] = Field(default_factory=list, max_length=8)
+    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=16)
+    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=10)
 
 
 class FocusedMergedProfileResponse(BaseModel):
@@ -54,9 +96,10 @@ class FocusedMergedProfileResponse(BaseModel):
     risks_and_assumptions: list[str] = Field(default_factory=list, max_length=20)
 
 
-_FOCUS_PASSES: tuple[tuple[str, str], ...] = (
+_FOCUS_PASSES: tuple[tuple[str, type[FocusedPassBase], str], ...] = (
     (
         "identity_governance",
+        IdentityFocusedSlice,
         """Сфокусируйся только на идентичности, юридическом статусе, контактах, географии,
 людях и связях управления/владения. Ищи legal_name, brand_name, inn, ogrn,
 registration_status, address, phones, emails, website, social_accounts, geography,
@@ -67,16 +110,19 @@ beneficial_owner. Для relationship-фактов нужен прямой sourc
     ),
     (
         "offerings_customer_operations",
+        OfferingsFocusedSlice,
         """Сфокусируйся на том, что компания реально продаёт/оказывает, кому и как.
 Ищи products, customers, suppliers и конкретные проверяемые operational facts в other.
-Сжимай каталог семантически: одна услуга/продукт = один канонический факт, даже если
-она повторяется в меню, прайсе, акции или на нескольких страницах. При этом сохраняй
-действительно разные услуги и продуктовые линии. Не считай использование бренда,
+Сжимай каталог семантически: одна бизнес-различимая услуга/продукт = один канонический
+факт, даже если она повторяется в меню, прайсе, акции или на нескольких страницах.
+Группируй ценовые/тарифные/процедурные варианты, если для бизнеса это одна услуга;
+не объединяй действительно разные продуктовые линии. Не считай использование бренда,
 оборудования, ПО или технологии доказательством supplier/customer relation.
 Не делай коммерческое предложение.""",
     ),
     (
         "economics_workforce_technology",
+        EconomicsFocusedSlice,
         """Сфокусируйся на экономике, масштабе, персонале, инфраструктуре и технологиях.
 Ищи headcount, revenue, profit, assets, taxes и другие конкретные факты масштаба,
 процессов, оборудования, цифровых каналов, автоматизации, вакансий и операционных
@@ -86,6 +132,7 @@ beneficial_owner. Для relationship-фактов нужен прямой sourc
     ),
     (
         "signals_risks_change",
+        SignalsFocusedSlice,
         """Сфокусируйся на значимых сигналах и изменениях: рост/сжатие, вакансии,
 юридические события, отзывы, акции, цифровые точки контакта, операционные разрывы,
 признаки ручных процессов, технологические зависимости, подтверждённые риски.
