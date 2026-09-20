@@ -280,3 +280,10 @@ P0-B foundation draft: schema, owner/service revision persistence, conflict-safe
 2026-09-15T07:56:45.410907+00:00: P0-C draft adds atomic durable reservations, single-dispatch claim, settlement, unknown-price guards and sticky warning/hard-limit states. Missing LLM usage hooks repaired. 1453 local tests pass, 1 xfail, 6 subtests. This is admission foundation; runtime quote authority, deadlines and UI integration remain gates in #917.
 
 2026-09-15T09:20:34.513355+00:00: P0-B/C execution candidate now applies saved per-service time/retry settings to authenticated site and company audit launches and exposes the settings UI. Unsupported monetary/token thresholds and resumable deadline pauses fail preflight. Requested/effective snapshots immutable; shared search cancellation fixed for controlled runs. See USER_RESEARCH_EXECUTION_V0.1.md. P0-D company async/partial-result recovery and tariff-backed admission remain the next critical gates.
+
+
+### Identity evidence continuation — 2026-09-20
+
+Tracking: #915, PR #967. The current candidate broadens P1-D entity conflict handling: all checksum-valid INN/OGRN observed in verified first-party evidence may be enriched through the existing DaData registry mirror before ownership is decided. Non-target relation labels are preserved as negative/competing context instead of causing pre-registry deletion. Registry responses for INN and OGRN of the same organization are clustered. Promotion to the audit target requires a unique target/name/known-identifier match; ambiguity keeps identity provisional and DaData never satisfies the FNS authority gate.
+
+Acceptance adds neutral fixtures for target plus counterparty, ambiguous legal entities, and same-entity INN+OGRN. Exact-SHA live acceptance must show candidate lookup count, correct target identifiers without foreign promotion, DaData follow-up, commercial evidence support, product count, evidence-block count and LLM-call count. This is an incremental P1-D quality repair, not completion of #915 or P3.

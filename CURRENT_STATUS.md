@@ -1,3 +1,11 @@
+## Multi-identifier DaData identity resolution candidate — 2026-09-20
+
+Part of #915. PR #967 changes legal-identity recovery from "pre-filter a single target identifier, then query DaData" to "collect all checksum-valid first-party identifier candidates, enrich them, then resolve ownership". INN/OGRN found in target, affiliate or counterparty first-party blocks remain eligible for the existing DaData registry-mirror lookup. Responses are clustered by legal entity so INN and OGRN for one organization reinforce rather than compete.
+
+DaData remains non-authoritative: a returned organization is promoted to the audited company only when target/name/already-known-identifier evidence produces a unique winner; ties and weak matches keep identity provisional, and FNS authority verification remains open. The implementation is URL/CMS/DOM agnostic. Research status adds `dadata_identifier_candidates_checked` for black-box validation.
+
+Initial PR checks exposed two candidate defects before merge: localized identifier validation used Latin INN/OGRN labels instead of extractor-recognized ИНН/ОГРН, and the PR lacked the governance-required acceptance section/linked Issue. Both are corrected in the active branch. Live Stage acceptance remains pending until PR CI is green, merge is complete and exact-SHA Stage convergence is confirmed.
+
 <!-- User execution integration candidate 2026-09-15T09:20:34.513355+00:00 -->
 
 ## Admin LLM Control Center candidate — 2026-09-18

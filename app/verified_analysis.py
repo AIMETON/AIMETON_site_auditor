@@ -14,7 +14,10 @@ from app.identity_readiness import assess_identity_readiness, identity_release_b
 from app.search_gateway import SearchDiagnostics
 
 from app.adaptive_external_sources import collect_external_sources_adaptive
-from app.dadata_report_bridge import enrich_identity_with_dadata
+from app.dadata_report_bridge import (
+    enrich_identity_with_dadata,
+    enrich_identifier_candidates_with_dadata,
+)
 from app.evidence_source_projection import (
     collapse_source_ids,
     collapse_verified_evidence,
@@ -90,6 +93,67 @@ def _ordered_official_evidence(verified: list[IntelligenceSource]) -> list[tuple
         if parts:
             ordered.append((parent_id, "\n".join(text for _, _, text in parts)))
     return ordered
+
+
+def _all_first_party_identifier_candidates(
+    verified: list[IntelligenceSource],
+) -> list[tuple[str, str, bool]]:
+    """Collect every labelled checksum-valid identifier from first-party evidence.
+
+    Block-level evidence is authoritative when available: parent quotes are ignored
+    so a foreign identifier cannot regain target scope after entity triage.
+    Competing child relations are retained for DaData ownership enrichment.
+    """
+    grouped: dict[str, dict[str, list[tuple[int, int, str, bool]]]] = {}
+    for item in verified:
+        if item.source_class != "official" or not str(item.evidence_quote or "").strip():
+            continue
+        match = _EVIDENCE_CHILD_ID.match(str(item.id))
+        parent_id = match.group("parent") if match else str(item.id)
+        relation_match = _EVIDENCE_RELATION.search(str(item.verification_note or ""))
+        relation = relation_match.group(1) if relation_match else ""
+        target_scoped = relation not in _NON_TARGET_IDENTITY_RELATIONS
+        bucket = grouped.setdefault(parent_id, {"parent": [], "child": []})
+        if match:
+            bucket["child"].append(
+                (
+                    int(match.group("block")),
+                    int(match.group("offset")),
+                    str(item.evidence_quote),
+                    target_scoped,
+                )
+            )
+        else:
+            bucket["parent"].append((-1, -1, str(item.evidence_quote), target_scoped))
+
+    candidates: dict[tuple[str, str], bool] = {}
+    for bucket in grouped.values():
+        selected_parts = bucket["child"] or bucket["parent"]
+        by_scope: dict[bool, list[tuple[int, int, str]]] = {}
+        for block, offset, text, target_scoped in selected_parts:
+            by_scope.setdefault(target_scoped, []).append((block, offset, text))
+        for target_scoped, parts in by_scope.items():
+            text = "\n".join(value for _, _, value in sorted(parts))
+            compact = " ".join(text.split())
+            for scheme, pattern in (
+                ("inn", r"\bИНН\s*[:№]?\s*(\d{10}|\d{12})\b"),
+                ("ogrn", r"\bОГРН(?:ИП)?\s*[:№]?\s*(\d{13}|\d{15})\b"),
+            ):
+                for raw in re.findall(pattern, compact, flags=re.IGNORECASE):
+                    label = "ИНН" if scheme == "inn" else "ОГРН"
+                    guarded = guard_identity_anchors(
+                        extract_identity_anchors(f"{label} {raw}", None),
+                        f"{label} {raw}",
+                    )
+                    value = guarded.inn if scheme == "inn" else guarded.ogrn
+                    if not value:
+                        continue
+                    key = (scheme, value)
+                    candidates[key] = candidates.get(key, False) or target_scoped
+    return [
+        (scheme, value, target_scoped)
+        for (scheme, value), target_scoped in candidates.items()
+    ]
 
 
 def _deterministic_official_identity_facts(
@@ -227,9 +291,12 @@ async def _run_verified_enriched_site_analysis(
         result.research_status = {**current_research().snapshot(), "stage": "stopped_partial"}
         return result
     company_hint = title.split("—")[0].split("|")[0].strip() or _host(url)
-    anchors = guard_identity_anchors(extract_identity_anchors(text, url), text)
+    first_party_anchors = guard_identity_anchors(extract_identity_anchors(text, url), text)
     anchors, dadata_result, dadata_facts, dadata_notes = await enrich_identity_with_dadata(
-        anchors
+        first_party_anchors
+    )
+    dadata_identifier_candidates_checked = (
+        1 if (first_party_anchors.inn or first_party_anchors.ogrn) and dadata_result is not None else 0
     )
 
     full_plan = research_queries if research_queries is not None else query_plan(company_hint, anchors=anchors)
@@ -292,25 +359,79 @@ async def _run_verified_enriched_site_analysis(
         include_official=True,
     )
 
-    # Requisites may only occur on a discovered first-party subpage. Rebuild
-    # evidence in document/block order because real HTML may split "ИНН:" / "ОГРН:"
-    # labels from their numeric values.
-    if not anchors.inn and not anchors.ogrn and not (current_research() and current_research().stop_requested):
+    # Requisites may occur on any discovered first-party page, and a single site
+    # may legitimately mention several legal entities. Collect every checksum-valid
+    # labelled candidate first, let DaData enrich all of them, then decide ownership.
+    if not (current_research() and current_research().stop_requested):
         official_text = "\n".join(text for _, text in _ordered_official_evidence(verified))
-        discovered = guard_identity_anchors(extract_identity_anchors(official_text, url), official_text)
-        if discovered.inn or discovered.ogrn:
-            anchors, dadata_result, dadata_facts, follow_notes = await enrich_identity_with_dadata(discovered)
-            dadata_notes.extend(follow_notes)
-            identifier = anchors.inn or anchors.ogrn
+        discovered = guard_identity_anchors(
+            extract_identity_anchors(official_text, url),
+            official_text,
+        )
+
+        candidate_map: dict[tuple[str, str], bool] = {
+            (scheme, value): target_scoped
+            for scheme, value, target_scoped in _all_first_party_identifier_candidates(verified)
+        }
+        for scheme, value in (
+            ("inn", first_party_anchors.inn),
+            ("ogrn", first_party_anchors.ogrn),
+            ("inn", discovered.inn),
+            ("ogrn", discovered.ogrn),
+        ):
+            if value:
+                candidate_map[(scheme, value)] = True
+
+        candidates = [
+            (scheme, value, target_scoped)
+            for (scheme, value), target_scoped in candidate_map.items()
+        ]
+        batch_winner = False
+        if candidates:
+            (
+                batch_anchors,
+                batch_result,
+                batch_facts,
+                batch_notes,
+                checked_count,
+            ) = await enrich_identifier_candidates_with_dadata(
+                first_party_anchors,
+                candidates,
+                company_hint=company_hint,
+            )
+            dadata_identifier_candidates_checked = checked_count
+            dadata_notes.extend(batch_notes)
+            if batch_result is not None:
+                dadata_result = batch_result
+            # Batch output supersedes the earlier single-candidate mirror facts:
+            # ownership has now been assessed against the complete first-party set.
+            dadata_facts = batch_facts
+            if batch_facts and (batch_anchors.inn or batch_anchors.ogrn):
+                anchors = batch_anchors
+                batch_winner = True
+
+        followup_identifier = (
+            (anchors.inn or anchors.ogrn)
+            if batch_winner
+            else (discovered.inn or discovered.ogrn)
+        )
+        if followup_identifier:
+            # Registry/finance discovery remains independent of DaData authority.
+            # If DaData is unavailable or ownership is still provisional, a
+            # deterministic target-scoped identifier can still seek authority evidence.
             follow_plan = [
-                ("registry", f'"{identifier}" site:egrul.nalog.ru'),
-                ("finance", f'"{identifier}" site:bo.nalog.ru'),
-                ("registry", f'"{identifier}" реквизиты филиалы'),
+                ("registry", f'"{followup_identifier}" site:egrul.nalog.ru'),
+                ("finance", f'"{followup_identifier}" site:bo.nalog.ru'),
+                ("registry", f'"{followup_identifier}" реквизиты филиалы'),
             ]
             attempted_queries.extend(follow_plan)
             try:
                 more, more_notes, more_diagnostics = await collect_external_sources_adaptive(
-                    company_hint, url, max_sources=None if deep else 12, anchors=anchors, query_overrides=follow_plan,
+                    company_hint,
+                    url,
+                    max_sources=None if deep else 12,
+                    anchors=anchors,
+                    query_overrides=follow_plan,
                 )
                 more, follow_triage = await triage_search_candidates(
                     more,
@@ -320,19 +441,26 @@ async def _run_verified_enriched_site_analysis(
                 )
                 more = _append_unique_wave_sources(external_sources, more, prefix="R")
                 more_verified = await verify_external_sources(
-                    more, company_name=company_hint, anchors=anchors, max_documents=None if deep else 8,
-                    preserve_blocks=deep, timeout_seconds=25,
+                    more,
+                    company_name=company_hint,
+                    anchors=anchors,
+                    max_documents=None if deep else 8,
+                    preserve_blocks=deep,
+                    timeout_seconds=25,
                 )
                 verified.extend(more_verified)
                 notes.extend(more_notes)
                 notes.append(
                     "Fast registry follow-up triage: "
-                    f"total={follow_triage.total}, selected={follow_triage.selected}, rejected={follow_triage.rejected}."
+                    f"total={follow_triage.total}, selected={follow_triage.selected}, "
+                    f"rejected={follow_triage.rejected}."
                 )
                 diagnostics = SearchDiagnostics.aggregate([diagnostics, more_diagnostics])
                 search_triage = _merge_search_triage(search_triage, follow_triage)
             except Exception as exc:
-                notes.append(f"Уточняющая проверка реквизитов не завершена ({type(exc).__name__}).")
+                notes.append(
+                    f"Уточняющая проверка реквизитов не завершена ({type(exc).__name__})."
+                )
 
     coverage = assess_coverage(
         verified,
@@ -662,6 +790,7 @@ async def _run_verified_enriched_site_analysis(
         "identity_authoritative_inn_count": len(identity.authoritative_identifiers["inn"]),
         "identity_authoritative_ogrn_count": len(identity.authoritative_identifiers["ogrn"]),
         "deterministic_first_party_identifier_count": len(deterministic_identity_facts),
+        "dadata_identifier_candidates_checked": dadata_identifier_candidates_checked,
     }
     if current_research():
         analysis.research_status.update(current_research().snapshot())
