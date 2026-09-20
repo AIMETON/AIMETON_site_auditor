@@ -182,7 +182,9 @@ async def test_multi_candidate_resolution_keeps_identity_provisional_on_tie(monk
     )
     assert checked == 2
     assert updated == anchors
-    assert result is None
+    assert result is not None
+    assert result.state is RegistryMirrorState.CONFLICTING
+    assert "ambiguous_target_ownership" in result.conflicts
     assert facts == []
     assert any("ambiguous" in note for note in notes)
 
