@@ -309,3 +309,37 @@ def test_split_assembly_caps_unsupported_priority_claim_and_surfaces_blocker() -
     assert result.commercial_opportunity.qualification == "Перспективная"
     assert result.research_status["commercial_support_state"] == "unsupported"
     assert "commercial_claim_support_insufficient" in result.readiness.release_blockers
+
+
+def test_split_assembly_drops_relationship_fact_after_unknown_source_is_pruned() -> None:
+    profile = _profile().model_copy(deep=True)
+    profile.company_facts.extend([
+        CompanyFact(
+            field="executives",
+            value="Unsourced executive after normalization",
+            source_ids=["GHOST"],
+        ),
+        CompanyFact(
+            field="products",
+            value="Unsourced product after normalization",
+            source_ids=["GHOST"],
+        ),
+    ])
+
+    result = split._assemble_site_analysis(
+        url="https://example.com",
+        title="Example",
+        text="Official text",
+        external_sources=[],
+        profile=profile,
+        km=split.BusinessMachineSynthesis(),
+        commercial=_commercial(),
+        accessed_at="2026-08-16T00:00:00+00:00",
+    )
+
+    assert all(fact.field != "executives" for fact in result.company_facts)
+    assert any(
+        fact.field == "products" and fact.value == "Unsourced product after normalization"
+        for fact in result.company_facts
+    )
+    assert result.research_status["post_assembly_relation_facts_rejected"] == 1

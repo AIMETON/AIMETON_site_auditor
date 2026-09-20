@@ -19,6 +19,7 @@ from app.commercial_support import assess_commercial_support, enforce_commercial
 from app.evidence_freshness import assess_source_freshness
 from app.fact_conflicts import assess_financial_conflicts
 from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
+from app.profile_consolidation import filter_relation_facts_with_provenance
 from app.models import (
     ActionPackage,
     AgentRecommendation,
@@ -372,6 +373,9 @@ def _assemble_site_analysis(
 
     for fact in profile.company_facts:
         fact.source_ids = [source_id for source_id in fact.source_ids if source_id in known_ids]
+    profile.company_facts, post_assembly_relation_facts_rejected = (
+        filter_relation_facts_with_provenance(profile.company_facts)
+    )
     for signal in profile.economic_signals:
         signal.source_ids = [source_id for source_id in signal.source_ids if source_id in known_ids]
     for cell in km_cells:
@@ -395,6 +399,7 @@ def _assemble_site_analysis(
     return SiteAnalysis(
         research_status={
             "extraction_input_coverage_complete": bool(getattr(profile, "coverage", {}).get("complete", False)),
+            "post_assembly_relation_facts_rejected": post_assembly_relation_facts_rejected,
             "commercial_support_state": commercial_support.state,
             "commercial_support_direct_sources": commercial_support.direct_support_count,
             "commercial_support_terms": ",".join(commercial_support.matched_terms),
