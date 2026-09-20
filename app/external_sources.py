@@ -37,6 +37,9 @@ HOST_CLASSES: dict[str, set[str]] = {
 }
 
 NEWS_MARKERS = ("news", "vedomosti", "kommersant", "rbc.ru", "tass.ru", "ria.ru", "interfax", "ngs.ru")
+_LLM_CHILD_ID = re.compile(r"^(?P<parent>.+)-b\\d+-\\d+$")
+_LLM_GROUP_SNIPPET_CHARS = 16_000
+
 RESULT_MARKERS: list[tuple[SourceKind, tuple[str, ...]]] = [
     ("jobs", ("ваканс", "работодатель", "карьера", "работа в компании")),
     ("court", ("суд", "иск", "решение суда", "судебн")),
@@ -307,12 +310,14 @@ class LlmSourceProjectionStats:
     input_records: int
     output_records: int
     duplicate_official_quotes_removed: int
+    official_child_records_collapsed: int
 
     def safe_dict(self) -> dict[str, int]:
         return {
             "input_records": self.input_records,
             "output_records": self.output_records,
             "duplicate_official_quotes_removed": self.duplicate_official_quotes_removed,
+            "official_child_records_collapsed": self.official_child_records_collapsed,
         }
 
 
@@ -349,30 +354,76 @@ def project_llm_sources(
 ) -> tuple[list[dict], LlmSourceProjectionStats]:
     """Build a compact model-only source projection without mutating evidence.
 
-    Repeated first-party chrome is frequently retained on several official pages.
-    It remains in the persistent/public evidence ledger, but an identical normalized
-    quote only needs to be shown once per semantic query_kind to the extractor.
-    Independent external sources are never collapsed here.
+    The persistent evidence ledger keeps every retained locatable child block. For
+    extraction, first-party child records from the same fetched document and semantic
+    query kind are packed into bounded text groups under the stable parent source id.
+    This preserves every unique retained quote while avoiding hundreds of transport
+    records that differ only by child id/locator metadata. Independent external
+    sources are never grouped.
     """
     projected: list[dict] = []
     seen_official_quotes: set[tuple[str, str]] = set()
+    grouped_children: dict[tuple[str, str], list[tuple[IntelligenceSource, str]]] = {}
+    group_order: list[tuple[str, str]] = []
     removed = 0
+    grouped_input_records = 0
 
     for source in sources:
+        quote_raw = str(source.evidence_quote or "")
+        quote = " ".join(quote_raw.split()).strip()
         if source.lifecycle_state == "evidence" and source.source_class == "official":
-            quote = " ".join(str(source.evidence_quote or "").split()).strip().casefold()
             if quote:
-                key = (str(source.query_kind or "unknown"), quote)
+                key = (str(source.query_kind or "unknown"), quote.casefold())
                 if key in seen_official_quotes:
                     removed += 1
                     continue
                 seen_official_quotes.add(key)
+            child = _LLM_CHILD_ID.match(source.id)
+            if child is not None and quote:
+                group_key = (child.group("parent"), str(source.query_kind or "unknown"))
+                if group_key not in grouped_children:
+                    grouped_children[group_key] = []
+                    group_order.append(group_key)
+                grouped_children[group_key].append((source, quote))
+                grouped_input_records += 1
+                continue
         projected.append(_llm_source_payload(source))
+
+    grouped_output_records = 0
+    for parent_id, query_kind in group_order:
+        items = grouped_children[(parent_id, query_kind)]
+        template = items[0][0]
+        current: list[str] = []
+        current_chars = 0
+
+        def flush() -> None:
+            nonlocal current, current_chars, grouped_output_records
+            if not current:
+                return
+            payload = _llm_source_payload(template)
+            payload["id"] = parent_id
+            payload["snippet"] = "\n\n".join(current)
+            payload["evidence_quote"] = payload["snippet"]
+            payload["evidence_locator"] = None
+            payload["evidence_digest"] = None
+            projected.append(payload)
+            grouped_output_records += 1
+            current = []
+            current_chars = 0
+
+        for _, child_quote in items:
+            added = len(child_quote) + (2 if current else 0)
+            if current and current_chars + added > _LLM_GROUP_SNIPPET_CHARS:
+                flush()
+            current.append(child_quote)
+            current_chars += added
+        flush()
 
     return projected, LlmSourceProjectionStats(
         input_records=len(sources),
         output_records=len(projected),
         duplicate_official_quotes_removed=removed,
+        official_child_records_collapsed=max(0, grouped_input_records - grouped_output_records),
     )
 
 
