@@ -44,21 +44,35 @@ jobs:
       persistence_run_id: ${{ steps.resolve.outputs.persistence_run_id }}
       auth_guard_run_id: ${{ steps.resolve.outputs.auth_guard_run_id }}
     steps:
-      - name: Materialize convergence resolver without marketplace actions
+      - name: Materialize convergence resolver with local reuse and bounded retry
         shell: bash
         env:
           TARGET_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
           cd "$GITHUB_WORKSPACE"
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-convergence-resolver-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          if [[ ! -d .git ]]; then
-            git init
+          if [[ ! -d .git ]]; then git init; fi
+          if git cat-file -e "${TARGET_SHA}^{commit}" 2>/dev/null; then
+            echo "Reusing locally available exact commit $TARGET_SHA"
+            git checkout --detach --force "$TARGET_SHA"
+          else
+            git remote remove origin 2>/dev/null || true
+            git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            trap 'git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git" 2>/dev/null || true' EXIT
+            fetched=false
+            for attempt in 1 2 3 4 5; do
+              if git fetch --no-tags --depth=1 origin "$TARGET_SHA"; then fetched=true; break; fi
+              test "$attempt" -lt 5
+              sleep $(( attempt * attempt + 1 ))
+            done
+            test "$fetched" = true
+            git checkout --detach --force FETCH_HEAD
+            git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+            trap - EXIT
           fi
-          git remote remove origin 2>/dev/null || true
-          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --no-tags --depth=1 origin "$TARGET_SHA"
-          git checkout --detach --force FETCH_HEAD
           git reset --hard "$TARGET_SHA"
           git clean -ffdx
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"
@@ -86,10 +100,11 @@ jobs:
     environment: stage
     timeout-minutes: 10
     steps:
-      - name: Materialize exact deployed convergence tooling without marketplace actions
+      - name: Materialize exact deployed convergence tooling with local reuse and bounded retry
         shell: bash
         env:
           EXPECTED_SHA: ${{ needs.resolve-gates.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
           cd "$STACK_DIR"
@@ -97,14 +112,27 @@ jobs:
           test "$(cat app-source-sha.txt)" = "$EXPECTED_SHA"
 
           cd "$GITHUB_WORKSPACE"
+          export GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-convergence-publish-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          if [[ ! -d .git ]]; then
-            git init
+          if [[ ! -d .git ]]; then git init; fi
+          if git cat-file -e "${EXPECTED_SHA}^{commit}" 2>/dev/null; then
+            echo "Reusing locally available exact commit $EXPECTED_SHA"
+            git checkout --detach --force "$EXPECTED_SHA"
+          else
+            git remote remove origin 2>/dev/null || true
+            git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            trap 'git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git" 2>/dev/null || true' EXIT
+            fetched=false
+            for attempt in 1 2 3 4 5; do
+              if git fetch --no-tags --depth=1 origin "$EXPECTED_SHA"; then fetched=true; break; fi
+              test "$attempt" -lt 5
+              sleep $(( attempt * attempt + 1 ))
+            done
+            test "$fetched" = true
+            git checkout --detach --force FETCH_HEAD
+            git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+            trap - EXIT
           fi
-          git remote remove origin 2>/dev/null || true
-          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --no-tags --depth=1 origin "$EXPECTED_SHA"
-          git checkout --detach --force FETCH_HEAD
           git reset --hard "$EXPECTED_SHA"
           git clean -ffdx
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
