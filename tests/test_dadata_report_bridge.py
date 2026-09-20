@@ -185,3 +185,37 @@ async def test_multi_candidate_resolution_keeps_identity_provisional_on_tie(monk
     assert result is None
     assert facts == []
     assert any("ambiguous" in note for note in notes)
+
+
+
+@pytest.mark.asyncio
+async def test_inn_and_ogrn_for_same_entity_reinforce_instead_of_tie(monkeypatch):
+    record = _record().model_copy(
+        update={"legal_name": 'ООО "АЛЬФА ДЕНТ"', "short_name": "АЛЬФА ДЕНТ"}
+    )
+    class FakeProvider:
+        def lookup(self, query: str):
+            return DaDataLookupResult(
+                state=RegistryMirrorState.VERIFIED,
+                query=query,
+                records=[record],
+                authority_verified=False,
+            )
+    monkeypatch.setattr(
+        "app.dadata_report_bridge.get_dadata_registry_mirror_provider",
+        lambda: FakeProvider(),
+    )
+    anchors = IdentityAnchors(domain="example.org")
+    updated, result, facts, notes, checked = await enrich_identifier_candidates_with_dadata(
+        anchors,
+        [
+            ("inn", "7707083893", True),
+            ("ogrn", "1027700132195", True),
+        ],
+        company_hint="Альфа Дент",
+    )
+    assert checked == 2
+    assert result is not None
+    assert updated.inn == "7707083893"
+    assert updated.ogrn == "1027700132195"
+    assert any("target candidate selected" in note for note in notes)
