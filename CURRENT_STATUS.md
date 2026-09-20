@@ -1,3 +1,11 @@
+## Stage materialization resilience follow-up — 2026-09-20
+
+Main-server telemetry is now available machine-to-machine through the canonical AIMETON Operations Board live readback. The authoritative local snapshot is `/var/lib/aimeton/operations-board/snapshot.json`, served read-only at `http://localhost:8787/snapshot.json`; command route `/read-operations-board-live <infra-main-sha>` on infrastructure issue #419 produced successful readback run `35497554264` with overall GREEN, 12/12 runners online, queue=0, offline=0, unknown=0.
+
+That telemetry disproved runner-capacity explanations for the current Stage failures. Deploy of Site Auditor SHA `8b2ddd2409901b125fde4d76d2ed6c1c3f71cd67` succeeded on attempt 3, while DaData, persistence and convergence gates failed independently on single-shot `git fetch` calls to github.com. Live Stage itself reported the exact deployed bundle healthy and DaData runtime state active.
+
+Active correction `fix/stage-materialization-bounded-retry` applies the already-canonical infrastructure materialization pattern to Stage workflows: reuse an already-present exact commit when available, otherwise perform up to five authenticated bounded fetch attempts, then require exact `git rev-parse HEAD` equality. A regression test protects this contract across deploy, DaData, persistence, auth and convergence workflows.
+
 ## DaData compact legal-name matching follow-up — 2026-09-20
 
 Exact-SHA live regression on `d86b688a042b4cf0307c943876bb90434e67e95f` proved that first-party registry candidate retention now works: `dadata_identifier_candidates_checked=2`, and DaData returned one verified registry-mirror record for INN `2462215501` and OGRN `1112468013030`. The remaining identity blocker is downstream ownership scoring, not candidate discovery or provider availability.
