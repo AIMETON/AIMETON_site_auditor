@@ -167,7 +167,7 @@ _ALL_ROUTED_KINDS = (
     | _SIGNAL_KINDS
 )
 _SLICE_SOURCE_KEYS = (
-    "id", "query_kind", "source_class", "evidence_level", "snippet",
+    "id", "query_kind", "source_class", "evidence_level", "snippet", "url",
 )
 
 # Broad profile slices inspect every official-site chunk. Narrow slices inspect only
