@@ -119,11 +119,9 @@ def _candidate_match_score(
     target_scoped: bool,
 ) -> int:
     score = 0
-    if query in {
-        str(getattr(anchors, "inn", "") or ""),
-        str(getattr(anchors, "ogrn", "") or ""),
-    }:
-        score += 8
+    # Candidate identifiers extracted from the same site are hypotheses, not
+    # pre-trusted identity. Do not let an earlier first-match extractor make
+    # itself the winner merely by being present in anchors.
     if target_scoped:
         score += 2
 
