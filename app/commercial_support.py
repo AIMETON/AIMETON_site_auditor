@@ -75,6 +75,45 @@ def _source_text(source: EvidenceSource) -> str:
     return " ".join(str(item or "") for item in parts)
 
 
+def _inferred_cited_source_ids(
+    opportunity: CommercialOpportunity,
+    *,
+    facts: Iterable[CompanyFact],
+    signals: Iterable[EconomicSignal],
+    source_by_id: dict[str, EvidenceSource],
+) -> tuple[str, ...]:
+    """Recover omitted citations only from already-sourced records supporting the claim.
+
+    This is deliberately narrower than semantic search: a fact/signal must share at
+    least two meaningful claim terms (or a numeric term), and every recovered id must
+    already resolve to an evidence source. Explicit model citations are never replaced.
+    """
+    claim_terms = _terms(opportunity.problem_hypothesis)
+    if not claim_terms:
+        return ()
+
+    recovered: list[str] = []
+
+    def consider(text: str, source_ids: Iterable[str]) -> None:
+        overlap = claim_terms & _terms(text)
+        numeric_overlap = {item for item in overlap if item.isdigit()}
+        if len(overlap) < 2 and not numeric_overlap and not (len(claim_terms) <= 2 and overlap):
+            return
+        for raw_source_id in source_ids:
+            source_id = _parent_id(str(raw_source_id))
+            if source_id in source_by_id and source_id not in recovered:
+                recovered.append(source_id)
+
+    for fact in facts:
+        consider(f"{fact.field} {fact.value} {fact.note}", fact.source_ids)
+    for signal in signals:
+        consider(
+            f"{signal.signal} {signal.evidence} {signal.business_effect}",
+            signal.source_ids,
+        )
+    return tuple(recovered)
+
+
 def _metric_claim_keys(value: str) -> set[str]:
     result: set[str] = set()
     for match in _METRIC_CLAIM.finditer(str(value or "")):
@@ -117,6 +156,13 @@ def assess_commercial_support(
         for source_id in opportunity.source_ids
         if _parent_id(source_id) in source_by_id
     ))
+    if not opportunity.source_ids:
+        cited = _inferred_cited_source_ids(
+            opportunity,
+            facts=facts,
+            signals=signals,
+            source_by_id=source_by_id,
+        )
     expected_value_metrics = _metric_claim_keys(opportunity.expected_value)
     direct_metric_keys: set[str] = set()
     for source_id in cited:
@@ -175,6 +221,8 @@ def enforce_commercial_support(
 ) -> CommercialOpportunity:
     """Enforce direct support for priority and reject invented quantitative KPI claims."""
     updates: dict[str, object] = {}
+    if not opportunity.source_ids and assessment.cited_source_ids:
+        updates["source_ids"] = list(assessment.cited_source_ids)
     if opportunity.score >= 80 and assessment.state != "supported":
         qualification = opportunity.qualification
         if qualification == "Приоритетная":
