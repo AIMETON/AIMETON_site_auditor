@@ -89,6 +89,17 @@ def _is_placeholder(value: str) -> bool:
     return bool(_PLACEHOLDER.fullmatch(_clean_text(value)))
 
 
+def filter_supported_relation_facts(
+    facts: list[CompanyFact],
+) -> tuple[list[CompanyFact], int]:
+    """Fail closed for relationship claims that have no surviving provenance."""
+    kept = [
+        fact for fact in facts
+        if not (fact.field in _SOURCE_REQUIRED_RELATION_FIELDS and not fact.source_ids)
+    ]
+    return kept, len(facts) - len(kept)
+
+
 def _is_low_information_other(fact: CompanyFact) -> bool:
     """Reject orphan monetary values that have no business object attached.
 
@@ -279,14 +290,9 @@ def consolidate_merged_profile(merged, *, external_sources: list[dict[str, Any]]
     placeholders, merges formatting-equivalent facts and rejects sensitive facts
     whose known provenance is only publisher/competitor/mentioned-only evidence.
     """
-    no_source_relation_rejected = sum(
-        fact.field in _SOURCE_REQUIRED_RELATION_FIELDS and not fact.source_ids
-        for fact in merged.company_facts
+    relation_supported, no_source_relation_rejected = filter_supported_relation_facts(
+        merged.company_facts
     )
-    relation_supported = [
-        fact for fact in merged.company_facts
-        if not (fact.field in _SOURCE_REQUIRED_RELATION_FIELDS and not fact.source_ids)
-    ]
     filtered_facts = [
         fact for fact in relation_supported
         if not _is_low_information_other(fact)
