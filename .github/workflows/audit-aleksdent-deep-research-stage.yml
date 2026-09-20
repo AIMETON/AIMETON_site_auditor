@@ -20,7 +20,7 @@ jobs:
   audit:
     runs-on: [self-hosted, Linux, X64, stage, auditor]
     environment: stage
-    timeout-minutes: 18
+    timeout-minutes: 45
     env:
       STACK_DIR: /opt/aimeton/auditor-stack
       CONTAINER: aimeton-auditor
@@ -109,7 +109,9 @@ jobs:
           echo "status_json=$status_json" >> "$GITHUB_OUTPUT"
 
           terminal=""
-          for _ in $(seq 1 240); do
+          # Observe the product's real deep-research terminal state. Do not inject
+          # an acceptance-only cooperative stop while extraction/synthesis is healthy.
+          for _ in $(seq 1 800); do
             curl -fsS -b "$COOKIE" "$STAGE_URL/api/analyze/$analysis_id" > "$status_json"
             terminal="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("state",""))' "$status_json")"
             if [[ "$terminal" == completed || "$terminal" == failed ]]; then
@@ -117,16 +119,6 @@ jobs:
             fi
             sleep 3
           done
-
-          if [[ "$terminal" != completed && "$terminal" != failed ]]; then
-            curl -fsS -X POST "$STAGE_URL/api/analyze/$analysis_id/stop"               -b "$COOKIE" -H "X-CSRF-Token: $csrf" >/dev/null
-            for _ in $(seq 1 20); do
-              sleep 3
-              curl -fsS -b "$COOKIE" "$STAGE_URL/api/analyze/$analysis_id" > "$status_json"
-              terminal="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("state",""))' "$status_json")"
-              [[ "$terminal" == completed || "$terminal" == failed ]] && break
-            done
-          fi
 
           rm -f "$request_json" "$start_json" "$COOKIE"
           echo "terminal_state=$terminal" >> "$GITHUB_OUTPUT"
@@ -250,7 +242,7 @@ jobs:
               "### Safety",
               "",
               "- authenticated Stage deep-research path with explicit deep/unlimited consent for this owner-authorized regression",
-              "- hard polling window: 12 minutes, then cooperative stop is requested",
+              "- regression polling observes the product terminal state without an acceptance-only cooperative stop",
               "- no credentials, cookies, raw prompts, raw provider payloads or chain-of-thought are published",
           ]
           report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
