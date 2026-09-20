@@ -91,10 +91,10 @@ async def test_multi_candidate_resolution_checks_all_and_selects_unique_target(m
         id="dadata_party_other",
         accessed_at=datetime.now(UTC),
         response_digest="sha256:" + "b" * 64,
-        query="7811111111",
+        query="7811111113",
         legal_name='ООО "ПАРТНЕР СЕРВИС"',
         short_name="ПАРТНЕР СЕРВИС",
-        inn="7811111111",
+        inn="7811111113",
         kpp="781101001",
         ogrn="1027800000000",
         entity_type="LEGAL",
@@ -123,12 +123,12 @@ async def test_multi_candidate_resolution_checks_all_and_selects_unique_target(m
         anchors,
         [
             ("inn", "7707083893", True),
-            ("inn", "7811111111", False),
+            ("inn", "7811111113", False),
         ],
         company_hint="Альфа Дент — стоматология",
     )
     assert checked == 2
-    assert calls == ["7707083893", "7811111111"]
+    assert calls == ["7707083893", "7811111113"]
     assert result is not None
     assert updated.inn == "7707083893"
     assert updated.legal_name == 'ООО "АЛЬФА ДЕНТ"'
@@ -157,7 +157,7 @@ async def test_multi_candidate_resolution_keeps_identity_provisional_on_tie(monk
         )
     records = {
         "7707083893": make_record("7707083893", "a"),
-        "7811111111": make_record("7811111111", "b"),
+        "7811111113": make_record("7811111113", "b"),
     }
     class FakeProvider:
         def lookup(self, query: str):
@@ -176,7 +176,7 @@ async def test_multi_candidate_resolution_keeps_identity_provisional_on_tie(monk
         anchors,
         [
             ("inn", "7707083893", False),
-            ("inn", "7811111111", False),
+            ("inn", "7811111113", False),
         ],
         company_hint="Альфа",
     )
