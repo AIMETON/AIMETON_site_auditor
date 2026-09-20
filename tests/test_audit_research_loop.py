@@ -201,6 +201,7 @@ async def test_audit_passes_only_verified_evidence_to_llm(monkeypatch):
 async def test_large_input_uses_full_split_even_when_small_input_monolith_is_selected(monkeypatch):
     from app import routerai_runtime as runtime
     monkeypatch.setenv("ROUTERAI_SPLIT_SYNTHESIS", "false")
+    monkeypatch.setenv("AIMETON_COMPILED_TWO_CALL", "false")
     async def forbidden(*args):
         raise AssertionError("Provider must not receive prefix-cut input")
     monkeypatch.setattr(runtime, "analyze_with_routerai", forbidden)
