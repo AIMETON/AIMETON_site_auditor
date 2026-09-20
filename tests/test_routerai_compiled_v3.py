@@ -140,7 +140,7 @@ async def test_compiled_analysis_uses_exactly_two_core_llm_calls(monkeypatch) ->
     )
 
     assert phases == [
-        "compiled_profile_extraction",
+        "profile_compiled_extraction",
         "compiled_business_commercial_synthesis",
     ]
     assert result.research_status["analysis_orchestration"] == "compiled_v3_two_call"
