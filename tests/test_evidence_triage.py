@@ -15,6 +15,7 @@ from app.evidence_triage import (
 )
 from app.external_sources import IdentityAnchors
 from app.models import IntelligenceSource
+from app.research_control import ResearchControl, bind_research
 from app.search_result_triage import SearchCandidateDecision, SearchTriageResponse, triage_search_candidates
 
 
@@ -159,3 +160,29 @@ async def test_large_document_preflight_uses_fast_classifier_by_default(monkeypa
     result = await screen_document(fetched, company_name="Company", anchors=IdentityAnchors())
     assert result.decision == "include"
     assert called == ["document_preflight"]
+
+
+@pytest.mark.asyncio
+async def test_compiled_deep_large_document_preflight_uses_no_llm(monkeypatch):
+    monkeypatch.setenv("AIMETON_COMPILED_TWO_CALL", "1")
+    monkeypatch.setenv("AIMETON_MINIMAL_LLM_ROUTING", "1")
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("preflight LLM must not run")
+
+    fetched = NS(
+        normalized_text="x" * 50_000,
+        blocks=[NS(text="Company", kind="heading")],
+        document=NS(title="Company"),
+    )
+    with bind_research(ResearchControl(deep=True)):
+        result = await screen_document(
+            fetched,
+            company_name="Company",
+            anchors=IdentityAnchors(),
+            request_json=forbidden,
+        )
+
+    assert result.decision == "include"
+    assert result.reason == "compiled_deep_no_llm_preflight"
+    assert result.passes == 0
