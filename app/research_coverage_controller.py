@@ -5,7 +5,7 @@ from typing import Iterable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.analysis_mode import compiled_two_call_enabled, minimal_llm_routing_enabled
+from app.analysis_mode import compiled_two_call_enabled, focused_multipass_enabled, minimal_llm_routing_enabled
 from app.evidence_source_projection import evidence_parent_id
 from app.research_control import deep_research_enabled
 from app.external_sources import IdentityAnchors
@@ -344,7 +344,7 @@ async def optional_wave(
 
     if (
         deep_research_enabled()
-        and compiled_two_call_enabled()
+        and (focused_multipass_enabled() or compiled_two_call_enabled())
         and minimal_llm_routing_enabled()
     ):
         return WaveSelection(

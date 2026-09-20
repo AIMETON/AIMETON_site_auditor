@@ -1,7 +1,7 @@
 import pytest
 
 from app.models import CompanyFact, EconomicSignal
-from app.profile_consolidation import consolidate_facts, consolidate_merged_profile, consolidate_signals
+from app.profile_consolidation import validate_llm_merged_profile, consolidate_facts, consolidate_merged_profile, consolidate_signals
 from app.routerai_evidence_units import EvidenceCoverage
 from app.routerai_profile_extraction import MergedProfileExtraction
 
@@ -200,3 +200,46 @@ def test_merged_profile_rejects_relation_facts_without_source_ids():
         ("products", "Service without provenance"),
     ]
     assert stats.unsupported_relation_facts_rejected == 3
+
+
+def test_validation_only_guard_does_not_semantically_merge_product_variants():
+    coverage = EvidenceCoverage(
+        official_chars_total=100,
+        official_chunks_total=1,
+        official_chunks_processed=1,
+        sources_total=0,
+        sources_processed=0,
+        source_chunks_total=0,
+        source_chunks_processed=0,
+        extraction_units_total=4,
+        extraction_units_processed=4,
+        complete=True,
+    )
+    merged = MergedProfileExtraction(
+        company_name="Example",
+        business_summary="Example",
+        evidence=[],
+        company_facts=[
+            CompanyFact(
+                field="products",
+                value="Имплантация под ключ — от 69 000 ₽",
+                source_ids=["S1"],
+            ),
+            CompanyFact(
+                field="products",
+                value="Имплантация под ключ — 72 000 руб.",
+                source_ids=["S1"],
+            ),
+        ],
+        economic_signals=[],
+        risks_and_assumptions=[],
+        coverage=coverage,
+    )
+
+    clean, stats = validate_llm_merged_profile(merged, external_sources=[])
+
+    assert [fact.value for fact in clean.company_facts] == [
+        "Имплантация под ключ — от 69 000 ₽",
+        "Имплантация под ключ — 72 000 руб.",
+    ]
+    assert stats.semantic_duplicates_merged == 0

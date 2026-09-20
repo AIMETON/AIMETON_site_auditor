@@ -340,3 +340,114 @@ def consolidate_merged_profile(merged, *, external_sources: list[dict[str, Any]]
         economic_signals=signals,
         risks_and_assumptions=risks,
     ), stats
+
+
+
+def validate_llm_merged_profile(merged, *, external_sources: list[dict[str, Any]]):
+    """Validate an LLM-merged profile without doing domain-specific semantic compression.
+
+    v4 delegates semantic grouping/deduplication to the LLM merge pass. This guard only
+    removes invalid placeholders, unsupported relations, foreign-sensitive provenance,
+    orphan monetary values, and byte/whitespace-equivalent duplicates. Source ids are
+    collapsed to stable parent ids.
+    """
+    relations = _source_relations(external_sources)
+    kept: list[CompanyFact] = []
+    exact_index: dict[tuple[str, str, str], int] = {}
+    placeholders = 0
+    exact_duplicates = 0
+    foreign = 0
+    low_information_other_removed = 0
+    no_source_relation_rejected = 0
+
+    for fact in merged.company_facts:
+        if _is_placeholder(fact.value):
+            placeholders += 1
+            continue
+        if fact.field in _SOURCE_REQUIRED_RELATION_FIELDS and not fact.source_ids:
+            no_source_relation_rejected += 1
+            continue
+        if _foreign_only_sensitive_fact(fact, relations):
+            foreign += 1
+            continue
+        if _is_low_information_other(fact):
+            low_information_other_removed += 1
+            continue
+
+        normalized_sources = list(dict.fromkeys(
+            _parent_id(source_id)
+            for source_id in fact.source_ids
+        ))
+        normalized = fact.model_copy(update={"source_ids": normalized_sources})
+        key = (
+            fact.field,
+            _clean_text(fact.value).casefold(),
+            _clean_text(fact.period or "").casefold(),
+        )
+        existing_index = exact_index.get(key)
+        if existing_index is not None:
+            kept[existing_index] = _merge_fact(kept[existing_index], normalized)
+            exact_duplicates += 1
+            continue
+        exact_index[key] = len(kept)
+        kept.append(normalized)
+
+    signals: list[EconomicSignal] = []
+    seen_signals: set[tuple[str, str, str]] = set()
+    for signal in merged.economic_signals:
+        if _is_placeholder(signal.signal) or _is_placeholder(signal.evidence):
+            continue
+        key = (
+            _clean_text(signal.signal).casefold(),
+            _clean_text(signal.evidence).casefold(),
+            _clean_text(signal.business_effect).casefold(),
+        )
+        if key in seen_signals:
+            continue
+        seen_signals.add(key)
+        signals.append(signal.model_copy(update={
+            "source_ids": list(dict.fromkeys(
+                _parent_id(source_id)
+                for source_id in signal.source_ids
+            )),
+        }))
+
+    stats = ConsolidationStats(
+        input_facts=len(merged.company_facts),
+        output_facts=len(kept),
+        placeholders_removed=placeholders,
+        semantic_duplicates_merged=exact_duplicates,
+        foreign_sensitive_facts_rejected=foreign,
+        low_information_other_removed=low_information_other_removed,
+        input_signals=len(merged.economic_signals),
+        output_signals=len(signals),
+        product_facts_input=sum(fact.field == "products" for fact in merged.company_facts),
+        product_facts_output=sum(fact.field == "products" for fact in kept),
+        other_facts_input=sum(fact.field == "other" for fact in merged.company_facts),
+        other_facts_output=sum(fact.field == "other" for fact in kept),
+        unsupported_relation_facts_rejected=no_source_relation_rejected,
+    )
+    risks = list(merged.risks_and_assumptions)
+    if (
+        placeholders
+        or exact_duplicates
+        or foreign
+        or low_information_other_removed
+        or no_source_relation_rejected
+    ):
+        risks.append(
+            "Validation-only guard after LLM merge: "
+            f"placeholders={placeholders}, "
+            f"standalone_other_removed={low_information_other_removed}, "
+            f"unsupported_relations={no_source_relation_rejected}, "
+            f"exact_duplicates={exact_duplicates}, "
+            f"foreign_sensitive={foreign}."
+        )
+
+    return replace(
+        merged,
+        company_name=_canonical_company_name(merged.company_name, kept),
+        company_facts=kept,
+        economic_signals=signals,
+        risks_and_assumptions=risks,
+    ), stats
