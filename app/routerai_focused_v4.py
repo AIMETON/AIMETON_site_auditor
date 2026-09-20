@@ -11,7 +11,6 @@ from app.models import CompanyFact, EconomicSignal, SiteAnalysis
 from app.profile_consolidation import validate_llm_merged_profile
 from app.research_control import ResearchStopped, current_research
 from app.routerai_compiled_v3 import (
-    CompiledProfileResponse,
     CompiledSynthesisResponse,
     _synthesis_prompt,
     compile_company_context,
@@ -39,7 +38,7 @@ from app.compiled_context_ledger import persist_compiled_context
 
 
 class FocusedProfileSlice(BaseModel):
-    focus: str = Field(max_length=80)
+    focus: str = Field(default="", max_length=80)
     summary: str = Field(default="", max_length=700)
     company_facts: list[CompactCompanyFact] = Field(default_factory=list, max_length=70)
     economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=24)
