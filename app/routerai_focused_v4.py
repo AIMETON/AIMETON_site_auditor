@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -37,12 +37,54 @@ from app.routerai_strict_request import request_json_strict
 from app.compiled_context_ledger import persist_compiled_context
 
 
-class FocusedProfileSlice(BaseModel):
+class FocusedPassBase(BaseModel):
     focus: str = Field(default="", max_length=80)
-    summary: str = Field(default="", max_length=700)
-    company_facts: list[CompactCompanyFact] = Field(default_factory=list, max_length=70)
-    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=24)
-    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=16)
+    summary: str = Field(default="", max_length=520)
+    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=8)
+
+
+class IdentityFocusedFact(CompactCompanyFact):
+    field: Literal[
+        "legal_name", "brand_name", "inn", "ogrn", "registration_status",
+        "address", "phones", "emails", "website", "social_accounts", "geography",
+        "founders", "executives", "beneficial_owners", "affiliates",
+    ]
+
+
+class IdentityFocusedSlice(FocusedPassBase):
+    focus: Literal["identity_governance"] = "identity_governance"
+    company_facts: list[IdentityFocusedFact] = Field(default_factory=list, max_length=24)
+
+
+class OfferingsFocusedFact(CompactCompanyFact):
+    field: Literal["products", "customers", "suppliers", "geography", "other"]
+
+
+class OfferingsFocusedSlice(FocusedPassBase):
+    focus: Literal["offerings_customer_operations"] = "offerings_customer_operations"
+    company_facts: list[OfferingsFocusedFact] = Field(default_factory=list, max_length=32)
+    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=4)
+
+
+class EconomicsFocusedFact(CompactCompanyFact):
+    field: Literal["headcount", "revenue", "profit", "assets", "taxes", "other"]
+
+
+class EconomicsFocusedSlice(FocusedPassBase):
+    focus: Literal["economics_workforce_technology"] = "economics_workforce_technology"
+    company_facts: list[EconomicsFocusedFact] = Field(default_factory=list, max_length=28)
+    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=8)
+
+
+class SignalsFocusedFact(CompactCompanyFact):
+    field: Literal["other"]
+
+
+class SignalsFocusedSlice(FocusedPassBase):
+    focus: Literal["signals_risks_change"] = "signals_risks_change"
+    company_facts: list[SignalsFocusedFact] = Field(default_factory=list, max_length=8)
+    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=16)
+    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=10)
 
 
 class FocusedMergedProfileResponse(BaseModel):
@@ -54,9 +96,10 @@ class FocusedMergedProfileResponse(BaseModel):
     risks_and_assumptions: list[str] = Field(default_factory=list, max_length=20)
 
 
-_FOCUS_PASSES: tuple[tuple[str, str], ...] = (
+_FOCUS_PASSES: tuple[tuple[str, type[FocusedPassBase], str], ...] = (
     (
         "identity_governance",
+        IdentityFocusedSlice,
         """Сфокусируйся только на идентичности, юридическом статусе, контактах, географии,
 людях и связях управления/владения. Ищи legal_name, brand_name, inn, ogrn,
 registration_status, address, phones, emails, website, social_accounts, geography,
@@ -67,16 +110,19 @@ beneficial_owner. Для relationship-фактов нужен прямой sourc
     ),
     (
         "offerings_customer_operations",
+        OfferingsFocusedSlice,
         """Сфокусируйся на том, что компания реально продаёт/оказывает, кому и как.
 Ищи products, customers, suppliers и конкретные проверяемые operational facts в other.
-Сжимай каталог семантически: одна услуга/продукт = один канонический факт, даже если
-она повторяется в меню, прайсе, акции или на нескольких страницах. При этом сохраняй
-действительно разные услуги и продуктовые линии. Не считай использование бренда,
+Сжимай каталог семантически: одна бизнес-различимая услуга/продукт = один канонический
+факт, даже если она повторяется в меню, прайсе, акции или на нескольких страницах.
+Группируй ценовые/тарифные/процедурные варианты, если для бизнеса это одна услуга;
+не объединяй действительно разные продуктовые линии. Не считай использование бренда,
 оборудования, ПО или технологии доказательством supplier/customer relation.
 Не делай коммерческое предложение.""",
     ),
     (
         "economics_workforce_technology",
+        EconomicsFocusedSlice,
         """Сфокусируйся на экономике, масштабе, персонале, инфраструктуре и технологиях.
 Ищи headcount, revenue, profit, assets, taxes и другие конкретные факты масштаба,
 процессов, оборудования, цифровых каналов, автоматизации, вакансий и операционных
@@ -86,6 +132,7 @@ beneficial_owner. Для relationship-фактов нужен прямой sourc
     ),
     (
         "signals_risks_change",
+        SignalsFocusedSlice,
         """Сфокусируйся на значимых сигналах и изменениях: рост/сжатие, вакансии,
 юридические события, отзывы, акции, цифровые точки контакта, операционные разрывы,
 признаки ручных процессов, технологические зависимости, подтверждённые риски.
@@ -112,6 +159,8 @@ def _focus_prompt(*, focus: str, instructions: str, context: str) -> str:
 - Неизвестное не заполняй догадкой.
 - Не делай финальный commercial synthesis.
 - Пиши компактно: это предварительный слой сжатия, который затем объединит отдельный LLM.
+- Не пытайся заполнить максимально допустимое число элементов. Выбирай только наиболее
+  значимые и репрезентативные факты своего фокуса: лучше 12 сильных фактов, чем 30 слабых.
 
 FOCUS: {focus}
 {instructions}
@@ -121,7 +170,7 @@ PREPARED EVIDENCE CONTEXT:
 """
 
 
-def _merge_prompt(focused_results: list[FocusedProfileSlice]) -> str:
+def _merge_prompt(focused_results: list[FocusedPassBase]) -> str:
     payload = [
         item.model_dump(mode="json")
         for item in focused_results
@@ -153,12 +202,13 @@ FOCUSED PASSES:
 async def _run_focused_pass(
     *,
     focus: str,
+    model_type: type[FocusedPassBase],
     instructions: str,
     context: str,
-) -> FocusedProfileSlice:
+) -> FocusedPassBase:
     return await request_json_strict(
         f"profile_focus_{focus}",
-        FocusedProfileSlice,
+        model_type,
         system=(
             "Возвращай только валидный компактный JSON по схеме. "
             "Это один тематический проход по общему evidence context."
@@ -168,7 +218,7 @@ async def _run_focused_pass(
             instructions=instructions,
             context=context,
         ),
-        max_tokens=4_000,
+        max_tokens=5_000,
         timeout_seconds=120.0,
         reasoning_enabled=False,
     )
@@ -200,17 +250,19 @@ async def analyze_with_routerai_focused_v4(
     tasks = [
         _run_focused_pass(
             focus=focus,
+            model_type=model_type,
             instructions=instructions,
             context=context,
         )
-        for focus, instructions in _FOCUS_PASSES
+        for focus, model_type, instructions in _FOCUS_PASSES
     ]
     focus_outcomes = await asyncio.gather(*tasks, return_exceptions=True)
-    focused_results: list[FocusedProfileSlice] = []
+    focused_results: list[FocusedPassBase] = []
     focus_failures: list[str] = []
-    for (focus, _), outcome in zip(_FOCUS_PASSES, focus_outcomes):
+    for (focus, _, _), outcome in zip(_FOCUS_PASSES, focus_outcomes):
         if isinstance(outcome, Exception):
-            focus_failures.append(f"{focus}:{type(outcome).__name__}")
+            error_type = getattr(outcome, "error_type", None) or type(outcome).__name__
+            focus_failures.append(f"{focus}:{error_type}")
             continue
         focused_results.append(outcome)
 

@@ -25,50 +25,45 @@ async def test_focused_v4_uses_same_context_for_four_passes_then_merge_and_synth
             marker = "PREPARED EVIDENCE CONTEXT:\n"
             focus_contexts.append(prompt.split(marker, 1)[1])
             focus_name = phase.removeprefix("profile_focus_")
-            facts = []
-            signals = []
             if focus_name == "identity_governance":
-                facts = [
-                    CompactCompanyFact(
-                        field="legal_name",
-                        value='ООО "ЭКЗАМПЛ"',
-                        confidence="Высокая",
-                        source_ids=["S1"],
-                    )
-                ]
-            elif focus_name == "offerings_customer_operations":
-                facts = [
-                    CompactCompanyFact(
-                        field="products",
-                        value="Имплантация",
-                        confidence="Высокая",
-                        source_ids=["S1"],
-                    )
-                ]
-            elif focus_name == "economics_workforce_technology":
-                facts = [
-                    CompactCompanyFact(
-                        field="other",
-                        value="Доступна онлайн-запись",
-                        confidence="Высокая",
-                        source_ids=["S1"],
-                    )
-                ]
-            else:
-                signals = [
-                    CompactEconomicSignal(
-                        signal="Цифровой канал заявок",
-                        evidence="На сайте доступна онлайн-запись",
-                        business_effect="Часть входящего спроса проходит через сайт",
-                        confidence="Высокая",
-                        source_ids=["S1"],
-                    )
-                ]
-            return focused.FocusedProfileSlice(
-                focus=focus_name,
+                return model_type(
+                    summary=focus_name,
+                    company_facts=[{
+                        "field": "legal_name",
+                        "value": 'ООО "ЭКЗАМПЛ"',
+                        "confidence": "Высокая",
+                        "source_ids": ["S1"],
+                    }],
+                )
+            if focus_name == "offerings_customer_operations":
+                return model_type(
+                    summary=focus_name,
+                    company_facts=[{
+                        "field": "products",
+                        "value": "Имплантация",
+                        "confidence": "Высокая",
+                        "source_ids": ["S1"],
+                    }],
+                )
+            if focus_name == "economics_workforce_technology":
+                return model_type(
+                    summary=focus_name,
+                    company_facts=[{
+                        "field": "other",
+                        "value": "Доступна онлайн-запись",
+                        "confidence": "Высокая",
+                        "source_ids": ["S1"],
+                    }],
+                )
+            return model_type(
                 summary=focus_name,
-                company_facts=facts,
-                economic_signals=signals,
+                economic_signals=[{
+                    "signal": "Цифровой канал заявок",
+                    "evidence": "На сайте доступна онлайн-запись",
+                    "business_effect": "Часть входящего спроса проходит через сайт",
+                    "confidence": "Высокая",
+                    "source_ids": ["S1"],
+                }],
             )
 
         if phase == "profile_focused_merge":
