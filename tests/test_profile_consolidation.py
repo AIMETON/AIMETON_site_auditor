@@ -124,3 +124,25 @@ def test_merged_profile_drops_orphan_prices_but_keeps_labeled_commercial_facts()
         "Имплантация",
     ]
     assert stats.low_information_other_removed == 2
+
+
+def test_product_dedup_ignores_price_and_promo_variants_but_keeps_distinct_services():
+    facts = [
+        CompanyFact(field="products", value="Имплантация под ключ — от 69 000 ₽", source_ids=["S1"]),
+        CompanyFact(field="products", value="Имплантация под ключ — 72 000 руб.", source_ids=["P1"]),
+        CompanyFact(field="products", value="Имплантация под ключ (акция -20%)", source_ids=["P2"]),
+        CompanyFact(field="products", value="Имплантация All-on-4 — от 180 000 ₽", source_ids=["S1"]),
+    ]
+
+    merged, placeholders, duplicates, foreign = consolidate_facts(
+        facts,
+        external_sources=[],
+    )
+
+    assert placeholders == 0
+    assert foreign == 0
+    assert duplicates == 2
+    assert len(merged) == 2
+    assert merged[0].value == "Имплантация под ключ — от 69 000 ₽"
+    assert merged[0].source_ids == ["S1", "P1", "P2"]
+    assert merged[1].value == "Имплантация All-on-4 — от 180 000 ₽"
