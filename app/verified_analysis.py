@@ -127,9 +127,10 @@ def _all_first_party_identifier_candidates(
             ("ogrn", r"\bОГРН(?:ИП)?\s*[:№]?\s*(\d{13}|\d{15})\b"),
         ):
             for raw in re.findall(pattern, compact, flags=re.IGNORECASE):
+                label = "ИНН" if scheme == "inn" else "ОГРН"
                 guarded = guard_identity_anchors(
-                    extract_identity_anchors(f"{scheme.upper()} {raw}", None),
-                    f"{scheme.upper()} {raw}",
+                    extract_identity_anchors(f"{label} {raw}", None),
+                    f"{label} {raw}",
                 )
                 value = guarded.inn if scheme == "inn" else guarded.ogrn
                 if not value:
