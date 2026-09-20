@@ -32,6 +32,8 @@ def test_aleksdent_deep_audit_is_fixed_target_authenticated_and_bounded() -> Non
     assert "/api/auth/login" in workflow
     assert "/api/admin/llm-settings" in workflow
     assert '~deepseek/deepseek-v4-flash-latest' in workflow
-    assert "for _ in $(seq 1 240)" in workflow
-    assert "/stop" in workflow
+    assert "timeout-minutes: 45" in workflow
+    assert "for _ in $(seq 1 800)" in workflow
+    assert '[[ "$terminal" == completed || "$terminal" == failed ]]' in workflow
+    assert "/stop" not in workflow
     assert "raw prompts, raw provider payloads or chain-of-thought are published" in workflow
