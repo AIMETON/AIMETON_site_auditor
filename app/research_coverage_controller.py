@@ -5,7 +5,9 @@ from typing import Iterable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.analysis_mode import compiled_two_call_enabled, minimal_llm_routing_enabled
 from app.evidence_source_projection import evidence_parent_id
+from app.research_control import deep_research_enabled
 from app.external_sources import IdentityAnchors
 from app.fast_research_model import request_fast_json
 from app.models import IntelligenceSource, SourceKind
@@ -338,6 +340,18 @@ async def optional_wave(
         return WaveSelection(
             queries=tuple(candidates),
             candidate_count=len(candidates),
+        )
+
+    if (
+        deep_research_enabled()
+        and compiled_two_call_enabled()
+        and minimal_llm_routing_enabled()
+    ):
+        return WaveSelection(
+            queries=tuple(candidates[:MAX_OPTIONAL_QUERIES_PER_WAVE]),
+            candidate_count=len(candidates),
+            model_used=False,
+            model_unavailable=False,
         )
 
     rows = [
