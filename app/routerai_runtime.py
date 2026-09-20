@@ -178,7 +178,7 @@ async def run_bounded_routerai_analysis(
     deep = deep_research_enabled()
     large_input = (len(text) > 30000
                    or len(json.dumps(external_sources or [], ensure_ascii=False, indent=2)) > 52000)
-    use_focused = focused_multipass_enabled() and (deep or large_input)
+    use_focused = focused_multipass_enabled() and deep
     use_compiled = (
         not use_focused
         and compiled_two_call_enabled()
