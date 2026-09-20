@@ -34,7 +34,11 @@ from app.heuristics import heuristic_analysis
 from app.identity_anchor_guard import guard_identity_anchors
 from app.routerai_runtime import run_bounded_routerai_analysis as analyze_with_routerai
 from app.models import CompanyFact, IntelligenceSource, SiteAnalysis, SourceKind
-from app.research_control import deep_research_enabled, current_research
+from app.research_control import (
+    deep_research_enabled,
+    current_research,
+    record_identity_resolution_progress,
+)
 from app.search_result_triage import SearchTriageSummary, triage_search_candidates
 from app.research_coverage_controller import (
     MAX_PROGRESSIVE_WAVES,
@@ -437,6 +441,23 @@ async def _run_verified_enriched_site_analysis(
             if batch_facts and (batch_anchors.inn or batch_anchors.ogrn):
                 anchors = batch_anchors
                 batch_winner = True
+
+        identity_progress_state = (
+            dadata_result.state.value
+            if dadata_result is not None
+            else (
+                "not_attempted_no_identifier"
+                if dadata_identifier_candidates_checked == 0
+                else "unavailable"
+            )
+        )
+        identity_selected = bool(dadata_facts and (anchors.inn or anchors.ogrn))
+        record_identity_resolution_progress(
+            candidates_checked=dadata_identifier_candidates_checked,
+            resolution_state=identity_progress_state,
+            selected_inn=anchors.inn if identity_selected else None,
+            selected_ogrn=anchors.ogrn if identity_selected else None,
+        )
 
         followup_identifier = (
             (anchors.inn or anchors.ogrn)

@@ -221,6 +221,8 @@ jobs:
                       "llm_usage_reports", "llm_usage_unknown", "completed_chunks",
                       "documents_attempted", "frontier_size", "search_attempts",
                       "search_price_unknown", "search_cost_estimate_by_currency",
+                      "identity_candidates_checked", "identity_resolution_state",
+                      "identity_selected", "identity_selected_inn", "identity_selected_ogrn",
                   )
                   if key in research
               },

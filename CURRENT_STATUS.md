@@ -1,3 +1,11 @@
+## Pre-synthesis identity progress observability — 2026-09-20
+
+Two exact-SHA live attempts on `804cbe90fc18ba56adabf8c941b2dd6611b17774` passed Stage/model preflight but stalled in `llm_synthesis_running` before the final `result` object was assembled. This prevents black-box acceptance of the already-computed DaData ownership result because identity candidate enrichment occurs before RouterAI synthesis, while the existing sanitized workflow only publishes final result fields plus generic research accounting.
+
+Active correction `fix/identity-progress-checkpoint` does not change audit semantics. It records a safe pre-synthesis identity checkpoint in the existing `ResearchControl` snapshot: candidate count, registry-mirror resolution state, whether an owner was selected, and selected INN/OGRN. The existing status/recovery path exposes only snapshot-approved fields, and the Aleks Dent live acceptance workflow adds those fields to sanitized research accounting. No prompts, cookies, provider payloads or private account data are added.
+
+Acceptance requires the next exact-SHA live run to expose identity progress even if RouterAI synthesis stalls. For the current Aleks Dent case, the expected pre-synthesis checkpoint is two checked candidates, registry-mirror verified ownership, and selected INN `2462215501` plus OGRN `1112468013030`.
+
 ## Stage materialization resilience follow-up — 2026-09-20
 
 Main-server telemetry is now available machine-to-machine through the canonical AIMETON Operations Board live readback. The authoritative local snapshot is `/var/lib/aimeton/operations-board/snapshot.json`, served read-only at `http://localhost:8787/snapshot.json`; command route `/read-operations-board-live <infra-main-sha>` on infrastructure issue #419 produced successful readback run `35497554264` with overall GREEN, 12/12 runners online, queue=0, offline=0, unknown=0.

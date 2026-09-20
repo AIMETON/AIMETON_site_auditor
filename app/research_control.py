@@ -39,6 +39,11 @@ class ResearchControl:
     completed_chunks: int = 0
     documents_attempted: int = 0
     frontier_size: int = 0
+    identity_candidates_checked: int = 0
+    identity_resolution_state: str = "not_started"
+    identity_selected: bool = False
+    identity_selected_inn: str | None = None
+    identity_selected_ogrn: str | None = None
     semaphore: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(4), repr=False)
 
     def spending_status(self) -> dict:
@@ -70,7 +75,13 @@ class ResearchControl:
                 "llm_usage_reports": self.llm_usage_reports,
                 "llm_usage_unknown": max(0, self.llm_calls - self.llm_usage_reports),
                 "completed_chunks": self.completed_chunks,
-                "documents_attempted": self.documents_attempted, "frontier_size": self.frontier_size, "monetary_cost": "not_reported"}
+                "documents_attempted": self.documents_attempted, "frontier_size": self.frontier_size,
+                "identity_candidates_checked": self.identity_candidates_checked,
+                "identity_resolution_state": self.identity_resolution_state,
+                "identity_selected": self.identity_selected,
+                "identity_selected_inn": self.identity_selected_inn,
+                "identity_selected_ogrn": self.identity_selected_ogrn,
+                "monetary_cost": "not_reported"}
 
     def checkpoint(self, key: str, payload: dict) -> None:
         path = Path(os.getenv("AIMETON_RUNTIME_DB", "data/runtime-core.sqlite3"))
@@ -207,6 +218,25 @@ def bind_settings_snapshot(control, mission_id: str, analysis_id: str) -> None:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     control.settings_digest = saved["digest"]
     control.checkpoint("settings", saved)
+
+
+def record_identity_resolution_progress(
+    *,
+    candidates_checked: int,
+    resolution_state: str,
+    selected_inn: str | None = None,
+    selected_ogrn: str | None = None,
+) -> None:
+    """Expose safe pre-synthesis identity progress through the existing status snapshot."""
+    control = current_research()
+    if control is None:
+        return
+    control.identity_candidates_checked = max(0, int(candidates_checked))
+    control.identity_resolution_state = str(resolution_state or "unresolved")
+    control.identity_selected_inn = str(selected_inn) if selected_inn else None
+    control.identity_selected_ogrn = str(selected_ogrn) if selected_ogrn else None
+    control.identity_selected = bool(control.identity_selected_inn or control.identity_selected_ogrn)
+    control.checkpoint("identity_resolution", control.snapshot())
 
 
 def record_search_attempt(provider) -> None:
