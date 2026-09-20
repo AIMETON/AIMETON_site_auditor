@@ -19,6 +19,10 @@ _SENSITIVE_FIELDS = {
     "inn", "ogrn", "founders", "executives", "beneficial_owners",
     "revenue", "profit", "assets", "taxes",
 }
+_SOURCE_REQUIRED_RELATION_FIELDS = {
+    "founders", "executives", "beneficial_owners", "affiliates",
+    "customers", "suppliers",
+}
 _REJECTED_RELATIONS = {
     "publisher", "competitor", "counterparty", "mentioned_only", "unknown",
 }
@@ -52,6 +56,7 @@ class ConsolidationStats:
     product_facts_output: int
     other_facts_input: int
     other_facts_output: int
+    unsupported_relation_facts_rejected: int
 
     def safe_dict(self) -> dict[str, int]:
         return {
@@ -67,6 +72,7 @@ class ConsolidationStats:
             "product_facts_output": self.product_facts_output,
             "other_facts_input": self.other_facts_input,
             "other_facts_output": self.other_facts_output,
+            "unsupported_relation_facts_rejected": self.unsupported_relation_facts_rejected,
         }
 
 
@@ -273,11 +279,19 @@ def consolidate_merged_profile(merged, *, external_sources: list[dict[str, Any]]
     placeholders, merges formatting-equivalent facts and rejects sensitive facts
     whose known provenance is only publisher/competitor/mentioned-only evidence.
     """
-    filtered_facts = [
+    no_source_relation_rejected = sum(
+        fact.field in _SOURCE_REQUIRED_RELATION_FIELDS and not fact.source_ids
+        for fact in merged.company_facts
+    )
+    relation_supported = [
         fact for fact in merged.company_facts
+        if not (fact.field in _SOURCE_REQUIRED_RELATION_FIELDS and not fact.source_ids)
+    ]
+    filtered_facts = [
+        fact for fact in relation_supported
         if not _is_low_information_other(fact)
     ]
-    low_information_other_removed = len(merged.company_facts) - len(filtered_facts)
+    low_information_other_removed = len(relation_supported) - len(filtered_facts)
     facts, placeholders, duplicates, foreign = consolidate_facts(
         filtered_facts,
         external_sources=external_sources,
@@ -296,13 +310,15 @@ def consolidate_merged_profile(merged, *, external_sources: list[dict[str, Any]]
         product_facts_output=sum(fact.field == "products" for fact in facts),
         other_facts_input=sum(fact.field == "other" for fact in merged.company_facts),
         other_facts_output=sum(fact.field == "other" for fact in facts),
+        unsupported_relation_facts_rejected=no_source_relation_rejected,
     )
     risks = list(merged.risks_and_assumptions)
-    if placeholders or duplicates or foreign or low_information_other_removed:
+    if placeholders or duplicates or foreign or low_information_other_removed or no_source_relation_rejected:
         risks.append(
             "Консолидация профиля перед reasoning: "
             f"удалено пустых/служебных фактов={placeholders}, "
             f"удалено standalone price/no-context other={low_information_other_removed}, "
+            f"отклонено relation-фактов без source_ids={no_source_relation_rejected}, "
             f"объединено семантических дублей={duplicates}, "
             f"отклонено sensitive-фактов с чужим provenance={foreign}."
         )
