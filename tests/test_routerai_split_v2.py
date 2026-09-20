@@ -463,4 +463,5 @@ def test_profile_extraction_source_projection_excludes_repeated_transport_metada
         "source_class": "official",
         "evidence_level": "confirmed_fact",
         "snippet": "Имплантация под ключ",
+        "url": "https://example.com/services",
     }]
