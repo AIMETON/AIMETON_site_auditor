@@ -209,6 +209,8 @@ def test_split_v2_stages_km_quadrant_ii_cells_and_commercial_execution(monkeypat
     assert result.commercial_opportunity.score == 72
     assert result.commercial_opportunity.source_ids == ["S1"]
     assert result.readiness.provider_states["routerai"] == "active"
+    assert result.research_status["extraction_coverage"]["extraction_units_total"] == 5
+    assert result.research_status["extraction_coverage"]["complete"] is True
 
 
 def test_full_reasoning_profile_has_no_legacy_30_fact_or_16_signal_cap() -> None:
