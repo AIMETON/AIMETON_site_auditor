@@ -225,3 +225,70 @@ def test_llm_projection_deduplicates_only_repeated_official_quote_within_query_k
     assert stats.output_records == 3
     assert stats.duplicate_official_quotes_removed == 1
     assert to_llm_sources(sources) == projected
+
+
+def test_llm_projection_groups_official_child_records_by_parent_and_query_kind():
+    def child(source_id: str, query_kind: str, quote: str) -> IntelligenceSource:
+        return IntelligenceSource(
+            id=source_id,
+            title="Services",
+            url="https://example.com/services",
+            accessed_at="2026-09-20T00:00:00+00:00",
+            source_class="official",
+            query_kind=query_kind,
+            result_kind=query_kind,
+            classification_state="classified",
+            lifecycle_state="evidence",
+            evidence_level="confirmed_fact",
+            document_url="https://example.com/services",
+            document_title="Services",
+            document_accessed_at="2026-09-20T00:00:00+00:00",
+            document_digest="sha256:" + "1" * 64,
+            evidence_quote=quote,
+            evidence_locator="main/p",
+            evidence_digest="sha256:" + source_id[-1] * 64,
+            fetch_path="static",
+        )
+
+    sources = [
+        child("D1-b1-0", "other", "Имплантация"),
+        child("D1-b2-0", "other", "Протезирование"),
+        child("D1-b3-0", "contact", "Телефон +7 000 000-00-00"),
+    ]
+
+    projected, stats = project_llm_sources(sources)
+
+    assert len(projected) == 2
+    assert [item["id"] for item in projected] == ["D1", "D1"]
+    by_kind = {item["query_kind"]: item for item in projected}
+    assert by_kind["other"]["snippet"] == "Имплантация\n\nПротезирование"
+    assert by_kind["contact"]["snippet"] == "Телефон +7 000 000-00-00"
+    assert all(item["evidence_locator"] is None for item in projected)
+    assert stats.input_records == 3
+    assert stats.output_records == 2
+    assert stats.official_child_records_collapsed == 1
+
+
+def test_llm_projection_does_not_group_independent_external_sources():
+    first = hint()
+    first.id = "R1-b1-0"
+    first.source_class = "registry"
+    first.query_kind = "registry"
+    first.lifecycle_state = "evidence"
+    first.evidence_level = "corroborated_signal"
+    first.evidence_quote = "ИНН 1234567890"
+    first.document_url = "https://registry.example/1"
+    first.document_accessed_at = first.accessed_at
+    first.document_digest = "sha256:" + "1" * 64
+    first.evidence_locator = "main/p"
+    first.evidence_digest = "sha256:" + "2" * 64
+    first.fetch_path = "static"
+    second = first.model_copy(deep=True)
+    second.id = "R1-b2-0"
+    second.evidence_quote = "ОГРН 1234567890123"
+    second.evidence_digest = "sha256:" + "3" * 64
+
+    projected, stats = project_llm_sources([first, second])
+
+    assert [item["id"] for item in projected] == ["R1-b1-0", "R1-b2-0"]
+    assert stats.official_child_records_collapsed == 0
