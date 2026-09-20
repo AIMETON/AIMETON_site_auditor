@@ -295,3 +295,83 @@ async def test_compact_name_match_does_not_use_substring(monkeypatch):
     assert result is not None
     assert result.state is RegistryMirrorState.UNRESOLVED
     assert facts == []
+
+
+@pytest.mark.asyncio
+async def test_title_segments_preserve_brand_hint_for_compact_match(monkeypatch):
+    record = _record().model_copy(update={
+        "query": "7707083893",
+        "legal_name": 'ООО "АЛЬФАДЕНТ"',
+        "short_name": "АЛЬФАДЕНТ",
+        "inn": "7707083893",
+        "ogrn": "1027700132195",
+    })
+    class FakeProvider:
+        def lookup(self, query: str):
+            return DaDataLookupResult(
+                state=RegistryMirrorState.VERIFIED,
+                query=query,
+                records=[record],
+                authority_verified=False,
+            )
+    monkeypatch.setattr(
+        "app.dadata_report_bridge.get_dadata_registry_mirror_provider",
+        lambda: FakeProvider(),
+    )
+    anchors = IdentityAnchors(domain="example.org")
+    updated, result, facts, notes, checked = await enrich_identifier_candidates_with_dadata(
+        anchors,
+        [("inn", "7707083893", False)],
+        company_hint="Лечение зубов в регионе | Стоматология Альфа Дент",
+    )
+    assert checked == 1
+    assert result is not None
+    assert updated.inn == "7707083893"
+    assert updated.legal_name == 'ООО "АЛЬФАДЕНТ"'
+    assert any("target candidate selected" in note for note in notes)
+
+
+@pytest.mark.asyncio
+async def test_multiple_title_brand_segments_remain_ambiguous(monkeypatch):
+    def make_record(query: str, brand: str, digest: str) -> DaDataPartyRecord:
+        return _record().model_copy(update={
+            "id": f"dadata_party_{digest}",
+            "query": query,
+            "response_digest": "sha256:" + digest * 64,
+            "legal_name": f'ООО "{brand}"',
+            "short_name": brand,
+            "inn": query,
+            "ogrn": None,
+        })
+
+    records = {
+        "7707083893": make_record("7707083893", "АЛЬФАДЕНТ", "c"),
+        "7811111113": make_record("7811111113", "БЕТАДЕНТ", "d"),
+    }
+    class FakeProvider:
+        def lookup(self, query: str):
+            return DaDataLookupResult(
+                state=RegistryMirrorState.VERIFIED,
+                query=query,
+                records=[records[query]],
+                authority_verified=False,
+            )
+    monkeypatch.setattr(
+        "app.dadata_report_bridge.get_dadata_registry_mirror_provider",
+        lambda: FakeProvider(),
+    )
+    anchors = IdentityAnchors(domain="example.org")
+    updated, result, facts, notes, checked = await enrich_identifier_candidates_with_dadata(
+        anchors,
+        [
+            ("inn", "7707083893", False),
+            ("inn", "7811111113", False),
+        ],
+        company_hint="Стоматология Альфа Дент | Стоматология Бета Дент",
+    )
+    assert checked == 2
+    assert updated == anchors
+    assert result is not None
+    assert result.state is RegistryMirrorState.CONFLICTING
+    assert facts == []
+    assert any("ambiguous" in note for note in notes)

@@ -211,7 +211,7 @@ async def test_official_requisites_evidence_triggers_identifier_followup_and_dad
 
     result = await audit._run_verified_enriched_site_analysis(
         "https://aleksdent24.ru/",
-        "Алекс Дент",
+        "Стоматология Красноярск цены доступные | Стоматология Алекс Дент",
         "Стоматология Алекс Дент в Красноярске",
     )
 
@@ -219,7 +219,7 @@ async def test_official_requisites_evidence_triggers_identifier_followup_and_dad
     assert dadata_anchors[0].inn is None
     assert len(batch_calls) == 1
     _, candidates, company_hint = batch_calls[0]
-    assert company_hint == "Алекс Дент"
+    assert company_hint == "Стоматология Красноярск цены доступные | Стоматология Алекс Дент"
     assert ("inn", "2462215501", True) in candidates
     assert ("ogrn", "1112468013030", True) in candidates
     facts = {(fact.field, fact.value): fact for fact in result.company_facts}

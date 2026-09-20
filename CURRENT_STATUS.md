@@ -1,3 +1,11 @@
+## Identity title-segment ownership fix — 2026-09-20
+
+Live exact-SHA regression on `c2337a94befd6e22caa647a4dcc94aec1d812abf` completed successfully and proved the remaining identity failure is inside ownership scoring: DaData checked two candidates, but `identity_resolution_state=unresolved` and no identifier was selected.
+
+The compact-name matcher itself is valid. The upstream caller was passing only the title prefix before the first `|` or em dash as `company_hint`. On SEO-style titles where the descriptive prefix comes first and the brand is in a later segment, the resolver never saw the brand at all. Active correction `fix/identity-title-segment-matching` keeps the existing search hint for search planning but passes the full first-party page title to identity resolution. The DaData matcher evaluates exact compact forms for each meaningful title segment independently, preserving punctuation/spacing tolerance without fuzzy substring matching. Multiple matching brand segments remain ambiguous rather than being auto-promoted.
+
+Operational invariant clarified: deep-research quality is primary. Mission-level time is an optimization parameter, not a reason to discard a valid accumulated profile. Per-provider/per-operation deadlines may protect against a hung call, but must degrade/retry locally and preserve already collected evidence; they must not destroy the mission result.
+
 ## Pre-synthesis identity progress observability — 2026-09-20
 
 Two exact-SHA live attempts on `804cbe90fc18ba56adabf8c941b2dd6611b17774` passed Stage/model preflight but stalled in `llm_synthesis_running` before the final `result` object was assembled. This prevents black-box acceptance of the already-computed DaData ownership result because identity candidate enrichment occurs before RouterAI synthesis, while the existing sanitized workflow only publishes final result fields plus generic research accounting.
