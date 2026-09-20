@@ -8,7 +8,9 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.analysis_mode import compiled_two_call_enabled, minimal_llm_routing_enabled
 from app.fast_research_model import request_fast_json
+from app.research_control import deep_research_enabled
 from app.models import SourceKind
 
 
@@ -360,6 +362,28 @@ async def triage_document_blocks(
 
     model_used = False
     model_unavailable = False
+    if (
+        deep_research_enabled()
+        and compiled_two_call_enabled()
+        and minimal_llm_routing_enabled()
+    ):
+        for item in ambiguous:
+            block_id = item["block_id"]
+            decisions[block_id] = _decision(
+                block_id=block_id,
+                keep=False,
+                relevance="none",
+                relation=EntityRelation.UNKNOWN,
+                query_kind=source_query_kind,
+                role=EvidenceRole.CONTEXT,
+                confidence=0.0,
+                reason="compiled_deep_deterministic_triage",
+            )
+        return TriageOutcome(
+            decisions=[decisions[f"B{index}"] for index in range(len(blocks))],
+            model_used=False,
+            model_unavailable=False,
+        )
     target = {
         "brand_or_hint": company_name,
         "legal_name": getattr(anchors, "legal_name", None),
