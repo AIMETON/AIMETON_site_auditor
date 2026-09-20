@@ -27,6 +27,15 @@ _STANDALONE_MONEY = re.compile(
     r"^(?:от\s*)?\d[\d\s.,]*(?:₽|руб(?:\.|лей)?)\.?$",
     re.IGNORECASE,
 )
+_PRODUCT_PRICE = re.compile(
+    r"(?:(?:цена|стоимость)\s*[:\-–—]?\s*)?(?:от\s*)?"
+    r"\d[\d\s.,]*(?:₽|руб(?:\.|лей)?)",
+    re.IGNORECASE,
+)
+_PRODUCT_PROMO_TAG = re.compile(
+    r"\((?:акция|спецпредложение|скидка|цена|стоимость)[^)]*\)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -95,6 +104,11 @@ def _normalized_key(field: str, value: str) -> str:
             return f"{host}{path}"
         except Exception:
             pass
+    if field == "products":
+        compact = _PRODUCT_PROMO_TAG.sub(" ", compact)
+        compact = _PRODUCT_PRICE.sub(" ", compact)
+        compact = re.sub(r"\b(?:акция|спецпредложение|скидка)\b", " ", compact, flags=re.IGNORECASE)
+        compact = " ".join(compact.split()).strip(" -–—:;,")
     folded = compact.casefold()
     folded = folded.translate(str.maketrans({
         "«": '"', "»": '"', "„": '"', "“": '"', "”": '"', "’": "'", "`": "'",
