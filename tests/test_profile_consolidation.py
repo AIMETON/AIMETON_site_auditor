@@ -169,3 +169,34 @@ def test_product_dedup_ignores_price_and_promo_variants_but_keeps_distinct_servi
     assert stats.product_facts_input == 4
     assert stats.product_facts_output == 2
     assert len([fact for fact in clean.company_facts if fact.field == "products"]) == 2
+
+
+def test_merged_profile_rejects_relation_facts_without_source_ids():
+    coverage = EvidenceCoverage(
+        official_chars_total=100, official_chunks_total=1, official_chunks_processed=1,
+        sources_total=1, sources_processed=1, source_chunks_total=1, source_chunks_processed=1,
+        extraction_units_total=2, extraction_units_processed=2, complete=True,
+    )
+    merged = MergedProfileExtraction(
+        company_name="Example",
+        business_summary="Example company",
+        evidence=[],
+        company_facts=[
+            CompanyFact(field="executives", value="Manager without provenance", source_ids=[]),
+            CompanyFact(field="beneficial_owners", value="Owner without provenance", source_ids=[]),
+            CompanyFact(field="suppliers", value="Vendor without provenance", source_ids=[]),
+            CompanyFact(field="executives", value="Sourced manager", source_ids=["R1"]),
+            CompanyFact(field="products", value="Service without provenance", source_ids=[]),
+        ],
+        economic_signals=[],
+        risks_and_assumptions=[],
+        coverage=coverage,
+    )
+
+    clean, stats = consolidate_merged_profile(merged, external_sources=[])
+
+    assert [(fact.field, fact.value) for fact in clean.company_facts] == [
+        ("executives", "Sourced manager"),
+        ("products", "Service without provenance"),
+    ]
+    assert stats.unsupported_relation_facts_rejected == 3
