@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.compiled_context_ledger import persist_compiled_context
 from app.models import (
     ActionPackage,
     AgentRecommendation,
@@ -188,9 +189,18 @@ def compile_company_context(
 
     payload = {**base, "documents": compiled_docs}
     serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    if len(serialized) > MAX_COMPILED_CONTEXT_CHARS:
-        serialized = serialized[:MAX_COMPILED_CONTEXT_CHARS]
-        truncated = True
+    while len(serialized) > MAX_COMPILED_CONTEXT_CHARS and compiled_docs:
+        overflow = len(serialized) - MAX_COMPILED_CONTEXT_CHARS
+        target = compiled_docs[-1]
+        current_text = str(target.get("text") or "")
+        if not current_text:
+            compiled_docs.pop()
+        else:
+            shrink = min(len(current_text), max(overflow + 256, len(current_text) // 4))
+            target["text"] = current_text[:-shrink]
+            truncated = True
+        payload = {**base, "documents": compiled_docs}
+        serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     return serialized, CompiledContextStats(
         input_records=len(external_sources),
         document_groups=len(records),
@@ -277,6 +287,10 @@ async def analyze_with_routerai_compiled_v3(
         title=title,
         text=text,
         external_sources=external_sources,
+    )
+    compiled_context_record_id = persist_compiled_context(
+        context,
+        context_stats.safe_dict(),
     )
     extracted = await request_json_strict(
         "profile_compiled_extraction",
@@ -401,6 +415,7 @@ async def analyze_with_routerai_compiled_v3(
     result.research_status.update({
         "analysis_orchestration": "compiled_v3_two_call",
         "compiled_context": context_stats.safe_dict(),
+        "compiled_context_record_id": compiled_context_record_id or "",
         "profile_consolidation": consolidation.safe_dict(),
         "extraction_coverage": profile.coverage,
         "core_llm_profile_calls": 1,
