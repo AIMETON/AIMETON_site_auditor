@@ -100,10 +100,11 @@ def _all_first_party_identifier_candidates(
 ) -> list[tuple[str, str, bool]]:
     """Collect every labelled checksum-valid identifier from first-party evidence.
 
-    target_scoped records receive a positive prior, while competing relations are
-    still retained for DaData enrichment so ownership can be resolved externally.
+    Block-level evidence is authoritative when available: parent quotes are ignored
+    so a foreign identifier cannot regain target scope after entity triage.
+    Competing child relations are retained for DaData ownership enrichment.
     """
-    grouped: dict[tuple[str, bool], list[tuple[int, int, str]]] = {}
+    grouped: dict[str, dict[str, list[tuple[int, int, str, bool]]]] = {}
     for item in verified:
         if item.source_class != "official" or not str(item.evidence_quote or "").strip():
             continue
@@ -112,31 +113,43 @@ def _all_first_party_identifier_candidates(
         relation_match = _EVIDENCE_RELATION.search(str(item.verification_note or ""))
         relation = relation_match.group(1) if relation_match else ""
         target_scoped = relation not in _NON_TARGET_IDENTITY_RELATIONS
-        block = int(match.group("block")) if match else -1
-        offset = int(match.group("offset")) if match else -1
-        grouped.setdefault((parent_id, target_scoped), []).append(
-            (block, offset, str(item.evidence_quote))
-        )
+        bucket = grouped.setdefault(parent_id, {"parent": [], "child": []})
+        if match:
+            bucket["child"].append(
+                (
+                    int(match.group("block")),
+                    int(match.group("offset")),
+                    str(item.evidence_quote),
+                    target_scoped,
+                )
+            )
+        else:
+            bucket["parent"].append((-1, -1, str(item.evidence_quote), target_scoped))
 
     candidates: dict[tuple[str, str], bool] = {}
-    for (_, target_scoped), parts in grouped.items():
-        text = "\n".join(value for _, _, value in sorted(parts))
-        compact = " ".join(text.split())
-        for scheme, pattern in (
-            ("inn", r"\bИНН\s*[:№]?\s*(\d{10}|\d{12})\b"),
-            ("ogrn", r"\bОГРН(?:ИП)?\s*[:№]?\s*(\d{13}|\d{15})\b"),
-        ):
-            for raw in re.findall(pattern, compact, flags=re.IGNORECASE):
-                label = "ИНН" if scheme == "inn" else "ОГРН"
-                guarded = guard_identity_anchors(
-                    extract_identity_anchors(f"{label} {raw}", None),
-                    f"{label} {raw}",
-                )
-                value = guarded.inn if scheme == "inn" else guarded.ogrn
-                if not value:
-                    continue
-                key = (scheme, value)
-                candidates[key] = candidates.get(key, False) or target_scoped
+    for bucket in grouped.values():
+        selected_parts = bucket["child"] or bucket["parent"]
+        by_scope: dict[bool, list[tuple[int, int, str]]] = {}
+        for block, offset, text, target_scoped in selected_parts:
+            by_scope.setdefault(target_scoped, []).append((block, offset, text))
+        for target_scoped, parts in by_scope.items():
+            text = "\n".join(value for _, _, value in sorted(parts))
+            compact = " ".join(text.split())
+            for scheme, pattern in (
+                ("inn", r"\bИНН\s*[:№]?\s*(\d{10}|\d{12})\b"),
+                ("ogrn", r"\bОГРН(?:ИП)?\s*[:№]?\s*(\d{13}|\d{15})\b"),
+            ):
+                for raw in re.findall(pattern, compact, flags=re.IGNORECASE):
+                    label = "ИНН" if scheme == "inn" else "ОГРН"
+                    guarded = guard_identity_anchors(
+                        extract_identity_anchors(f"{label} {raw}", None),
+                        f"{label} {raw}",
+                    )
+                    value = guarded.inn if scheme == "inn" else guarded.ogrn
+                    if not value:
+                        continue
+                    key = (scheme, value)
+                    candidates[key] = candidates.get(key, False) or target_scoped
     return [
         (scheme, value, target_scoped)
         for (scheme, value), target_scoped in candidates.items()
