@@ -66,40 +66,12 @@ async def test_focused_v4_uses_same_context_for_four_passes_then_merge_and_synth
                 }],
             )
 
-        if phase == "profile_focused_merge":
-            assert model_type is focused.FocusedMergedProfileResponse
-            return focused.FocusedMergedProfileResponse(
+        if phase == "profile_focused_reconcile":
+            assert model_type is focused.FocusedProfileReconcileResponse
+            return focused.FocusedProfileReconcileResponse(
                 company_name="Example",
                 business_summary="Стоматологическая клиника",
-                company_facts=[
-                    CompactCompanyFact(
-                        field="legal_name",
-                        value='ООО "ЭКЗАМПЛ"',
-                        confidence="Высокая",
-                        source_ids=["S1"],
-                    ),
-                    CompactCompanyFact(
-                        field="products",
-                        value="Имплантация",
-                        confidence="Высокая",
-                        source_ids=["S1"],
-                    ),
-                    CompactCompanyFact(
-                        field="other",
-                        value="Доступна онлайн-запись",
-                        confidence="Высокая",
-                        source_ids=["S1"],
-                    ),
-                ],
-                economic_signals=[
-                    CompactEconomicSignal(
-                        signal="Цифровой канал заявок",
-                        evidence="На сайте доступна онлайн-запись",
-                        business_effect="Часть входящего спроса проходит через сайт",
-                        confidence="Высокая",
-                        source_ids=["S1"],
-                    )
-                ],
+                evidence=["Есть официальный сайт и подтверждённые услуги"],
             )
 
         if phase == "compiled_business_commercial_synthesis":
@@ -156,13 +128,14 @@ async def test_focused_v4_uses_same_context_for_four_passes_then_merge_and_synth
         "profile_focus_offerings_customer_operations",
         "profile_focus_economics_workforce_technology",
         "profile_focus_signals_risks_change",
-        "profile_focused_merge",
+        "profile_focused_reconcile",
         "compiled_business_commercial_synthesis",
     ]
     assert len(focus_contexts) == 4
     assert len(set(focus_contexts)) == 1
     assert result.research_status["analysis_orchestration"] == "focused_v4_multipass"
     assert result.research_status["core_llm_focus_calls"] == 4
+    assert result.research_status["core_llm_reconcile_calls"] == 1
     assert result.research_status["core_llm_merge_calls"] == 1
     assert result.research_status["core_llm_synthesis_calls"] == 1
     assert result.research_status["core_llm_calls"] == 6
