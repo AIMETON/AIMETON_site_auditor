@@ -14,7 +14,7 @@ from app.routerai_profile_extraction import CompactCompanyFact, CompactEconomicS
 
 
 @pytest.mark.asyncio
-async def test_focused_v4_uses_same_context_for_four_passes_then_merge_and_synthesis(monkeypatch):
+async def test_focused_v4_uses_same_context_for_four_passes_then_direct_synthesis(monkeypatch):
     phases: list[str] = []
     focus_contexts: list[str] = []
 
@@ -64,14 +64,6 @@ async def test_focused_v4_uses_same_context_for_four_passes_then_merge_and_synth
                     "confidence": "Высокая",
                     "source_ids": ["S1"],
                 }],
-            )
-
-        if phase == "profile_focused_reconcile":
-            assert model_type is focused.FocusedProfileReconcileResponse
-            return focused.FocusedProfileReconcileResponse(
-                company_name="Example",
-                business_summary="Стоматологическая клиника",
-                evidence=["Есть официальный сайт и подтверждённые услуги"],
             )
 
         if phase == "compiled_business_commercial_synthesis":
@@ -128,18 +120,18 @@ async def test_focused_v4_uses_same_context_for_four_passes_then_merge_and_synth
         "profile_focus_offerings_customer_operations",
         "profile_focus_economics_workforce_technology",
         "profile_focus_signals_risks_change",
-        "profile_focused_reconcile",
         "compiled_business_commercial_synthesis",
     ]
     assert len(focus_contexts) == 4
     assert len(set(focus_contexts)) == 1
     assert result.research_status["analysis_orchestration"] == "focused_v4_multipass"
     assert result.research_status["core_llm_focus_calls"] == 4
-    assert result.research_status["core_llm_reconcile_calls"] == 1
-    assert result.research_status["core_llm_merge_calls"] == 1
+    assert result.research_status["core_llm_reconcile_calls"] == 0
+    assert result.research_status["core_llm_merge_calls"] == 0
     assert result.research_status["core_llm_synthesis_calls"] == 1
-    assert result.research_status["core_llm_calls"] == 6
+    assert result.research_status["core_llm_calls"] == 5
     assert result.research_status["focused_profile_passes_succeeded"] == 4
+    assert result.company_name == 'ООО "ЭКЗАМПЛ"'
     assert any(fact.field == "products" for fact in result.company_facts)
 
 
