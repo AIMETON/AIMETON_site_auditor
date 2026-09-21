@@ -39,8 +39,8 @@ from app.compiled_context_ledger import persist_compiled_context
 
 class FocusedPassBase(BaseModel):
     focus: str = Field(default="", max_length=80)
-    summary: str = Field(default="", max_length=520)
-    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=8)
+    summary: str = Field(default="", max_length=320)
+    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=5)
 
 
 class IdentityFocusedFact(CompactCompanyFact):
@@ -53,7 +53,7 @@ class IdentityFocusedFact(CompactCompanyFact):
 
 class IdentityFocusedSlice(FocusedPassBase):
     focus: Literal["identity_governance"] = "identity_governance"
-    company_facts: list[IdentityFocusedFact] = Field(default_factory=list, max_length=24)
+    company_facts: list[IdentityFocusedFact] = Field(default_factory=list, max_length=14)
 
 
 class OfferingsFocusedFact(CompactCompanyFact):
@@ -62,8 +62,8 @@ class OfferingsFocusedFact(CompactCompanyFact):
 
 class OfferingsFocusedSlice(FocusedPassBase):
     focus: Literal["offerings_customer_operations"] = "offerings_customer_operations"
-    company_facts: list[OfferingsFocusedFact] = Field(default_factory=list, max_length=32)
-    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=4)
+    company_facts: list[OfferingsFocusedFact] = Field(default_factory=list, max_length=14)
+    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=3)
 
 
 class EconomicsFocusedFact(CompactCompanyFact):
@@ -72,14 +72,14 @@ class EconomicsFocusedFact(CompactCompanyFact):
 
 class EconomicsFocusedSlice(FocusedPassBase):
     focus: Literal["economics_workforce_technology"] = "economics_workforce_technology"
-    company_facts: list[EconomicsFocusedFact] = Field(default_factory=list, max_length=28)
-    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=8)
+    company_facts: list[EconomicsFocusedFact] = Field(default_factory=list, max_length=12)
+    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=5)
 
 
 class SignalsFocusedSlice(FocusedPassBase):
     focus: Literal["signals_risks_change"] = "signals_risks_change"
-    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=16)
-    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=10)
+    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=10)
+    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=6)
 
 
 class FocusedProfileReconcileResponse(BaseModel):
@@ -152,8 +152,12 @@ def _focus_prompt(*, focus: str, instructions: str, context: str) -> str:
 - Неизвестное не заполняй догадкой.
 - Не делай финальный commercial synthesis.
 - Пиши компактно: это предварительный слой сжатия, который затем объединит отдельный LLM.
-- Не пытайся заполнить максимально допустимое число элементов. Выбирай только наиболее
-  значимые и репрезентативные факты своего фокуса: лучше 12 сильных фактов, чем 30 слабых.
+- Это semantic shortlist, а не исчерпывающий реестр. Выбирай только самые значимые,
+  репрезентативные и независимые факты своего фокуса.
+- Нормальный объём — 5–10 элементов. Не заполняй массив до максимума только потому,
+  что схема это разрешает. Если 6 фактов описывают бизнес лучше, верни 6.
+- Для products группируй конкретные процедуры/тарифные варианты в бизнес-различимые
+  направления услуг; детали прайса остаются в raw evidence и не обязаны попадать сюда.
 
 FOCUS: {focus}
 {instructions}
@@ -205,7 +209,7 @@ async def _run_focused_pass(
             instructions=instructions,
             context=context,
         ),
-        max_tokens=5_000,
+        max_tokens=4_000,
         timeout_seconds=120.0,
         reasoning_enabled=False,
     )
