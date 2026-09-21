@@ -76,9 +76,16 @@ class EconomicsFocusedSlice(FocusedPassBase):
     economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=5)
 
 
+class FocusedEconomicSignal(CompactEconomicSignal):
+    signal: str = Field(max_length=320)
+    evidence: str = Field(max_length=420)
+    business_effect: str = Field(max_length=320)
+    source_ids: list[str] = Field(default_factory=list, max_length=5)
+
+
 class SignalsFocusedSlice(FocusedPassBase):
     focus: Literal["signals_risks_change"] = "signals_risks_change"
-    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=10)
+    economic_signals: list[FocusedEconomicSignal] = Field(default_factory=list, max_length=10)
     risks_and_assumptions: list[str] = Field(default_factory=list, max_length=6)
 
 
