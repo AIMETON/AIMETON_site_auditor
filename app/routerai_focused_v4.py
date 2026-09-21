@@ -82,13 +82,6 @@ class SignalsFocusedSlice(FocusedPassBase):
     risks_and_assumptions: list[str] = Field(default_factory=list, max_length=6)
 
 
-class FocusedProfileReconcileResponse(BaseModel):
-    company_name: str = Field(max_length=180)
-    business_summary: str = Field(max_length=700)
-    evidence: list[str] = Field(default_factory=list, max_length=8)
-    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=12)
-
-
 _FOCUS_PASSES: tuple[tuple[str, type[FocusedPassBase], str], ...] = (
     (
         "identity_governance",
@@ -167,29 +160,6 @@ PREPARED EVIDENCE CONTEXT:
 """
 
 
-def _reconcile_prompt(focused_results: list[FocusedPassBase]) -> str:
-    payload = [
-        item.model_dump(mode="json")
-        for item in focused_results
-    ]
-    return f"""Ты Profile Reconcile Analyst AIMETON.
-
-Ниже четыре независимых LLM-прохода по одному и тому же evidence context. Поля между
-проходами уже разделены по ответственности, поэтому НЕ переписывай и НЕ возвращай
-company_facts/economic_signals.
-
-Твоя задача только:
-- определить каноническое company_name по совокупности focused outputs;
-- написать короткий business_summary;
-- перечислить 3–8 опорных evidence-тезисов;
-- отметить реальные межфокусные противоречия/ограничения в risks_and_assumptions;
-- не добавлять новых фактов из собственных знаний.
-
-FOCUSED PASSES:
-{json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}
-"""
-
-
 async def _run_focused_pass(
     *,
     focus: str,
@@ -215,13 +185,30 @@ async def _run_focused_pass(
     )
 
 
+def _focused_profile_name(facts: list[CompanyFact], fallback: str) -> str:
+    for field in ("legal_name", "brand_name"):
+        for fact in facts:
+            if fact.field == field and str(fact.value).strip():
+                return str(fact.value).strip()
+    return fallback
+
+
+def _focused_business_summary(results: list[FocusedPassBase]) -> str:
+    parts: list[str] = []
+    for result in results:
+        value = " ".join(str(result.summary or "").split()).strip()
+        if value and value.casefold() not in {item.casefold() for item in parts}:
+            parts.append(value)
+    return " ".join(parts)[:700]
+
+
 async def analyze_with_routerai_focused_v4(
     url: str,
     title: str,
     text: str,
     external_sources: list[dict[str, Any]] | None = None,
 ) -> SiteAnalysis:
-    """Prepared context -> 4 focused passes -> LLM merge -> unified synthesis."""
+    """Prepared context -> 4 focused LLM passes -> unified synthesis."""
     external_sources = external_sources or []
     control = current_research()
     if control and control.stop_requested:
@@ -277,19 +264,6 @@ async def analyze_with_routerai_focused_v4(
     if control and control.stop_requested:
         raise ResearchStopped("research_stopped_by_user")
 
-    reconciled = await request_json_strict(
-        "profile_focused_reconcile",
-        FocusedProfileReconcileResponse,
-        system=(
-            "Возвращай только валидный компактный JSON по схеме. "
-            "Не переписывай факты: дай только имя, summary, evidence и конфликты."
-        ),
-        prompt=_reconcile_prompt(focused_results),
-        max_tokens=1_800,
-        timeout_seconds=120.0,
-        reasoning_enabled=False,
-    )
-
     coverage = EvidenceCoverage(
         official_chars_total=len(text),
         official_chunks_total=1,
@@ -319,14 +293,13 @@ async def analyze_with_routerai_focused_v4(
         if str(item).strip()
     ]
     raw = MergedProfileExtraction(
-        company_name=reconciled.company_name or title,
-        business_summary=reconciled.business_summary,
-        evidence=list(reconciled.evidence),
+        company_name=_focused_profile_name(focused_facts, title),
+        business_summary=_focused_business_summary(focused_results),
+        evidence=[],
         company_facts=focused_facts,
         economic_signals=focused_signals,
         risks_and_assumptions=[
             *focused_risks,
-            *reconciled.risks_and_assumptions,
             *(
                 [f"Focused extraction degraded: {', '.join(focus_failures)}"]
                 if focus_failures
@@ -438,10 +411,10 @@ async def analyze_with_routerai_focused_v4(
         "profile_consolidation": consolidation.safe_dict(),
         "extraction_coverage": profile.coverage,
         "core_llm_focus_calls": len(_FOCUS_PASSES),
-        "core_llm_reconcile_calls": 1,
-        "core_llm_merge_calls": 1,
+        "core_llm_reconcile_calls": 0,
+        "core_llm_merge_calls": 0,
         "core_llm_synthesis_calls": synthesis_calls,
-        "core_llm_calls": len(_FOCUS_PASSES) + 1 + synthesis_calls,
+        "core_llm_calls": len(_FOCUS_PASSES) + synthesis_calls,
         "commercial_reasoning_state": synthesis_state,
         "commercial_score_available": synthesis_state == "succeeded",
     })
