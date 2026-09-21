@@ -76,9 +76,17 @@ class EconomicsFocusedSlice(FocusedPassBase):
     economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=5)
 
 
+class FocusedEconomicSignal(BaseModel):
+    signal: str = Field(max_length=240)
+    evidence: str = Field(max_length=360)
+    business_effect: str = Field(max_length=360)
+    confidence: str = Field(default="Средняя", max_length=32)
+    source_ids: list[str] = Field(default_factory=list, max_length=5)
+
+
 class SignalsFocusedSlice(FocusedPassBase):
     focus: Literal["signals_risks_change"] = "signals_risks_change"
-    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=10)
+    economic_signals: list[FocusedEconomicSignal] = Field(default_factory=list, max_length=10)
     risks_and_assumptions: list[str] = Field(default_factory=list, max_length=6)
 
 
@@ -185,6 +193,20 @@ async def _run_focused_pass(
     )
 
 
+def _normalized_signal(item: BaseModel) -> EconomicSignal:
+    data = item.model_dump(mode="python")
+    confidence = str(data.get("confidence") or "").strip()
+    if confidence not in {"Высокая", "Средняя", "Низкая"}:
+        confidence = "Средняя"
+    return EconomicSignal(
+        signal=str(data.get("signal") or "").strip(),
+        evidence=str(data.get("evidence") or "").strip(),
+        business_effect=str(data.get("business_effect") or "").strip(),
+        confidence=confidence,
+        source_ids=[str(value).strip() for value in data.get("source_ids") or [] if str(value).strip()],
+    )
+
+
 def _focused_profile_name(facts: list[CompanyFact], fallback: str) -> str:
     for field in ("legal_name", "brand_name"):
         for fact in facts:
@@ -199,7 +221,11 @@ def _focused_business_summary(results: list[FocusedPassBase]) -> str:
         value = " ".join(str(result.summary or "").split()).strip()
         if value and value.casefold() not in {item.casefold() for item in parts}:
             parts.append(value)
-    return " ".join(parts)[:700]
+    combined = " ".join(parts)
+    if len(combined) <= 700:
+        return combined
+    clipped = combined[:700].rsplit(" ", 1)[0].rstrip(" ,;:-")
+    return clipped + "…"
 
 
 async def analyze_with_routerai_focused_v4(
@@ -282,7 +308,7 @@ async def analyze_with_routerai_focused_v4(
         for item in getattr(focused_result, "company_facts", [])
     ]
     focused_signals = [
-        EconomicSignal.model_validate(item.model_dump(mode="python"))
+        _normalized_signal(item)
         for focused_result in focused_results
         for item in getattr(focused_result, "economic_signals", [])
     ]
