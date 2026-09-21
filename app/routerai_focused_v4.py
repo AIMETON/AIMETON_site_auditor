@@ -57,7 +57,7 @@ class IdentityFocusedSlice(FocusedPassBase):
 
 
 class OfferingsFocusedFact(CompactCompanyFact):
-    field: Literal["products", "customers", "suppliers", "geography", "other"]
+    field: Literal["products", "customers", "suppliers"]
 
 
 class OfferingsFocusedSlice(FocusedPassBase):
@@ -76,24 +76,17 @@ class EconomicsFocusedSlice(FocusedPassBase):
     economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=8)
 
 
-class SignalsFocusedFact(CompactCompanyFact):
-    field: Literal["other"]
-
-
 class SignalsFocusedSlice(FocusedPassBase):
     focus: Literal["signals_risks_change"] = "signals_risks_change"
-    company_facts: list[SignalsFocusedFact] = Field(default_factory=list, max_length=8)
     economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=16)
     risks_and_assumptions: list[str] = Field(default_factory=list, max_length=10)
 
 
-class FocusedMergedProfileResponse(BaseModel):
+class FocusedProfileReconcileResponse(BaseModel):
     company_name: str = Field(max_length=180)
     business_summary: str = Field(max_length=700)
-    evidence: list[str] = Field(default_factory=list, max_length=12)
-    company_facts: list[CompactCompanyFact] = Field(default_factory=list, max_length=100)
-    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=30)
-    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=20)
+    evidence: list[str] = Field(default_factory=list, max_length=8)
+    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=12)
 
 
 _FOCUS_PASSES: tuple[tuple[str, type[FocusedPassBase], str], ...] = (
@@ -112,7 +105,7 @@ beneficial_owner. Для relationship-фактов нужен прямой sourc
         "offerings_customer_operations",
         OfferingsFocusedSlice,
         """Сфокусируйся на том, что компания реально продаёт/оказывает, кому и как.
-Ищи products, customers, suppliers и конкретные проверяемые operational facts в other.
+Ищи products, customers, suppliers.
 Сжимай каталог семантически: одна бизнес-различимая услуга/продукт = один канонический
 факт, даже если она повторяется в меню, прайсе, акции или на нескольких страницах.
 Группируй ценовые/тарифные/процедурные варианты, если для бизнеса это одна услуга;
@@ -170,29 +163,23 @@ PREPARED EVIDENCE CONTEXT:
 """
 
 
-def _merge_prompt(focused_results: list[FocusedPassBase]) -> str:
+def _reconcile_prompt(focused_results: list[FocusedPassBase]) -> str:
     payload = [
         item.model_dump(mode="json")
         for item in focused_results
     ]
-    return f"""Ты Profile Merge Analyst AIMETON.
+    return f"""Ты Profile Reconcile Analyst AIMETON.
 
-Ниже результаты нескольких независимых LLM-проходов по ОДНОМУ И ТОМУ ЖЕ evidence
-context, каждый с отдельным фокусом. Собери из них единый нормализованный CompanyProfile.
+Ниже четыре независимых LLM-прохода по одному и тому же evidence context. Поля между
+проходами уже разделены по ответственности, поэтому НЕ переписывай и НЕ возвращай
+company_facts/economic_signals.
 
-Требования:
-- дедуплицируй одинаковые факты семантически, а не только по строковому совпадению;
-- при конфликте не выбирай удобный вариант: сохрани разные подтверждённые значения
-  отдельно и отметь конфликт/ограничение в risks_and_assumptions;
-- source_ids сохраняй только если они реально были приведены в focused outputs;
-- products — канонические уникальные услуги/товары, без размножения по цене/акции/странице;
-- founders/executives/beneficial_owners/affiliates/customers/suppliers оставляй только
-  при прямом подтверждении соответствующей роли;
-- financial facts разделяй по показателю и периоду;
-- economic_signals не дублируй как company_facts без необходимости;
-- company_name и business_summary сформируй по совокупности проходов;
-- не добавляй новые факты из собственных знаний;
-- итог должен быть компактным и пригодным для одного последующего reasoning pass.
+Твоя задача только:
+- определить каноническое company_name по совокупности focused outputs;
+- написать короткий business_summary;
+- перечислить 3–8 опорных evidence-тезисов;
+- отметить реальные межфокусные противоречия/ограничения в risks_and_assumptions;
+- не добавлять новых фактов из собственных знаний.
 
 FOCUSED PASSES:
 {json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}
@@ -275,15 +262,15 @@ async def analyze_with_routerai_focused_v4(
     if control and control.stop_requested:
         raise ResearchStopped("research_stopped_by_user")
 
-    merged_llm = await request_json_strict(
-        "profile_focused_merge",
-        FocusedMergedProfileResponse,
+    reconciled = await request_json_strict(
+        "profile_focused_reconcile",
+        FocusedProfileReconcileResponse,
         system=(
             "Возвращай только валидный компактный JSON по схеме. "
-            "Семантически объедини focused outputs в единый профиль."
+            "Не переписывай факты: дай только имя, summary, evidence и конфликты."
         ),
-        prompt=_merge_prompt(focused_results),
-        max_tokens=6_500,
+        prompt=_reconcile_prompt(focused_results),
+        max_tokens=1_800,
         timeout_seconds=120.0,
         reasoning_enabled=False,
     )
@@ -300,20 +287,31 @@ async def analyze_with_routerai_focused_v4(
         extraction_units_processed=len(focused_results),
         complete=len(focused_results) == len(_FOCUS_PASSES),
     )
+    focused_facts = [
+        CompanyFact.model_validate(item.model_dump(mode="python"))
+        for focused_result in focused_results
+        for item in getattr(focused_result, "company_facts", [])
+    ]
+    focused_signals = [
+        EconomicSignal.model_validate(item.model_dump(mode="python"))
+        for focused_result in focused_results
+        for item in getattr(focused_result, "economic_signals", [])
+    ]
+    focused_risks = [
+        str(item)
+        for focused_result in focused_results
+        for item in getattr(focused_result, "risks_and_assumptions", [])
+        if str(item).strip()
+    ]
     raw = MergedProfileExtraction(
-        company_name=merged_llm.company_name or title,
-        business_summary=merged_llm.business_summary,
-        evidence=list(merged_llm.evidence),
-        company_facts=[
-            CompanyFact.model_validate(item.model_dump(mode="python"))
-            for item in merged_llm.company_facts
-        ],
-        economic_signals=[
-            EconomicSignal.model_validate(item.model_dump(mode="python"))
-            for item in merged_llm.economic_signals
-        ],
+        company_name=reconciled.company_name or title,
+        business_summary=reconciled.business_summary,
+        evidence=list(reconciled.evidence),
+        company_facts=focused_facts,
+        economic_signals=focused_signals,
         risks_and_assumptions=[
-            *merged_llm.risks_and_assumptions,
+            *focused_risks,
+            *reconciled.risks_and_assumptions,
             *(
                 [f"Focused extraction degraded: {', '.join(focus_failures)}"]
                 if focus_failures
@@ -425,6 +423,7 @@ async def analyze_with_routerai_focused_v4(
         "profile_consolidation": consolidation.safe_dict(),
         "extraction_coverage": profile.coverage,
         "core_llm_focus_calls": len(_FOCUS_PASSES),
+        "core_llm_reconcile_calls": 1,
         "core_llm_merge_calls": 1,
         "core_llm_synthesis_calls": synthesis_calls,
         "core_llm_calls": len(_FOCUS_PASSES) + 1 + synthesis_calls,
