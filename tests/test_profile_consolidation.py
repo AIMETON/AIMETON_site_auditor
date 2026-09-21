@@ -243,3 +243,50 @@ def test_validation_only_guard_does_not_semantically_merge_product_variants():
         "Имплантация под ключ — 72 000 руб.",
     ]
     assert stats.semantic_duplicates_merged == 0
+
+
+def test_validation_only_guard_merges_formatting_equivalent_identity_facts() -> None:
+    coverage = EvidenceCoverage(
+        official_chars_total=100,
+        official_chunks_total=1,
+        official_chunks_processed=1,
+        sources_total=1,
+        sources_processed=1,
+        source_chunks_total=1,
+        source_chunks_processed=1,
+        extraction_units_total=4,
+        extraction_units_processed=4,
+        complete=True,
+    )
+    merged = MergedProfileExtraction(
+        company_name="Алекс Дент",
+        business_summary="Стоматологическая клиника",
+        evidence=[],
+        company_facts=[
+            CompanyFact(field="legal_name", value="ООО «АЛЕКС ДЕНТ»", confidence="Средняя", source_ids=["S1"]),
+            CompanyFact(field="legal_name", value='ООО "АЛЕКС ДЕНТ"', confidence="Высокая", source_ids=["R1-b1-0"]),
+            CompanyFact(field="inn", value="24 6500 1234", confidence="Средняя", source_ids=["S1"]),
+            CompanyFact(field="inn", value="2465001234", confidence="Высокая", source_ids=["R1-b2-0"]),
+            CompanyFact(field="ogrn", value="1 234 567 890 123", source_ids=["S1"]),
+            CompanyFact(field="ogrn", value="1234567890123", source_ids=["R1-b3-0"]),
+            CompanyFact(field="registration_status", value="Действующая", source_ids=["S1"]),
+            CompanyFact(field="registration_status", value="  действующая  ", source_ids=["R1-b4-0"]),
+        ],
+        economic_signals=[],
+        risks_and_assumptions=[],
+        coverage=coverage,
+    )
+
+    clean, stats = validate_llm_merged_profile(merged, external_sources=[])
+
+    by_field = {}
+    for fact in clean.company_facts:
+        by_field.setdefault(fact.field, []).append(fact)
+    assert len(by_field["legal_name"]) == 1
+    assert len(by_field["inn"]) == 1
+    assert len(by_field["ogrn"]) == 1
+    assert len(by_field["registration_status"]) == 1
+    assert by_field["legal_name"][0].confidence == "Высокая"
+    assert by_field["legal_name"][0].source_ids == ["S1", "R1"]
+    assert by_field["inn"][0].source_ids == ["S1", "R1"]
+    assert stats.semantic_duplicates_merged == 4
