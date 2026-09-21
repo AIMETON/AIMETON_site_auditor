@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app.models import CompanyFact, EconomicSignal, SiteAnalysis
 from app.profile_consolidation import validate_llm_merged_profile
@@ -76,10 +76,19 @@ class EconomicsFocusedSlice(FocusedPassBase):
     economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=5)
 
 
+class FocusedSignalCandidate(BaseModel):
+    """Transport-tolerant signal candidate; semantics are still produced by the LLM."""
+    signal: str = ""
+    evidence: str = ""
+    business_effect: str = ""
+    confidence: str = "Средняя"
+    source_ids: Any = Field(default_factory=list)
+
+
 class SignalsFocusedSlice(FocusedPassBase):
     focus: Literal["signals_risks_change"] = "signals_risks_change"
-    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=10)
-    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=6)
+    economic_signals: list[FocusedSignalCandidate] = Field(default_factory=list, max_length=10)
+    risks_and_assumptions: list[str] = Field(default_factory=list)
 
 
 _FOCUS_PASSES: tuple[tuple[str, type[FocusedPassBase], str], ...] = (
@@ -185,6 +194,60 @@ async def _run_focused_pass(
     )
 
 
+def _canonical_confidence(value: Any) -> Literal["Высокая", "Средняя", "Низкая"]:
+    normalized = " ".join(str(value or "").split()).strip().casefold()
+    if normalized in {"высокая", "высокий", "high"}:
+        return "Высокая"
+    if normalized in {"низкая", "низкий", "low"}:
+        return "Низкая"
+    return "Средняя"
+
+
+def _normalized_source_ids(value: Any) -> list[str]:
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple, set)):
+        values = list(value)
+    else:
+        values = []
+    return list(dict.fromkeys(
+        str(item).strip()
+        for item in values
+        if str(item).strip()
+    ))
+
+
+def _economic_signal_from_focused(item: Any) -> EconomicSignal | None:
+    if isinstance(item, EconomicSignal):
+        return item
+    data = item.model_dump(mode="python") if isinstance(item, BaseModel) else dict(item)
+    signal = " ".join(str(data.get("signal") or "").split()).strip()
+    evidence = " ".join(str(data.get("evidence") or "").split()).strip()
+    business_effect = " ".join(str(data.get("business_effect") or "").split()).strip()
+    if not signal or not evidence:
+        return None
+    return EconomicSignal(
+        signal=signal,
+        evidence=evidence,
+        business_effect=business_effect,
+        confidence=_canonical_confidence(data.get("confidence")),
+        source_ids=_normalized_source_ids(data.get("source_ids")),
+    )
+
+
+def _focus_failure_descriptor(outcome: Exception) -> str:
+    error_type = getattr(outcome, "error_type", None) or type(outcome).__name__
+    cause = getattr(outcome, "__cause__", None)
+    if isinstance(cause, ValidationError):
+        errors = cause.errors(include_input=False, include_url=False)
+        if errors:
+            first = errors[0]
+            loc = ".".join(str(item) for item in first.get("loc", ())) or "root"
+            kind = str(first.get("type") or "validation")
+            return f"{error_type}@{loc}:{kind}"
+    return str(error_type)
+
+
 def _focused_profile_name(facts: list[CompanyFact], fallback: str) -> str:
     for field in ("legal_name", "brand_name"):
         for fact in facts:
@@ -239,8 +302,7 @@ async def analyze_with_routerai_focused_v4(
     focus_failures: list[str] = []
     for (focus, _, _), outcome in zip(_FOCUS_PASSES, focus_outcomes):
         if isinstance(outcome, Exception):
-            error_type = getattr(outcome, "error_type", None) or type(outcome).__name__
-            focus_failures.append(f"{focus}:{error_type}")
+            focus_failures.append(f"{focus}:{_focus_failure_descriptor(outcome)}")
             continue
         focused_results.append(outcome)
 
@@ -282,9 +344,10 @@ async def analyze_with_routerai_focused_v4(
         for item in getattr(focused_result, "company_facts", [])
     ]
     focused_signals = [
-        EconomicSignal.model_validate(item.model_dump(mode="python"))
+        normalized
         for focused_result in focused_results
         for item in getattr(focused_result, "economic_signals", [])
+        if (normalized := _economic_signal_from_focused(item)) is not None
     ]
     focused_risks = [
         str(item)
