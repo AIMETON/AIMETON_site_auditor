@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from app.models import CompanyFact, EconomicSignal, SiteAnalysis
 from app.profile_consolidation import validate_llm_merged_profile
@@ -77,18 +77,17 @@ class EconomicsFocusedSlice(FocusedPassBase):
 
 
 class FocusedEconomicSignal(BaseModel):
-    """Transport-tolerant signal candidate; semantics remain LLM-produced."""
-    signal: str = ""
-    evidence: str = ""
-    business_effect: str = ""
-    confidence: str = "Средняя"
-    source_ids: Any = Field(default_factory=list)
+    signal: str = Field(max_length=240)
+    evidence: str = Field(max_length=360)
+    business_effect: str = Field(max_length=360)
+    confidence: str = Field(default="Средняя", max_length=32)
+    source_ids: list[str] = Field(default_factory=list, max_length=5)
 
 
 class SignalsFocusedSlice(FocusedPassBase):
     focus: Literal["signals_risks_change"] = "signals_risks_change"
     economic_signals: list[FocusedEconomicSignal] = Field(default_factory=list, max_length=10)
-    risks_and_assumptions: list[str] = Field(default_factory=list)
+    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=6)
 
 
 _FOCUS_PASSES: tuple[tuple[str, type[FocusedPassBase], str], ...] = (
@@ -196,47 +195,16 @@ async def _run_focused_pass(
 
 def _normalized_signal(item: BaseModel) -> EconomicSignal:
     data = item.model_dump(mode="python")
-    confidence_raw = " ".join(str(data.get("confidence") or "").split()).strip().casefold()
-    if confidence_raw in {"высокая", "высокий", "high"}:
-        confidence = "Высокая"
-    elif confidence_raw in {"низкая", "низкий", "low"}:
-        confidence = "Низкая"
-    else:
+    confidence = str(data.get("confidence") or "").strip()
+    if confidence not in {"Высокая", "Средняя", "Низкая"}:
         confidence = "Средняя"
-
-    raw_source_ids = data.get("source_ids")
-    if isinstance(raw_source_ids, str):
-        source_values = [raw_source_ids]
-    elif isinstance(raw_source_ids, (list, tuple, set)):
-        source_values = list(raw_source_ids)
-    else:
-        source_values = []
-    source_ids = list(dict.fromkeys(
-        str(value).strip()
-        for value in source_values
-        if str(value).strip()
-    ))
-
     return EconomicSignal(
-        signal=" ".join(str(data.get("signal") or "").split()).strip(),
-        evidence=" ".join(str(data.get("evidence") or "").split()).strip(),
-        business_effect=" ".join(str(data.get("business_effect") or "").split()).strip(),
+        signal=str(data.get("signal") or "").strip(),
+        evidence=str(data.get("evidence") or "").strip(),
+        business_effect=str(data.get("business_effect") or "").strip(),
         confidence=confidence,
-        source_ids=source_ids,
+        source_ids=[str(value).strip() for value in data.get("source_ids") or [] if str(value).strip()],
     )
-
-
-def _focus_failure_descriptor(outcome: Exception) -> str:
-    error_type = getattr(outcome, "error_type", None) or type(outcome).__name__
-    cause = getattr(outcome, "__cause__", None)
-    if isinstance(cause, ValidationError):
-        errors = cause.errors(include_input=False, include_url=False)
-        if errors:
-            first = errors[0]
-            loc = ".".join(str(value) for value in first.get("loc", ())) or "root"
-            kind = str(first.get("type") or "validation")
-            return f"{error_type}@{loc}:{kind}"
-    return str(error_type)
 
 
 def _focused_profile_name(facts: list[CompanyFact], fallback: str) -> str:
@@ -297,7 +265,8 @@ async def analyze_with_routerai_focused_v4(
     focus_failures: list[str] = []
     for (focus, _, _), outcome in zip(_FOCUS_PASSES, focus_outcomes):
         if isinstance(outcome, Exception):
-            focus_failures.append(f"{focus}:{_focus_failure_descriptor(outcome)}")
+            error_type = getattr(outcome, "error_type", None) or type(outcome).__name__
+            focus_failures.append(f"{focus}:{error_type}")
             continue
         focused_results.append(outcome)
 
