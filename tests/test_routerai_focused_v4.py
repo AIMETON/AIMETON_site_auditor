@@ -209,3 +209,39 @@ def test_focused_schemas_are_semantic_shortlists() -> None:
     signal_schema = focused.SignalsFocusedSlice.model_json_schema()
     signals = (signal_schema.get("properties") or {}).get("economic_signals") or {}
     assert signals.get("maxItems") == 10
+
+
+def test_signals_focus_accepts_transport_variants_and_normalizes_shape() -> None:
+    slice_result = focused.SignalsFocusedSlice(
+        summary="signals",
+        economic_signals=[{
+            "signal": "Рост цифрового спроса " + "x" * 260,
+            "evidence": "Подтверждение " + "y" * 420,
+            "business_effect": "Операционный эффект " + "z" * 420,
+            "confidence": "HIGH",
+            "source_ids": "S1",
+        }],
+        risks_and_assumptions=["risk"] * 9,
+    )
+
+    normalized = focused._economic_signal_from_focused(
+        slice_result.economic_signals[0]
+    )
+
+    assert normalized is not None
+    assert normalized.confidence == "Высокая"
+    assert normalized.source_ids == ["S1"]
+    assert normalized.signal.startswith("Рост цифрового спроса")
+    assert len(slice_result.risks_and_assumptions) == 9
+
+
+def test_signals_focus_drops_empty_transport_candidate_without_failing_pass() -> None:
+    candidate = focused.FocusedSignalCandidate(
+        signal="",
+        evidence="",
+        business_effect="",
+        confidence="unknown",
+        source_ids=None,
+    )
+
+    assert focused._economic_signal_from_focused(candidate) is None
