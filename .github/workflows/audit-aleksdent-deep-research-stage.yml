@@ -168,6 +168,18 @@ jobs:
                       "source_ids": list(item.get("source_ids") or [])[:20],
                   })
 
+          identity_fields = {"legal_name", "inn", "ogrn", "registration_status"}
+          identity_facts = [
+              {
+                  "field": str(item.get("field") or "")[:120],
+                  "value": str(item.get("value") or "")[:500],
+                  "period": str(item.get("period") or "")[:100],
+                  "source_ids": list(item.get("source_ids") or [])[:20],
+              }
+              for item in facts
+              if isinstance(item, dict) and str(item.get("field") or "") in identity_fields
+          ]
+
           urls = [str(item.get("url") or item.get("document_url") or "") for item in sources if isinstance(item, dict)]
           hosts = collections.Counter(urlsplit(url).hostname or "" for url in urls if url)
           evidence_blocks = sum(
@@ -196,6 +208,7 @@ jobs:
               "business_summary": result.get("business_summary"),
               "company_fact_count": len(facts),
               "facts_by_field": dict(sorted(by_field.items())),
+              "identity_facts": identity_facts[:40],
               "sensitive_identity_facts": sensitive[:40],
               "other_fact_count": by_field.get("other", 0),
               "product_fact_count": by_field.get("products", 0),
