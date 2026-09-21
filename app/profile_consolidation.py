@@ -223,10 +223,15 @@ def consolidate_facts(
         if _foreign_only_sensitive_fact(fact, relations):
             foreign_rejected += 1
             continue
+        normalized_value = (
+            _normalized_key(fact.field, fact.value)
+            if fact.field in {"legal_name", "inn", "ogrn", "registration_status"}
+            else _clean_text(fact.value).casefold()
+        )
         key = (
             fact.field,
-            _normalized_key(fact.field, fact.value),
-            _normalized_key("period", fact.period or ""),
+            normalized_value,
+            _clean_text(fact.period or "").casefold(),
         )
         if not key[1]:
             placeholders_removed += 1
