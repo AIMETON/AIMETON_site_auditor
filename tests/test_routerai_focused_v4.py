@@ -209,3 +209,20 @@ def test_focused_schemas_are_semantic_shortlists() -> None:
     signal_schema = focused.SignalsFocusedSlice.model_json_schema()
     signals = (signal_schema.get("properties") or {}).get("economic_signals") or {}
     assert signals.get("maxItems") == 10
+
+
+def test_signal_focus_schema_accepts_richer_signal_text_and_more_sources() -> None:
+    signal = focused.FocusedEconomicSignal(
+        signal="Сигнал " + "x" * 220,
+        evidence="Подтверждение " + "y" * 300,
+        business_effect="Эффект " + "z" * 220,
+        confidence="Средняя",
+        source_ids=["S1", "S2", "S3", "S4"],
+    )
+    payload = focused.SignalsFocusedSlice(
+        summary="Краткая сводка",
+        economic_signals=[signal],
+    )
+
+    assert len(payload.economic_signals) == 1
+    assert payload.economic_signals[0].source_ids == ["S1", "S2", "S3", "S4"]
