@@ -216,16 +216,31 @@ def _focused_profile_name(facts: list[CompanyFact], fallback: str) -> str:
 
 
 def _focused_business_summary(results: list[FocusedPassBase]) -> str:
-    parts: list[str] = []
-    for result in results:
+    """Use one LLM-authored overview instead of concatenating per-focus summaries.
+
+    Every focused pass sees the full prepared context, so concatenating their summaries
+    repeats the same company description from four angles. Prefer the offerings/operations
+    pass because it is the closest universal description of what the company actually does;
+    fall back to economics, identity, then signals when that pass is unavailable.
+    """
+    priority = (
+        "offerings_customer_operations",
+        "economics_workforce_technology",
+        "identity_governance",
+        "signals_risks_change",
+    )
+    by_focus = {str(result.focus): result for result in results}
+    ordered = [by_focus[focus] for focus in priority if focus in by_focus]
+    ordered.extend(result for result in results if result not in ordered)
+    for result in ordered:
         value = " ".join(str(result.summary or "").split()).strip()
-        if value and value.casefold() not in {item.casefold() for item in parts}:
-            parts.append(value)
-    combined = " ".join(parts)
-    if len(combined) <= 700:
-        return combined
-    clipped = combined[:700].rsplit(" ", 1)[0].rstrip(" ,;:-")
-    return clipped + "…"
+        if not value:
+            continue
+        if len(value) <= 700:
+            return value
+        clipped = value[:700].rsplit(" ", 1)[0].rstrip(" ,;:-")
+        return clipped + "…"
+    return ""
 
 
 async def analyze_with_routerai_focused_v4(
