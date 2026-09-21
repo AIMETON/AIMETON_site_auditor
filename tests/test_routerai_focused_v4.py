@@ -201,3 +201,19 @@ def test_focused_schemas_assign_each_fact_field_to_one_owner() -> None:
     assert "products" in owners
     assert "legal_name" in owners
     assert "revenue" in owners
+
+
+def test_focused_schemas_are_semantic_shortlists() -> None:
+    caps = {
+        focused.IdentityFocusedSlice: 14,
+        focused.OfferingsFocusedSlice: 14,
+        focused.EconomicsFocusedSlice: 12,
+    }
+    for schema_type, expected_max in caps.items():
+        schema = schema_type.model_json_schema()
+        facts = (schema.get("properties") or {}).get("company_facts") or {}
+        assert facts.get("maxItems") == expected_max
+
+    signal_schema = focused.SignalsFocusedSlice.model_json_schema()
+    signals = (signal_schema.get("properties") or {}).get("economic_signals") or {}
+    assert signals.get("maxItems") == 10
