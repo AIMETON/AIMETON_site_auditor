@@ -61,6 +61,85 @@ _NON_TARGET_IDENTITY_RELATIONS = {
     "affiliate", "counterparty", "competitor", "publisher", "mentioned_only", "unknown",
 }
 
+_LATE_IDENTITY_DEDUP_FIELDS = {"legal_name", "inn", "ogrn", "registration_status"}
+_REGISTRATION_STATUS_ALIASES = {
+    "active": "active",
+    "действующая": "active",
+    "действующее": "active",
+    "действует": "active",
+    "ликвидирована": "liquidated",
+    "ликвидировано": "liquidated",
+    "liquidated": "liquidated",
+}
+
+
+def _late_identity_value_key(field: str, value: str) -> str:
+    compact = " ".join(str(value or "").split()).strip()
+    if field in {"inn", "ogrn"}:
+        return re.sub(r"\D", "", compact)
+    if field == "registration_status":
+        folded = compact.casefold().strip(" .,:;-–—")
+        return _REGISTRATION_STATUS_ALIASES.get(folded, folded)
+    if field == "legal_name":
+        folded = compact.casefold().translate(str.maketrans({
+            "«": '"', "»": '"', "„": '"', "“": '"', "”": '"',
+        }))
+        folded = re.sub(r"[^0-9a-zа-яё]+", " ", folded, flags=re.IGNORECASE)
+        return " ".join(folded.split())
+    return compact.casefold()
+
+
+def _merge_late_enrichment_facts(
+    existing: list[CompanyFact],
+    additions: list[CompanyFact],
+) -> int:
+    """Merge late identity corroboration without hiding real identity conflicts."""
+    index: dict[tuple[str, str], int] = {}
+    for position, fact in enumerate(existing):
+        if fact.field not in _LATE_IDENTITY_DEDUP_FIELDS:
+            continue
+        key = _late_identity_value_key(fact.field, fact.value)
+        if key:
+            index.setdefault((fact.field, key), position)
+
+    merged = 0
+    for fact in additions:
+        if fact.field not in _LATE_IDENTITY_DEDUP_FIELDS:
+            existing.append(fact)
+            continue
+        value_key = _late_identity_value_key(fact.field, fact.value)
+        key = (fact.field, value_key)
+        position = index.get(key) if value_key else None
+        if position is None:
+            index[key] = len(existing)
+            existing.append(fact)
+            continue
+
+        current = existing[position]
+        source_ids = list(dict.fromkeys([*current.source_ids, *fact.source_ids]))
+        notes = [
+            value
+            for value in (
+                " ".join(str(current.note or "").split()).strip(),
+                " ".join(str(fact.note or "").split()).strip(),
+            )
+            if value
+        ]
+        note = "; ".join(dict.fromkeys(notes))
+        confidence_rank = {"Низкая": 0, "Средняя": 1, "Высокая": 2}
+        confidence = (
+            fact.confidence
+            if confidence_rank.get(fact.confidence, 0) > confidence_rank.get(current.confidence, 0)
+            else current.confidence
+        )
+        existing[position] = current.model_copy(update={
+            "source_ids": source_ids,
+            "note": note,
+            "confidence": confidence,
+        })
+        merged += 1
+    return merged
+
 
 def _ordered_official_evidence(verified: list[IntelligenceSource]) -> list[tuple[str, str]]:
     """Rebuild target-scoped first-party evidence in deterministic block order.
@@ -658,12 +737,10 @@ async def _run_verified_enriched_site_analysis(
             f"Использован резервный локальный анализ: {type(exc).__name__}."
         )
 
-    existing_fact_keys = {(fact.field, fact.value, fact.note) for fact in analysis.company_facts}
-    for fact in [*deterministic_identity_facts, *dadata_facts]:
-        key = (fact.field, fact.value, fact.note)
-        if key not in existing_fact_keys:
-            analysis.company_facts.append(fact)
-            existing_fact_keys.add(key)
+    late_identity_duplicates_merged = _merge_late_enrichment_facts(
+        analysis.company_facts,
+        [*deterministic_identity_facts, *dadata_facts],
+    )
 
     document_evidence = collapse_verified_evidence(verified)
     analysis.sources = merge_document_sources(analysis.sources, document_evidence)
@@ -840,6 +917,7 @@ async def _run_verified_enriched_site_analysis(
         "identity_authoritative_inn_count": len(identity.authoritative_identifiers["inn"]),
         "identity_authoritative_ogrn_count": len(identity.authoritative_identifiers["ogrn"]),
         "deterministic_first_party_identifier_count": len(deterministic_identity_facts),
+        "late_identity_duplicates_merged": late_identity_duplicates_merged,
         "dadata_identifier_candidates_checked": dadata_identifier_candidates_checked,
     }
     if current_research():
