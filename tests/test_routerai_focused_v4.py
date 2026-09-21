@@ -176,3 +176,28 @@ async def test_deep_runtime_prefers_focused_v4_and_can_roll_back(monkeypatch):
             "https://example.org/", "Example", "text", []
         )
     assert calls == ["compiled"]
+
+
+def test_focused_schemas_assign_each_fact_field_to_one_owner() -> None:
+    schema_types = [
+        focused.IdentityFocusedSlice,
+        focused.OfferingsFocusedSlice,
+        focused.EconomicsFocusedSlice,
+        focused.SignalsFocusedSlice,
+    ]
+    owners: dict[str, list[str]] = {}
+    for schema_type in schema_types:
+        schema = schema_type.model_json_schema()
+        defs = schema.get("$defs", {})
+        for name, definition in defs.items():
+            field_schema = (definition.get("properties") or {}).get("field") or {}
+            values = field_schema.get("enum")
+            if values is None and "const" in field_schema:
+                values = [field_schema["const"]]
+            for value in values or []:
+                owners.setdefault(str(value), []).append(schema_type.__name__)
+
+    assert all(len(schema_owners) == 1 for schema_owners in owners.values())
+    assert "products" in owners
+    assert "legal_name" in owners
+    assert "revenue" in owners
