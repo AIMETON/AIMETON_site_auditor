@@ -379,9 +379,14 @@ def validate_llm_merged_profile(merged, *, external_sources: list[dict[str, Any]
             for source_id in fact.source_ids
         ))
         normalized = fact.model_copy(update={"source_ids": normalized_sources})
+        normalized_value = (
+            _normalized_key(fact.field, fact.value)
+            if fact.field in {"legal_name", "inn", "ogrn", "registration_status"}
+            else _clean_text(fact.value).casefold()
+        )
         key = (
             fact.field,
-            _clean_text(fact.value).casefold(),
+            normalized_value,
             _clean_text(fact.period or "").casefold(),
         )
         existing_index = exact_index.get(key)

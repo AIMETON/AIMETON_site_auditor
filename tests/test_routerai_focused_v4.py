@@ -226,14 +226,25 @@ def test_signal_focus_accepts_longer_text_and_normalizes_confidence() -> None:
     assert normalized.source_ids == ["S1", "S2", "S3", "S4"]
 
 
-def test_focused_business_summary_truncates_on_word_boundary() -> None:
+def test_focused_business_summary_prefers_one_offerings_overview() -> None:
     results = [
-        focused.IdentityFocusedSlice(summary="A" * 320),
-        focused.OfferingsFocusedSlice(summary="B" * 320),
-        focused.EconomicsFocusedSlice(summary="C" * 320),
+        focused.IdentityFocusedSlice(summary="Юридическая идентичность компании."),
+        focused.OfferingsFocusedSlice(summary="Компания оказывает стоматологические услуги."),
+        focused.EconomicsFocusedSlice(summary="Компания использует цифровые каналы записи."),
+        focused.SignalsFocusedSlice(summary="Есть сигналы операционных изменений."),
     ]
 
     summary = focused._focused_business_summary(results)
 
-    assert len(summary) <= 701
-    assert summary.endswith("…")
+    assert summary == "Компания оказывает стоматологические услуги."
+    assert "Юридическая идентичность" not in summary
+    assert "операционных изменений" not in summary
+
+
+def test_focused_business_summary_falls_back_when_offerings_pass_missing() -> None:
+    results = [
+        focused.IdentityFocusedSlice(summary="Идентичность."),
+        focused.EconomicsFocusedSlice(summary="Экономика и масштаб."),
+    ]
+
+    assert focused._focused_business_summary(results) == "Экономика и масштаб."
