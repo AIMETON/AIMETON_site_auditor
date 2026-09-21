@@ -223,15 +223,10 @@ def consolidate_facts(
         if _foreign_only_sensitive_fact(fact, relations):
             foreign_rejected += 1
             continue
-        normalized_value = (
-            _normalized_key(fact.field, fact.value)
-            if fact.field in {"legal_name", "inn", "ogrn", "registration_status"}
-            else _clean_text(fact.value).casefold()
-        )
         key = (
             fact.field,
-            normalized_value,
-            _clean_text(fact.period or "").casefold(),
+            _normalized_key(fact.field, fact.value),
+            _normalized_key("period", fact.period or ""),
         )
         if not key[1]:
             placeholders_removed += 1
@@ -384,10 +379,15 @@ def validate_llm_merged_profile(merged, *, external_sources: list[dict[str, Any]
             for source_id in fact.source_ids
         ))
         normalized = fact.model_copy(update={"source_ids": normalized_sources})
+        normalized_value = (
+            _normalized_key(fact.field, fact.value)
+            if fact.field in {"legal_name", "inn", "ogrn", "registration_status"}
+            else _clean_text(fact.value).casefold()
+        )
         key = (
             fact.field,
-            _normalized_key(fact.field, fact.value),
-            _normalized_key("period", fact.period or ""),
+            normalized_value,
+            _clean_text(fact.period or "").casefold(),
         )
         existing_index = exact_index.get(key)
         if existing_index is not None:
