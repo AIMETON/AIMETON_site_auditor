@@ -5,6 +5,7 @@ import re
 from uuid import uuid4
 
 from app.trace_context import bind_trace_identity, current_trace_identity
+from app.entity_resolution.registry import _normalized_legal_name
 from app.evidence_quality import assess_evidence_quality
 from app.commercial_support import assess_commercial_support, enforce_commercial_support
 from app.evidence_freshness import summarize_source_freshness
@@ -67,8 +68,13 @@ _REGISTRATION_STATUS_ALIASES = {
     "действующая": "active",
     "действующее": "active",
     "действует": "active",
+    "действующая организация": "active",
+    "действующее юридическое лицо": "active",
+    "действующее юрлицо": "active",
+    "действующая компания": "active",
     "ликвидирована": "liquidated",
     "ликвидировано": "liquidated",
+    "ликвидированная организация": "liquidated",
     "liquidated": "liquidated",
 }
 
@@ -81,11 +87,7 @@ def _late_identity_value_key(field: str, value: str) -> str:
         folded = compact.casefold().strip(" .,:;-–—")
         return _REGISTRATION_STATUS_ALIASES.get(folded, folded)
     if field == "legal_name":
-        folded = compact.casefold().translate(str.maketrans({
-            "«": '"', "»": '"', "„": '"', "“": '"', "”": '"',
-        }))
-        folded = re.sub(r"[^0-9a-zа-яё]+", " ", folded, flags=re.IGNORECASE)
-        return " ".join(folded.split())
+        return _normalized_legal_name(compact)
     return compact.casefold()
 
 
