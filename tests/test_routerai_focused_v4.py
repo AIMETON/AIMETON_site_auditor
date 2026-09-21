@@ -211,19 +211,25 @@ def test_focused_schemas_are_semantic_shortlists() -> None:
     assert signals.get("maxItems") == 10
 
 
-def test_signal_focus_accepts_longer_text_and_normalizes_confidence() -> None:
-    raw = focused.FocusedEconomicSignal(
-        signal="Сигнал " + "x" * 120,
-        evidence="Доказательство " + "y" * 220,
-        business_effect="Эффект " + "z" * 220,
-        confidence="high",
-        source_ids=["S1", "S2", "S3", "S4"],
+def test_signal_focus_accepts_transport_variants_and_normalizes_shape() -> None:
+    slice_result = focused.SignalsFocusedSlice(
+        summary="signals",
+        economic_signals=[{
+            "signal": "Сигнал " + "x" * 420,
+            "evidence": "Доказательство " + "y" * 620,
+            "business_effect": "Эффект " + "z" * 620,
+            "confidence": "high",
+            "source_ids": "S1",
+        }],
+        risks_and_assumptions=["risk"] * 9,
     )
 
-    normalized = focused._normalized_signal(raw)
+    normalized = focused._normalized_signal(slice_result.economic_signals[0])
 
-    assert normalized.confidence == "Средняя"
-    assert normalized.source_ids == ["S1", "S2", "S3", "S4"]
+    assert normalized.confidence == "Высокая"
+    assert normalized.source_ids == ["S1"]
+    assert normalized.signal.startswith("Сигнал ")
+    assert len(slice_result.risks_and_assumptions) == 9
 
 
 def test_focused_business_summary_truncates_on_word_boundary() -> None:
