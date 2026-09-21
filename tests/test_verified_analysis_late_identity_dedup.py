@@ -18,13 +18,13 @@ def test_late_identity_enrichment_merges_equivalent_registry_facts() -> None:
     additions = [
         CompanyFact(
             field="legal_name",
-            value='ООО "АЛЕКС ДЕНТ"',
+            value='Общество с ограниченной ответственностью "АЛЕКС ДЕНТ"',
             confidence="Средняя",
             note="DaData registry mirror; authority_verified=false",
         ),
         CompanyFact(field="inn", value="24 6221 5501", note="DaData"),
         CompanyFact(field="ogrn", value="1 112 468 013 030", note="DaData"),
-        CompanyFact(field="registration_status", value="ACTIVE", note="DaData"),
+        CompanyFact(field="registration_status", value="Действующая организация", note="DaData"),
     ]
 
     merged = _merge_late_enrichment_facts(facts, additions)

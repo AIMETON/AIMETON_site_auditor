@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app.models import CompanyFact, EconomicSignal, SiteAnalysis
 from app.profile_consolidation import validate_llm_merged_profile
@@ -207,6 +207,20 @@ def _normalized_signal(item: BaseModel) -> EconomicSignal:
     )
 
 
+def _focus_failure_descriptor(outcome: Exception) -> str:
+    """Expose only safe validation location/type metadata, never provider payloads."""
+    error_type = getattr(outcome, "error_type", None) or type(outcome).__name__
+    cause = getattr(outcome, "__cause__", None)
+    if isinstance(cause, ValidationError):
+        errors = cause.errors(include_input=False, include_url=False)
+        if errors:
+            first = errors[0]
+            loc = ".".join(str(value) for value in first.get("loc", ())) or "root"
+            kind = str(first.get("type") or "validation")
+            return f"{error_type}@{loc}:{kind}"
+    return str(error_type)
+
+
 def _focused_profile_name(facts: list[CompanyFact], fallback: str) -> str:
     for field in ("legal_name", "brand_name"):
         for fact in facts:
@@ -280,8 +294,7 @@ async def analyze_with_routerai_focused_v4(
     focus_failures: list[str] = []
     for (focus, _, _), outcome in zip(_FOCUS_PASSES, focus_outcomes):
         if isinstance(outcome, Exception):
-            error_type = getattr(outcome, "error_type", None) or type(outcome).__name__
-            focus_failures.append(f"{focus}:{error_type}")
+            focus_failures.append(f"{focus}:{_focus_failure_descriptor(outcome)}")
             continue
         focused_results.append(outcome)
 
