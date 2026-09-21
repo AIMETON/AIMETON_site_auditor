@@ -257,6 +257,17 @@ async def analyze_with_routerai_focused_v4(
             continue
         focused_results.append(outcome)
 
+    if control is not None:
+        control.checkpoint(
+            "focused_v4/outcomes",
+            {
+                "requested": len(_FOCUS_PASSES),
+                "succeeded": len(focused_results),
+                "failed": len(focus_failures),
+                "failures": list(focus_failures),
+            },
+        )
+
     if len(focused_results) < 2:
         raise RuntimeError(
             "focused_profile_insufficient:"
