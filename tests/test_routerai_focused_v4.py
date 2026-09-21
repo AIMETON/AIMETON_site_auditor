@@ -209,3 +209,31 @@ def test_focused_schemas_are_semantic_shortlists() -> None:
     signal_schema = focused.SignalsFocusedSlice.model_json_schema()
     signals = (signal_schema.get("properties") or {}).get("economic_signals") or {}
     assert signals.get("maxItems") == 10
+
+
+def test_signal_focus_accepts_longer_text_and_normalizes_confidence() -> None:
+    raw = focused.FocusedEconomicSignal(
+        signal="Сигнал " + "x" * 120,
+        evidence="Доказательство " + "y" * 220,
+        business_effect="Эффект " + "z" * 220,
+        confidence="high",
+        source_ids=["S1", "S2", "S3", "S4"],
+    )
+
+    normalized = focused._normalized_signal(raw)
+
+    assert normalized.confidence == "Средняя"
+    assert normalized.source_ids == ["S1", "S2", "S3", "S4"]
+
+
+def test_focused_business_summary_truncates_on_word_boundary() -> None:
+    results = [
+        focused.IdentityFocusedSlice(summary="A" * 320),
+        focused.OfferingsFocusedSlice(summary="B" * 320),
+        focused.EconomicsFocusedSlice(summary="C" * 320),
+    ]
+
+    summary = focused._focused_business_summary(results)
+
+    assert len(summary) <= 701
+    assert summary.endswith("…")
