@@ -15,7 +15,7 @@ from app.analysis_async_api import (
 from app.company_intelligence import run_company_intelligence
 from app.discovery import run_hunt
 from app.heuristics import heuristic_analysis
-from app.llm import analyze_with_routerai
+from app.external_sources import run_enriched_site_analysis
 from app.mcp_security import browser_mcp_origins
 from app.mission_orchestrator import (
     EntryPoint,
@@ -122,7 +122,11 @@ async def analyze_site(url: str) -> dict:
         )
         raise
     try:
-        result = await analyze_with_routerai(page["final_url"], page["title"], page["text"])
+        result = await run_enriched_site_analysis(
+            page["final_url"],
+            page["title"],
+            page["text"],
+        )
     except Exception as exc:
         result = heuristic_analysis(page["final_url"], page["title"], page["text"])
         result.readiness.provider_states["routerai"] = (
@@ -132,7 +136,7 @@ async def analyze_site(url: str) -> dict:
             else "failed"
         )
         result.risks_and_assumptions.append(
-            "Used fallback local analysis because the LLM was unavailable or returned invalid output."
+            "Used fallback local analysis because the enriched audit path was unavailable."
         )
     record_legacy_site_turn(
         orchestrator,
