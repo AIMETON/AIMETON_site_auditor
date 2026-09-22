@@ -33,6 +33,7 @@ from app.runtime_time import runtime_time_snapshot
 from app.scraper import FetchError, fetch_site
 from app.site_applicability import (
     attach_applicability,
+    bind_site_applicability,
     classify_site_applicability,
     not_applicable_site_analysis,
     should_short_circuit,
@@ -675,16 +676,18 @@ async def _run_enriched_bounded(
     analysis_id: str,
     site_applicability=None,
 ):
+    async def invoke():
+        if site_applicability is None:
+            return await run_enriched_site_analysis(source_url, title, text)
+        with bind_site_applicability(site_applicability):
+            return await run_enriched_site_analysis(source_url, title, text)
+
     if deep_research_enabled() or active_settings():
-        return await run_enriched_site_analysis(
-            source_url, title, text, site_applicability=site_applicability
-        )
+        return await invoke()
     deadline_seconds = _analysis_deadline_seconds()
     try:
         return await asyncio.wait_for(
-            run_enriched_site_analysis(
-                source_url, title, text, site_applicability=site_applicability
-            ),
+            invoke(),
             timeout=deadline_seconds,
         )
     except asyncio.TimeoutError:
