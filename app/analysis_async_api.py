@@ -698,10 +698,9 @@ async def _run_enriched_bounded(
             detail=f"Bounded deadline: {deadline_seconds:.0f} s. Используем резервный локальный анализ.",
             next_action="Сформировать частичный результат вместо бесконечного ожидания.",
         )
-        result = attach_applicability(
-            heuristic_analysis(source_url, title, text),
-            site_applicability,
-        )
+        result = heuristic_analysis(source_url, title, text)
+        if site_applicability is not None:
+            result = attach_applicability(result, site_applicability)
         result.readiness.provider_states["external_enrichment"] = "deadline_exceeded"
         result.risks_and_assumptions.append(
             f"External enrichment exceeded the bounded {deadline_seconds:.0f}s runtime deadline; "
