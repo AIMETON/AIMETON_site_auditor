@@ -153,6 +153,7 @@ class PreliminaryResultReadiness(BaseModel):
         "schema_validated",
         "preliminary_hypothesis",
         "validation_error",
+        "not_applicable",
     ] = "preliminary_hypothesis"
     client_release_eligible: Literal[False] = False
     sufficiency_level: Literal["L0", "L1", "L2", "L3", "L4", "L5"] = "L0"
@@ -192,8 +193,31 @@ class PreliminaryResultReadiness(BaseModel):
     )
 
 
+class TargetApplicability(BaseModel):
+    applicability: Literal["applicable", "not_applicable", "ambiguous", "unavailable"]
+    target_kind: Literal[
+        "company_site",
+        "company_product_service_page",
+        "commercial_storefront",
+        "marketplace_listing",
+        "directory_aggregator",
+        "media_article",
+        "government_public",
+        "nonprofit_community",
+        "personal_blog_portfolio",
+        "documentation_knowledge_base",
+        "social_profile",
+        "unknown",
+    ] = "unknown"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    target_entity_name: str = Field(default="", max_length=240)
+    reason: str = Field(default="", max_length=500)
+    classifier: str = "fast_research"
+
+
 class SiteAnalysis(BaseModel):
     research_queries: list[str] = Field(default_factory=list)
+    target_applicability: TargetApplicability | None = None
     research_status: dict[str, str | int | bool] = Field(default_factory=dict)
     profile_revision: int = Field(default=0, ge=0)
     user_clarifications: list[str] = Field(default_factory=list)
@@ -208,7 +232,7 @@ class SiteAnalysis(BaseModel):
     business_machine_4x4: list[BusinessMachineCell] = Field(default_factory=list, max_length=16)
     economic_signals: list[EconomicSignal] = Field(default_factory=list)
     commercial_opportunity: CommercialOpportunity
-    agents: list[AgentRecommendation] = Field(min_length=3, max_length=10)
+    agents: list[AgentRecommendation] = Field(default_factory=list, max_length=10)
     action_package: ActionPackage
     risks_and_assumptions: list[str] = Field(default_factory=list)
     readiness: PreliminaryResultReadiness = Field(
