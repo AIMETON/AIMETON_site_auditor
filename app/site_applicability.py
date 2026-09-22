@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -17,6 +19,24 @@ from app.models import (
 
 _CLASSIFIER_TEXT_CHARS = 12_000
 _NOT_APPLICABLE_CONFIDENCE = 0.80
+_BOUND_APPLICABILITY: ContextVar[TargetApplicability | None] = ContextVar(
+    "aimeton_site_applicability",
+    default=None,
+)
+
+
+def current_site_applicability() -> TargetApplicability | None:
+    return _BOUND_APPLICABILITY.get()
+
+
+@contextmanager
+def bind_site_applicability(assessment: TargetApplicability):
+    token = _BOUND_APPLICABILITY.set(assessment)
+    try:
+        yield assessment
+    finally:
+        _BOUND_APPLICABILITY.reset(token)
+
 
 
 class _ApplicabilityResponse(BaseModel):
