@@ -15,7 +15,7 @@ def test_late_identity_enrichment_merges_equivalent_registry_facts() -> None:
         CompanyFact(field="ogrn", value="1112468013030", source_ids=["R-H25"]),
         CompanyFact(
             field="registration_status",
-            value="Действующая организация; дата регистрации 15.03.2011",
+            value="Действующая организация, зарегистрирована 15.03.2011",
             source_ids=["R-H25"],
         ),
     ]
@@ -96,3 +96,21 @@ def test_late_legal_name_dedup_preserves_different_legal_forms() -> None:
 
     assert merged == 0
     assert [fact.value for fact in facts] == ['ООО «Альфа Дент»', 'АО "АЛЬФАДЕНТ"']
+
+
+def test_registration_status_metadata_delimiters_are_equivalent() -> None:
+    facts = [
+        CompanyFact(
+            field="registration_status",
+            value="Действующая организация; дата регистрации 15.03.2011",
+            source_ids=["S1"],
+        ),
+    ]
+    additions = [
+        CompanyFact(field="registration_status", value="ACTIVE", note="DaData"),
+    ]
+
+    merged = _merge_late_enrichment_facts(facts, additions)
+
+    assert merged == 1
+    assert len(facts) == 1
