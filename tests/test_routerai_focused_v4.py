@@ -306,3 +306,42 @@ def test_economics_transport_buffer_preserves_five_signal_profile_cap() -> None:
 
     assert len(result.economic_signals) == 7
     assert [item.signal for item in bounded] == [f"signal-{index}" for index in range(5)]
+
+
+@pytest.mark.asyncio
+async def test_focused_synthesis_failure_publishes_safe_phase_diagnostics(monkeypatch) -> None:
+    async def fake_request(phase, model_type, **kwargs):
+        if phase.startswith("profile_focus_"):
+            return model_type(summary=phase.removeprefix("profile_focus_"))
+        if phase == "compiled_business_commercial_synthesis":
+            try:
+                focused.CompiledSynthesisResponse.model_validate({
+                    "business_machine_4x4": [],
+                    "commercial_opportunity": {"score": "not-an-int"},
+                })
+            except Exception as cause:
+                wrapped = SplitSynthesisPhaseError(phase, "ValidationError")
+                wrapped.__cause__ = cause
+                raise wrapped
+        raise AssertionError(phase)
+
+    monkeypatch.setattr(focused, "request_json_strict", fake_request)
+    monkeypatch.setattr(focused, "persist_compiled_context", lambda *args, **kwargs: "CTX1")
+    monkeypatch.setattr(focused, "persist_merged_evidence_ledger", lambda profile: None)
+
+    result = await focused.analyze_with_routerai_focused_v4(
+        "https://example.org/",
+        "Example",
+        "Официальный сайт компании.",
+        [],
+    )
+
+    assert result.research_status["commercial_reasoning_state"] == "failed"
+    assert (
+        result.research_status["commercial_reasoning_error_phase"]
+        == "compiled_business_commercial_synthesis"
+    )
+    assert result.research_status["commercial_reasoning_failure"].startswith(
+        "ValidationError@"
+    )
+    assert "not-an-int" not in result.research_status["commercial_reasoning_failure"]
