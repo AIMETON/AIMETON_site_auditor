@@ -16,6 +16,7 @@ from app.search_gateway import SearchDiagnostics
 from app.site_applicability import (
     attach_applicability,
     classify_site_applicability,
+    current_site_applicability,
     not_applicable_site_analysis,
     should_short_circuit,
 )
@@ -419,7 +420,11 @@ async def _run_verified_enriched_site_analysis(
         result = heuristic_analysis(url, title, text)
         result.research_status = {**current_research().snapshot(), "stage": "stopped_partial"}
         return result
-    applicability = site_applicability or await classify_site_applicability(url, title, text)
+    applicability = (
+        site_applicability
+        or current_site_applicability()
+        or await classify_site_applicability(url, title, text)
+    )
     if should_short_circuit(applicability):
         return not_applicable_site_analysis(url, title, applicability)
     classified_hint = (
