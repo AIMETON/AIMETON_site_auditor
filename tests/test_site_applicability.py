@@ -85,3 +85,36 @@ def test_low_confidence_not_applicable_does_not_short_circuit() -> None:
     )
 
     assert should_short_circuit(assessment) is False
+
+
+@pytest.mark.asyncio
+async def test_verified_analysis_stops_before_registry_search_and_core_llm(monkeypatch) -> None:
+    import app.verified_analysis as verified
+
+    assessment = TargetApplicability(
+        applicability="not_applicable",
+        target_kind="media_article",
+        confidence=0.99,
+        reason="Редакционная статья не является сайтом компании.",
+    )
+
+    async def classify(*args, **kwargs):
+        return assessment
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("company enrichment must not run for non-company input")
+
+    monkeypatch.setattr(verified, "classify_site_applicability", classify)
+    monkeypatch.setattr(verified, "enrich_identity_with_dadata", forbidden)
+    monkeypatch.setattr(verified, "collect_external_sources_adaptive", forbidden)
+    monkeypatch.setattr(verified, "analyze_with_routerai", forbidden)
+
+    result = await verified.run_verified_enriched_site_analysis(
+        "https://media.example/story",
+        "История рынка | Media",
+        "Редакционный материал с упоминанием нескольких компаний.",
+    )
+
+    assert result.readiness.analysis_state == "not_applicable"
+    assert result.research_status["stage"] == "target_not_applicable"
+    assert result.research_status["core_llm_calls"] == 0
