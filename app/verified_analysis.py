@@ -41,7 +41,7 @@ from app.external_verification import verify_external_sources
 from app.heuristics import heuristic_analysis
 from app.identity_anchor_guard import guard_identity_anchors
 from app.routerai_runtime import run_bounded_routerai_analysis as analyze_with_routerai
-from app.models import CompanyFact, IntelligenceSource, SiteAnalysis, SourceKind
+from app.models import CompanyFact, IntelligenceSource, PreliminaryResultReadiness, SiteAnalysis, SourceKind
 from app.research_control import (
     deep_research_enabled,
     current_research,
@@ -49,6 +49,7 @@ from app.research_control import (
 )
 from app.search_result_triage import SearchTriageSummary, triage_search_candidates
 from app.research_coverage_controller import (
+    CoverageSnapshot,
     MAX_PROGRESSIVE_WAVES,
     assess_coverage,
     gap_wave,
@@ -157,6 +158,30 @@ def _merge_late_enrichment_facts(
         })
         merged += 1
     return merged
+
+
+def _reconcile_search_coverage_readiness(
+    readiness: PreliminaryResultReadiness,
+    coverage: CoverageSnapshot,
+) -> None:
+    """Project bounded search coverage without overstating verification."""
+    verticals = {item.code: item for item in readiness.required_verticals}
+    for code, coverage_state in coverage.states.items():
+        if code == "identity":
+            # Identity has a dedicated conflict/authority readiness model.
+            continue
+        vertical = verticals.get(code)
+        if vertical is None:
+            continue
+        # Never overwrite stronger evidence/conflict states established elsewhere.
+        if vertical.state in {"verified", "partially_verified", "blocked", "degraded"}:
+            continue
+        if coverage_state == "covered":
+            vertical.state = "partially_verified"
+        elif coverage_state == "searched_no_evidence":
+            vertical.state = "not_found_after_sufficient_search"
+        else:
+            vertical.state = "not_searched"
 
 
 def _ordered_official_evidence(verified: list[IntelligenceSource]) -> list[tuple[str, str]]:
@@ -883,6 +908,7 @@ async def _run_verified_enriched_site_analysis(
         )
 
     analysis.readiness.provider_states["search"] = diagnostics.state
+    _reconcile_search_coverage_readiness(analysis.readiness, coverage)
     analysis.research_queries = [query for _, query in attempted_queries]
     if not progressive_search:
         search_stop_reason = "fixed_query_plan_complete"
