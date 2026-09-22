@@ -21,6 +21,7 @@ from app.mission_orchestrator import (
 )
 from app.scraper import FetchError, fetch_site, normalize_url
 from app.site_applicability import (
+    bind_site_applicability,
     classify_site_applicability,
     not_applicable_site_analysis,
     should_short_circuit,
@@ -434,12 +435,12 @@ async def run_owned_site_analysis(
             source_count=internal_page_count,
         )
 
-        result = await run_enriched_site_analysis(
-            seed["final_url"],
-            seed["title"],
-            evidence_text,
-            site_applicability=applicability,
-        )
+        with bind_site_applicability(applicability):
+            result = await run_enriched_site_analysis(
+                seed["final_url"],
+                seed["title"],
+                evidence_text,
+            )
         report_payload = result.model_copy(
             update={"mission_id": mission.id}
         ).model_dump(mode="json")
