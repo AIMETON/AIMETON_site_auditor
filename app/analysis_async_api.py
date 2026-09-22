@@ -31,6 +31,12 @@ from app.public_llm_status import (
 from app.runtime_convergence import runtime_instance_id
 from app.runtime_time import runtime_time_snapshot
 from app.scraper import FetchError, fetch_site
+from app.site_applicability import (
+    attach_applicability,
+    classify_site_applicability,
+    not_applicable_site_analysis,
+    should_short_circuit,
+)
 from app.trace_context import bind_trace_identity
 from app.trace_ledger import SQLiteTraceLedger
 from app.umel import get_umel_event
@@ -667,13 +673,18 @@ async def _run_enriched_bounded(
     title: str,
     text: str,
     analysis_id: str,
+    site_applicability=None,
 ):
     if deep_research_enabled() or active_settings():
-        return await run_enriched_site_analysis(source_url, title, text)
+        return await run_enriched_site_analysis(
+            source_url, title, text, site_applicability=site_applicability
+        )
     deadline_seconds = _analysis_deadline_seconds()
     try:
         return await asyncio.wait_for(
-            run_enriched_site_analysis(source_url, title, text),
+            run_enriched_site_analysis(
+                source_url, title, text, site_applicability=site_applicability
+            ),
             timeout=deadline_seconds,
         )
     except asyncio.TimeoutError:
@@ -687,7 +698,10 @@ async def _run_enriched_bounded(
             detail=f"Bounded deadline: {deadline_seconds:.0f} s. Используем резервный локальный анализ.",
             next_action="Сформировать частичный результат вместо бесконечного ожидания.",
         )
-        result = heuristic_analysis(source_url, title, text)
+        result = attach_applicability(
+            heuristic_analysis(source_url, title, text),
+            site_applicability,
+        )
         result.readiness.provider_states["external_enrichment"] = "deadline_exceeded"
         result.risks_and_assumptions.append(
             f"External enrichment exceeded the bounded {deadline_seconds:.0f}s runtime deadline; "
@@ -719,8 +733,41 @@ async def _run_analysis_body(
         )
         page = await fetch_site(source_url)
         final_url = page["final_url"]
-        # Persist a local, explicitly preliminary report before any external await.
-        partial = heuristic_analysis(final_url, page["title"], page["text"])
+        applicability = await classify_site_applicability(
+            final_url,
+            page["title"],
+            page["text"],
+        )
+        if should_short_circuit(applicability):
+            result = not_applicable_site_analysis(
+                final_url,
+                page["title"],
+                applicability,
+            ).model_copy(update={"mission_id": mission_id, "analysis_id": analysis_id})
+            record_legacy_site_turn(
+                orchestrator,
+                mission_id,
+                final_url=final_url,
+                succeeded=True,
+            )
+            with _LOCK:
+                _ANALYSES[analysis_id]["result"] = result.model_dump(mode="json")
+            _append_event(
+                analysis_id,
+                phase="completed",
+                event_code="mission.completed",
+                state="completed",
+                icon_key="check-circle",
+                message="Вход классифицирован как не относящийся к сайту компании.",
+                detail=applicability.reason,
+                next_action="Укажите официальный сайт конкретной коммерческой организации.",
+            )
+            return
+        # Persist a local, explicitly preliminary report only after applicability gate.
+        partial = attach_applicability(
+            heuristic_analysis(final_url, page["title"], page["text"]),
+            applicability,
+        )
         partial.mission_id, partial.analysis_id = mission_id, analysis_id
         partial.research_status.update(result_quality="partial", checkpoint_stage="site_acquired")
         partial.readiness.provider_states["external_enrichment"] = "not_completed"
@@ -769,6 +816,7 @@ async def _run_analysis_body(
                 title=page["title"],
                 text=page["text"],
                 analysis_id=analysis_id,
+                site_applicability=applicability,
             )
         if heartbeat_stop is not None:
             heartbeat_stop.set()
