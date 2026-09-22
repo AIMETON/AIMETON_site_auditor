@@ -214,6 +214,8 @@ def test_focused_schemas_are_semantic_shortlists() -> None:
     economics_schema = focused.EconomicsFocusedSlice.model_json_schema()
     summary = (economics_schema.get("properties") or {}).get("summary") or {}
     assert summary.get("maxLength") == 700
+    economics_signals = (economics_schema.get("properties") or {}).get("economic_signals") or {}
+    assert economics_signals.get("maxItems") == 10
 
 
 def test_signal_focus_accepts_longer_text_and_normalizes_confidence() -> None:
@@ -282,3 +284,25 @@ def test_focused_summary_accepts_observed_transport_size() -> None:
 
     assert len(result.summary) > 320
     assert len(result.summary) <= 700
+
+
+def test_economics_transport_buffer_preserves_five_signal_profile_cap() -> None:
+    items = [
+        focused.CompactEconomicSignal(
+            signal=f"signal-{index}",
+            evidence="evidence",
+            business_effect="effect",
+            confidence="Средняя",
+            source_ids=["S1"],
+        )
+        for index in range(7)
+    ]
+    result = focused.EconomicsFocusedSlice(
+        summary="economics",
+        economic_signals=items,
+    )
+
+    bounded = focused._bounded_focused_signal_items(result)
+
+    assert len(result.economic_signals) == 7
+    assert [item.signal for item in bounded] == [f"signal-{index}" for index in range(5)]
