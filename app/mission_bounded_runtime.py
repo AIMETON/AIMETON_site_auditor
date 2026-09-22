@@ -20,6 +20,13 @@ from app.mission_orchestrator import (
     get_mission_orchestrator,
 )
 from app.scraper import FetchError, fetch_site, normalize_url
+from app.models import TargetApplicability
+from app.site_applicability import (
+    bind_site_applicability,
+    classify_site_applicability,
+    not_applicable_site_analysis,
+    should_short_circuit,
+)
 
 MIN_EVIDENCE_CHARS = 1_500
 MAX_EVIDENCE_CHARS = 120_000
@@ -292,9 +299,18 @@ async def _collect_deep_site_evidence(
     target_ref: str,
     *,
     owned_mission_id: str,
+    seed: dict[str, str] | None = None,
 ) -> tuple[dict[str, str], int, str]:
     """Collect diverse bounded same-origin evidence before analytical generation."""
-    seed = await _fetch_preferred_target(target_ref)
+    seed = dict(seed or await _fetch_preferred_target(target_ref))
+    applicability = await classify_site_applicability(
+        seed["final_url"],
+        seed["title"],
+        seed["text"],
+    )
+    seed["_site_applicability"] = applicability.model_dump(mode="json")
+    if should_short_circuit(applicability):
+        return seed, 1, ""
     primary = await _run_crawl(
         seed["final_url"],
         analysis_id=f"owned-{owned_mission_id}-primary",
@@ -369,6 +385,54 @@ async def run_owned_site_analysis(
             mission.target_ref,
             owned_mission_id=mission.id,
         )
+        raw_applicability = seed.pop("_site_applicability", None)
+        if isinstance(raw_applicability, dict):
+            applicability = TargetApplicability.model_validate(raw_applicability)
+        else:
+            # Compatibility path for injected/custom collectors that still return
+            # the historical three-tuple without applicability metadata.
+            applicability = await classify_site_applicability(
+                seed["final_url"],
+                seed["title"],
+                seed["text"],
+            )
+
+        if should_short_circuit(applicability):
+            result = not_applicable_site_analysis(
+                seed["final_url"],
+                seed["title"],
+                applicability,
+            ).model_copy(update={"mission_id": mission.id})
+            repository.append_record(
+                mission.id,
+                "report_payload",
+                result.model_dump(mode="json"),
+            )
+            repository.append_record(
+                mission.id,
+                "report_metadata",
+                {
+                    "report_id": f"report:{mission.id}",
+                    "status": "completed",
+                    "format": "json",
+                    "content_type": "application/json",
+                    "available": True,
+                    "release_level": "preliminary",
+                    "blocked_reason": "company_analysis_not_applicable",
+                    "created_at": utc_now().isoformat(),
+                },
+            )
+            _turn(
+                repository,
+                mission.id,
+                summary="target_not_applicable",
+                status="completed",
+                source_count=1,
+                reason_code=applicability.target_kind,
+                next_action="provide_official_company_site",
+            )
+            repository.update_state_for_owner(owner_id, mission.id, MissionState.COMPLETED)
+            return
         _turn(
             repository,
             mission.id,
@@ -384,11 +448,12 @@ async def run_owned_site_analysis(
             source_count=internal_page_count,
         )
 
-        result = await run_enriched_site_analysis(
-            seed["final_url"],
-            seed["title"],
-            evidence_text,
-        )
+        with bind_site_applicability(applicability):
+            result = await run_enriched_site_analysis(
+                seed["final_url"],
+                seed["title"],
+                evidence_text,
+            )
         report_payload = result.model_copy(
             update={"mission_id": mission.id}
         ).model_dump(mode="json")

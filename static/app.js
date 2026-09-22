@@ -318,7 +318,11 @@ f.onsubmit = async (e) => {
     renderChatSession();
     render();
     saveToHistory(analysis);
-    setStatus('Коммерческая возможность подготовлена');
+    setStatus(
+      analysis.target_applicability?.applicability === 'not_applicable'
+        ? 'Этот адрес не подходит для аудита компании'
+        : 'Коммерческая возможность подготовлена'
+    );
   } catch (err) {
     setStatus('Ошибка: ' + err.message);
   } finally {
@@ -328,6 +332,29 @@ f.onsubmit = async (e) => {
 
 /* ── Render results ── */
 function render() {
+  const applicability = analysis.target_applicability;
+  if (applicability?.applicability === 'not_applicable') {
+    resultEl.innerHTML = `
+      <div id="resultInner">
+        <div class="notice notice-warning">
+          <strong>Аудит компании не запущен.</strong>
+          Этот адрес классифицирован как неподходящий вход для восстановления профиля коммерческой организации.
+        </div>
+        <section class="panel">
+          <h3>Классификация входа</h3>
+          <p><strong>Тип:</strong> ${esc(applicability.target_kind || 'unknown')}</p>
+          <p><strong>Уверенность:</strong> ${Math.round((Number(applicability.confidence) || 0) * 100)}%</p>
+          <p><strong>Основание:</strong><br>${esc(applicability.reason || 'Недостаточно признаков сайта компании.')}</p>
+          ${applicability.target_entity_name ? `<p><strong>Распознанный оператор/объект:</strong> ${esc(applicability.target_entity_name)}</p>` : ''}
+          <p><strong>Что делать:</strong><br>Укажите официальный сайт конкретной коммерческой организации или её собственную страницу продукта/услуги.</p>
+        </section>
+      </div>
+    `;
+    resultEl.classList.remove('hidden');
+    chatEl.classList.add('hidden');
+    return;
+  }
+
   const o = analysis.commercial_opportunity;
   const p = analysis.action_package;
   const facts = analysis.company_facts || [];
