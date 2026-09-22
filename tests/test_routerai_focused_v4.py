@@ -211,6 +211,10 @@ def test_focused_schemas_are_semantic_shortlists() -> None:
     signals = (signal_schema.get("properties") or {}).get("economic_signals") or {}
     assert signals.get("maxItems") == 10
 
+    economics_schema = focused.EconomicsFocusedSlice.model_json_schema()
+    summary = (economics_schema.get("properties") or {}).get("summary") or {}
+    assert summary.get("maxLength") == 700
+
 
 def test_signal_focus_accepts_longer_text_and_normalizes_confidence() -> None:
     raw = focused.FocusedEconomicSignal(
@@ -269,3 +273,12 @@ def test_focus_failure_descriptor_exposes_safe_validation_location_only() -> Non
 
     assert descriptor == "ValidationError@signal:string_too_long"
     assert "x" * 20 not in descriptor
+
+
+def test_focused_summary_accepts_observed_transport_size() -> None:
+    summary = "Экономика и инфраструктура. " + ("подтверждённый факт " * 24)
+
+    result = focused.EconomicsFocusedSlice(summary=summary)
+
+    assert len(result.summary) > 320
+    assert len(result.summary) <= 700

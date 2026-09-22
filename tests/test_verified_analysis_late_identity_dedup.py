@@ -6,14 +6,18 @@ def test_late_identity_enrichment_merges_equivalent_registry_facts() -> None:
     facts = [
         CompanyFact(
             field="legal_name",
-            value='ООО «Алекс Дент»',
+            value='Общество с ограниченной ответственностью «АлексДент»',
             confidence="Высокая",
             source_ids=["S1"],
             note="official",
         ),
         CompanyFact(field="inn", value="2462215501", source_ids=["R-H25"]),
         CompanyFact(field="ogrn", value="1112468013030", source_ids=["R-H25"]),
-        CompanyFact(field="registration_status", value="Действующая", source_ids=["R-H25"]),
+        CompanyFact(
+            field="registration_status",
+            value="Действующая организация; дата регистрации 15.03.2011",
+            source_ids=["R-H25"],
+        ),
     ]
     additions = [
         CompanyFact(
@@ -36,7 +40,7 @@ def test_late_identity_enrichment_merges_equivalent_registry_facts() -> None:
     assert [fact.field for fact in facts].count("ogrn") == 1
     assert [fact.field for fact in facts].count("registration_status") == 1
     legal = next(fact for fact in facts if fact.field == "legal_name")
-    assert legal.value == 'ООО «Алекс Дент»'
+    assert legal.value == 'Общество с ограниченной ответственностью «АлексДент»'
     assert legal.confidence == "Высокая"
     assert legal.source_ids == ["S1"]
     assert "official" in legal.note
@@ -78,3 +82,17 @@ def test_late_enrichment_does_not_semantically_merge_non_identity_facts() -> Non
 
     assert merged == 0
     assert len(facts) == 2
+
+
+def test_late_legal_name_dedup_preserves_different_legal_forms() -> None:
+    facts = [
+        CompanyFact(field="legal_name", value='ООО «Альфа Дент»', source_ids=["S1"]),
+    ]
+    additions = [
+        CompanyFact(field="legal_name", value='АО "АЛЬФАДЕНТ"', note="registry"),
+    ]
+
+    merged = _merge_late_enrichment_facts(facts, additions)
+
+    assert merged == 0
+    assert [fact.value for fact in facts] == ['ООО «Альфа Дент»', 'АО "АЛЬФАДЕНТ"']

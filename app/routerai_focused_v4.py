@@ -39,7 +39,7 @@ from app.compiled_context_ledger import persist_compiled_context
 
 class FocusedPassBase(BaseModel):
     focus: str = Field(default="", max_length=80)
-    summary: str = Field(default="", max_length=320)
+    summary: str = Field(default="", max_length=700)
     risks_and_assumptions: list[str] = Field(default_factory=list, max_length=5)
 
 

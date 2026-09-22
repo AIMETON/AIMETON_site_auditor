@@ -63,6 +63,7 @@ _NON_TARGET_IDENTITY_RELATIONS = {
 }
 
 _LATE_IDENTITY_DEDUP_FIELDS = {"legal_name", "inn", "ogrn", "registration_status"}
+_LEGAL_FORM_TOKENS = {"ооо", "ао", "пао", "зао", "оао", "ип"}
 _REGISTRATION_STATUS_ALIASES = {
     "active": "active",
     "действующая": "active",
@@ -85,9 +86,17 @@ def _late_identity_value_key(field: str, value: str) -> str:
         return re.sub(r"\D", "", compact)
     if field == "registration_status":
         folded = compact.casefold().strip(" .,:;-–—")
-        return _REGISTRATION_STATUS_ALIASES.get(folded, folded)
+        primary = folded.split(";", 1)[0].strip(" .,:;-–—")
+        return _REGISTRATION_STATUS_ALIASES.get(primary, primary)
     if field == "legal_name":
-        return _normalized_legal_name(compact)
+        normalized = _normalized_legal_name(compact)
+        parts = normalized.split()
+        if not parts:
+            return ""
+        legal_form = parts[0] if parts[0] in _LEGAL_FORM_TOKENS else ""
+        body_parts = parts[1:] if legal_form else parts
+        compact_body = "".join(body_parts)
+        return f"{legal_form}|{compact_body}" if compact_body else normalized
     return compact.casefold()
 
 
