@@ -20,6 +20,7 @@ from app.mission_orchestrator import (
     get_mission_orchestrator,
 )
 from app.scraper import FetchError, fetch_site, normalize_url
+from app.models import TargetApplicability
 from app.site_applicability import (
     bind_site_applicability,
     classify_site_applicability,
@@ -301,7 +302,15 @@ async def _collect_deep_site_evidence(
     seed: dict[str, str] | None = None,
 ) -> tuple[dict[str, str], int, str]:
     """Collect diverse bounded same-origin evidence before analytical generation."""
-    seed = seed or await _fetch_preferred_target(target_ref)
+    seed = dict(seed or await _fetch_preferred_target(target_ref))
+    applicability = await classify_site_applicability(
+        seed["final_url"],
+        seed["title"],
+        seed["text"],
+    )
+    seed["_site_applicability"] = applicability.model_dump(mode="json")
+    if should_short_circuit(applicability):
+        return seed, 1, ""
     primary = await _run_crawl(
         seed["final_url"],
         analysis_id=f"owned-{owned_mission_id}-primary",
@@ -371,12 +380,23 @@ async def run_owned_site_analysis(
     try:
         _turn(repository, mission.id, summary="planning_started", status="running")
         _turn(repository, mission.id, summary="site_fetch_started", status="running")
-        seed = await _fetch_preferred_target(mission.target_ref)
-        applicability = await classify_site_applicability(
-            seed["final_url"],
-            seed["title"],
-            seed["text"],
+        _turn(repository, mission.id, summary="deep_crawl_started", status="running")
+        seed, internal_page_count, evidence_text = await _collect_deep_site_evidence(
+            mission.target_ref,
+            owned_mission_id=mission.id,
         )
+        raw_applicability = seed.pop("_site_applicability", None)
+        if isinstance(raw_applicability, dict):
+            applicability = TargetApplicability.model_validate(raw_applicability)
+        else:
+            # Compatibility path for injected/custom collectors that still return
+            # the historical three-tuple without applicability metadata.
+            applicability = await classify_site_applicability(
+                seed["final_url"],
+                seed["title"],
+                seed["text"],
+            )
+
         if should_short_circuit(applicability):
             result = not_applicable_site_analysis(
                 seed["final_url"],
@@ -413,13 +433,6 @@ async def run_owned_site_analysis(
             )
             repository.update_state_for_owner(owner_id, mission.id, MissionState.COMPLETED)
             return
-
-        _turn(repository, mission.id, summary="deep_crawl_started", status="running")
-        seed, internal_page_count, evidence_text = await _collect_deep_site_evidence(
-            mission.target_ref,
-            owned_mission_id=mission.id,
-            seed=seed,
-        )
         _turn(
             repository,
             mission.id,
