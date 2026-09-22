@@ -118,3 +118,40 @@ async def test_verified_analysis_stops_before_registry_search_and_core_llm(monke
     assert result.readiness.analysis_state == "not_applicable"
     assert result.research_status["stage"] == "target_not_applicable"
     assert result.research_status["core_llm_calls"] == 0
+
+
+@pytest.mark.asyncio
+async def test_bounded_collector_gates_before_deep_crawl(monkeypatch) -> None:
+    import app.mission_bounded_runtime as runtime
+
+    async def fetch(_target):
+        return {
+            "final_url": "https://media.example/story",
+            "title": "Редакционная статья",
+            "text": "Материал редакции о нескольких компаниях.",
+        }
+
+    async def classify(*args, **kwargs):
+        return TargetApplicability(
+            applicability="not_applicable",
+            target_kind="media_article",
+            confidence=0.98,
+            reason="Редакционная статья.",
+        )
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("deep crawl/search must not start after negative gate")
+
+    monkeypatch.setattr(runtime, "_fetch_preferred_target", fetch)
+    monkeypatch.setattr(runtime, "classify_site_applicability", classify)
+    monkeypatch.setattr(runtime, "_run_crawl", forbidden)
+    monkeypatch.setattr(runtime, "discover_same_domain_urls", forbidden)
+
+    seed, source_count, evidence_text = await runtime._collect_deep_site_evidence(
+        "https://media.example/story",
+        owned_mission_id="mission-test",
+    )
+
+    assert source_count == 1
+    assert evidence_text == ""
+    assert seed["_site_applicability"]["applicability"] == "not_applicable"
