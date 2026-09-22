@@ -221,8 +221,8 @@ def _bounded_focused_signal_items(result: FocusedPassBase) -> list[BaseModel]:
     return items[:cap]
 
 
-def _focus_failure_descriptor(outcome: Exception) -> str:
-    """Expose only safe validation location/type metadata, never provider payloads."""
+def _safe_phase_failure_descriptor(outcome: Exception) -> str:
+    """Expose only safe phase/validation metadata, never provider payloads."""
     error_type = getattr(outcome, "error_type", None) or type(outcome).__name__
     cause = getattr(outcome, "__cause__", None)
     if isinstance(cause, ValidationError):
@@ -233,6 +233,10 @@ def _focus_failure_descriptor(outcome: Exception) -> str:
             kind = str(first.get("type") or "validation")
             return f"{error_type}@{loc}:{kind}"
     return str(error_type)
+
+
+def _focus_failure_descriptor(outcome: Exception) -> str:
+    return _safe_phase_failure_descriptor(outcome)
 
 
 def _focused_profile_name(facts: list[CompanyFact], fallback: str) -> str:
@@ -403,6 +407,8 @@ async def analyze_with_routerai_focused_v4(
         separators=(",", ":"),
     )
 
+    synthesis_error_phase = ""
+    synthesis_error_descriptor = ""
     try:
         if control and control.stop_requested:
             raise ResearchStopped("research_stopped_by_user")
@@ -467,6 +473,8 @@ async def analyze_with_routerai_focused_v4(
         )
         synthesis_state = "failed"
         synthesis_calls = 1
+        synthesis_error_phase = str(getattr(exc, "phase", "") or "")
+        synthesis_error_descriptor = _safe_phase_failure_descriptor(exc)
 
     result.research_status.update({
         "analysis_orchestration": "focused_v4_multipass",
@@ -484,6 +492,8 @@ async def analyze_with_routerai_focused_v4(
         "core_llm_synthesis_calls": synthesis_calls,
         "core_llm_calls": len(_FOCUS_PASSES) + synthesis_calls,
         "commercial_reasoning_state": synthesis_state,
+        "commercial_reasoning_error_phase": synthesis_error_phase,
+        "commercial_reasoning_failure": synthesis_error_descriptor,
         "commercial_score_available": synthesis_state == "succeeded",
     })
     return result
