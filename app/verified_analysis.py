@@ -415,13 +415,13 @@ async def _run_verified_enriched_site_analysis(
     corroborate/normalize INN/OGRN as a non-authoritative registry mirror.
     """
     deep = deep_research_enabled()
-    applicability = site_applicability or await classify_site_applicability(url, title, text)
-    if should_short_circuit(applicability):
-        return not_applicable_site_analysis(url, title, applicability)
     if current_research() and current_research().stop_requested:
         result = heuristic_analysis(url, title, text)
         result.research_status = {**current_research().snapshot(), "stage": "stopped_partial"}
-        return attach_applicability(result, applicability)
+        return result
+    applicability = site_applicability or await classify_site_applicability(url, title, text)
+    if should_short_circuit(applicability):
+        return not_applicable_site_analysis(url, title, applicability)
     company_hint = title.split("—")[0].split("|")[0].strip() or _host(url)
     identity_company_hint = title.strip() or company_hint
     first_party_anchors = guard_identity_anchors(extract_identity_anchors(text, url), text)
