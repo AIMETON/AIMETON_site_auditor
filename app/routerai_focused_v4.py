@@ -73,7 +73,9 @@ class EconomicsFocusedFact(CompactCompanyFact):
 class EconomicsFocusedSlice(FocusedPassBase):
     focus: Literal["economics_workforce_technology"] = "economics_workforce_technology"
     company_facts: list[EconomicsFocusedFact] = Field(default_factory=list, max_length=12)
-    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=5)
+    # Transport buffer: the semantic contract remains five signals, but tolerate
+    # small provider over-production and trim deterministically after validation.
+    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=10)
 
 
 class FocusedEconomicSignal(BaseModel):
@@ -122,7 +124,8 @@ beneficial_owner. Для relationship-фактов нужен прямой sourc
 процессов, оборудования, цифровых каналов, автоматизации, вакансий и операционных
 ограничений. Для финансов обязательно сохраняй период. Если отдельного поля нет,
 используй other только для конкретного проверяемого бизнес-факта, а не рекламного
-слогана. Не повторяй полный каталог услуг.""",
+слогана. Верни не более 5 economic_signals, по убыванию бизнес-значимости.
+Не повторяй полный каталог услуг.""",
     ),
     (
         "signals_risks_change",
@@ -205,6 +208,17 @@ def _normalized_signal(item: BaseModel) -> EconomicSignal:
         confidence=confidence,
         source_ids=[str(value).strip() for value in data.get("source_ids") or [] if str(value).strip()],
     )
+
+
+def _bounded_focused_signal_items(result: FocusedPassBase) -> list[BaseModel]:
+    items = list(getattr(result, "economic_signals", []))
+    caps = {
+        "offerings_customer_operations": 3,
+        "economics_workforce_technology": 5,
+        "signals_risks_change": 10,
+    }
+    cap = caps.get(str(getattr(result, "focus", "")), len(items))
+    return items[:cap]
 
 
 def _focus_failure_descriptor(outcome: Exception) -> str:
@@ -338,7 +352,7 @@ async def analyze_with_routerai_focused_v4(
     focused_signals = [
         _normalized_signal(item)
         for focused_result in focused_results
-        for item in getattr(focused_result, "economic_signals", [])
+        for item in _bounded_focused_signal_items(focused_result)
     ]
     focused_risks = [
         str(item)
