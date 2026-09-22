@@ -86,7 +86,7 @@ def _late_identity_value_key(field: str, value: str) -> str:
         return re.sub(r"\D", "", compact)
     if field == "registration_status":
         folded = compact.casefold().strip(" .,:;-–—")
-        primary = folded.split(";", 1)[0].strip(" .,:;-–—")
+        primary = re.split(r"[;,]", folded, maxsplit=1)[0].strip(" .,:;-–—")
         return _REGISTRATION_STATUS_ALIASES.get(primary, primary)
     if field == "legal_name":
         normalized = _normalized_legal_name(compact)
