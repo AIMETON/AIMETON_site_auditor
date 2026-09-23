@@ -9,6 +9,7 @@ from threading import RLock
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.inference_provider_registry import provider_profile
 from app.search_observer_models import observer_profile
 
 
@@ -206,11 +207,9 @@ class LlmRuntimeSettingsRepository:
         for role in LlmRole:
             config = settings.for_role(role)
             try:
-                profile = observer_profile(config.profile_name)
-            except KeyError as exc:
-                raise ValueError(f"unknown_llm_profile:{config.profile_name}") from exc
-            if profile.provider.value != "routerai":
-                raise ValueError(f"runtime_llm_profile_must_use_routerai:{config.profile_name}")
+                _resolve_runtime_profile(config.profile_name, config.model_id)
+            except (KeyError, RuntimeError) as exc:
+                raise ValueError(f"unknown_or_invalid_llm_profile:{config.profile_name}") from exc
         record = LlmRuntimeSettingsRecord(
             settings=settings,
             updated_at=datetime.now(UTC).isoformat(),
@@ -229,6 +228,29 @@ def get_llm_runtime_settings_repository() -> LlmRuntimeSettingsRepository:
     return LlmRuntimeSettingsRepository()
 
 
+def _resolve_runtime_profile(profile_name: str, model_override: str | None = None):
+    try:
+        profile = provider_profile(profile_name)
+        resolved = profile.resolve(model_override)
+        if not resolved.model_allowed:
+            raise RuntimeError(f"llm_model_not_allowed:{profile_name}:{resolved.model}")
+        return resolved
+    except KeyError:
+        profile = observer_profile(profile_name)
+        if profile.provider.value != "routerai":
+            raise RuntimeError(f"runtime_llm_profile_not_enabled:{profile_name}")
+        resolved = profile.resolve()
+        resolved_model = (
+            model_override
+            or resolved.model
+            or ("openai/gpt-4o-mini" if profile_name == "routerai-current" else "")
+        ).strip()
+        return resolved.model_copy(update={
+            "model": resolved_model,
+            "configured": bool(resolved.base_url and resolved.api_key and resolved_model),
+        })
+
+
 def resolve_llm_runtime(
     role: LlmRole | str,
     *,
@@ -238,21 +260,14 @@ def resolve_llm_runtime(
     active = settings or get_llm_runtime_settings_repository().get().settings
     config = active.for_role(normalized_role)
     try:
-        profile = observer_profile(config.profile_name)
-        if profile.provider.value != "routerai":
-            raise RuntimeError(f"runtime_llm_profile_must_use_routerai:{config.profile_name}")
-        resolved_profile = profile.resolve()
+        resolved_profile = _resolve_runtime_profile(config.profile_name, config.model_id)
     except KeyError as exc:
         raise RuntimeError(f"unknown_llm_profile:{config.profile_name}") from exc
-    resolved_model = (
-        config.model_id
-        or resolved_profile.model
-        or ("openai/gpt-4o-mini" if config.profile_name == "routerai-current" else "")
-    ).strip()
+    resolved_model = resolved_profile.model.strip()
     return ResolvedLlmRuntime(
         role=normalized_role,
         profile_name=config.profile_name,
-        provider=resolved_profile.provider.value,
+        provider=(resolved_profile.provider.value if hasattr(resolved_profile.provider, "value") else str(resolved_profile.provider)),
         base_url=resolved_profile.base_url,
         api_key=resolved_profile.api_key,
         model=resolved_model,
@@ -261,7 +276,7 @@ def resolve_llm_runtime(
         ),
         temperature=config.temperature,
         max_tokens=config.max_tokens,
-        timeout_seconds=config.timeout_seconds,
+        timeout_seconds=config.timeout_seconds or getattr(resolved_profile, "timeout_seconds", None),
         output_mode=config.output_mode,
         reasoning_mode=config.reasoning_mode,
         reasoning_effort=config.reasoning_effort,
