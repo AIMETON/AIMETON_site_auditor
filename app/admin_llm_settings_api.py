@@ -21,6 +21,7 @@ from app.llm_runtime_settings import (
     get_llm_runtime_settings_repository,
     resolve_llm_runtime,
 )
+from app.inference_provider_registry import runtime_provider_profiles
 from app.search_observer_models import OBSERVER_MODEL_PROFILES
 
 
@@ -81,6 +82,25 @@ def _runtime_profiles() -> list[dict[str, Any]]:
             "model": model,
             "tier": profile.tier,
             "configured": bool(resolved.base_url and resolved.api_key and model),
+            "model_allowed": True,
+            "capabilities": None,
+        })
+    for profile in runtime_provider_profiles():
+        resolved = profile.resolve()
+        safe = resolved.safe_descriptor()
+        rows.append({
+            "profile_name": profile.name,
+            "provider": profile.provider,
+            "model": safe["model"],
+            "tier": "runtime",
+            "configured": safe["configured"],
+            "model_allowed": safe["model_allowed"],
+            "capabilities": safe["capabilities"],
+            "context_window": safe["context_window"],
+            "max_output_tokens": safe["max_output_tokens"],
+            "price_input": safe["price_input"],
+            "price_output": safe["price_output"],
+            "price_cached_input": safe["price_cached_input"],
         })
     return rows
 
@@ -146,7 +166,7 @@ async def test_llm_settings(
             ok=False,
             role=payload.role,
             profile_name=payload.settings.profile_name,
-            provider="routerai",
+            provider="unknown",
             resolved_model=payload.settings.model_id or "",
             error_code=type(exc).__name__,
         )
