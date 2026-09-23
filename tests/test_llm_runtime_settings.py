@@ -75,12 +75,49 @@ def test_routerai_current_preserves_legacy_model_fallback(monkeypatch, tmp_path)
     assert runtime.configured is True
 
 
-def test_repository_rejects_direct_provider_profile(tmp_path) -> None:
+def test_repository_rejects_unregistered_direct_provider_profile(tmp_path) -> None:
     repo = LlmRuntimeSettingsRepository(tmp_path / "runtime.sqlite3")
     settings = LlmRuntimeSettings()
     settings.fast_research = settings.fast_research.model_copy(
         update={"profile_name": "openai-nano"}
     )
 
-    with pytest.raises(ValueError, match="runtime_llm_profile_must_use_routerai"):
+    with pytest.raises(ValueError, match="unknown_or_invalid_llm_profile"):
         repo.save(settings, actor_id=1, reason="invalid direct provider")
+
+
+def test_immers_profile_is_selectable_and_secret_safe(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AIMETON_RUNTIME_DB", str(tmp_path / "runtime.sqlite3"))
+    monkeypatch.setenv("IMMERS_API_KEY", "immers-secret")
+    monkeypatch.setenv("IMMERS_BASE_URL", "https://immers.example/v1")
+    monkeypatch.setenv("IMMERS_DEFAULT_MODEL", "deepseek-v4-flash-0731")
+
+    settings = LlmRuntimeSettings()
+    settings.reasoning = settings.reasoning.model_copy(
+        update={"profile_name": "immers-primary"}
+    )
+    repo = LlmRuntimeSettingsRepository(tmp_path / "runtime.sqlite3")
+    repo.save(settings, actor_id=1, reason="use immers")
+
+    runtime = resolve_llm_runtime(LlmRole.REASONING, settings=settings)
+    assert runtime.provider == "immers"
+    assert runtime.model == "deepseek-v4-flash-0731"
+    assert runtime.configured is True
+    assert runtime.timeout_seconds == 180
+    safe = runtime.safe_descriptor()
+    assert "immers-secret" not in str(safe)
+    assert "https://immers.example/v1" not in str(safe)
+
+
+def test_immers_rejects_model_outside_registry(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AIMETON_RUNTIME_DB", str(tmp_path / "runtime.sqlite3"))
+    monkeypatch.setenv("IMMERS_API_KEY", "immers-secret")
+    monkeypatch.setenv("IMMERS_BASE_URL", "https://immers.example/v1")
+    monkeypatch.setenv("IMMERS_DEFAULT_MODEL", "deepseek-v4-flash-0731")
+    settings = LlmRuntimeSettings()
+    settings.reasoning = settings.reasoning.model_copy(
+        update={"profile_name": "immers-primary", "model_id": "unlisted-model"}
+    )
+
+    with pytest.raises(RuntimeError, match="llm_model_not_allowed"):
+        resolve_llm_runtime(LlmRole.REASONING, settings=settings)
