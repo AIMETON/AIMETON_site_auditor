@@ -185,3 +185,50 @@ def test_admin_catalog_includes_deepseek_v4_flash_latest_alias(monkeypatch, tmp_
     assert candidate["provider"] == "routerai"
     assert candidate["model"] == "~deepseek/deepseek-v4-flash-latest"
     assert candidate["configured"] is True
+
+
+def test_admin_catalog_includes_immers_without_exposing_secret(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AIMETON_RUNTIME_DB", str(tmp_path / "runtime.sqlite3"))
+    monkeypatch.setenv("IMMERS_API_KEY", "immers-must-not-leak")
+    monkeypatch.setenv("IMMERS_BASE_URL", "https://immers.example/v1")
+    monkeypatch.setenv("IMMERS_DEFAULT_MODEL", "DeepSeek-V4-Flash-0731")
+
+    response = _client().get("/api/admin/llm-settings")
+
+    assert response.status_code == 200
+    body = response.json()
+    profiles = {item["profile_name"]: item for item in body["profiles"]}
+    immers = profiles["immers-primary"]
+    assert immers["provider"] == "immers"
+    assert immers["model"] == "DeepSeek-V4-Flash-0731"
+    assert immers["configured"] is True
+    assert immers["model_allowed"] is True
+    assert immers["capabilities"]["reasoning"] is True
+    dumped = json.dumps(body)
+    assert "immers-must-not-leak" not in dumped
+    assert "https://immers.example/v1" not in dumped
+
+
+def test_admin_can_save_immers_for_reasoning(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AIMETON_RUNTIME_DB", str(tmp_path / "runtime.sqlite3"))
+    monkeypatch.setenv("IMMERS_API_KEY", "immers-key")
+    monkeypatch.setenv("IMMERS_BASE_URL", "https://immers.example/v1")
+    monkeypatch.setenv("IMMERS_DEFAULT_MODEL", "DeepSeek-V4-Flash-0731")
+    csrf = "csrf-test"
+    body = _client().get("/api/admin/llm-settings").json()
+    settings = body["record"]["settings"]
+    settings["reasoning"]["profile_name"] = "immers-primary"
+    settings["reasoning"]["model_id"] = None
+
+    response = _client().put(
+        "/api/admin/llm-settings",
+        json={"settings": settings, "reason": "switch reasoning to immers"},
+        cookies={"aimeton_csrf": csrf},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200
+    resolved = response.json()["resolved"]["reasoning"]
+    assert resolved["provider"] == "immers"
+    assert resolved["model"] == "DeepSeek-V4-Flash-0731"
+    assert resolved["configured"] is True
