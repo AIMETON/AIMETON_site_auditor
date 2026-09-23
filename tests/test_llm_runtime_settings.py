@@ -90,7 +90,7 @@ def test_immers_profile_is_selectable_and_secret_safe(monkeypatch, tmp_path) -> 
     monkeypatch.setenv("AIMETON_RUNTIME_DB", str(tmp_path / "runtime.sqlite3"))
     monkeypatch.setenv("IMMERS_API_KEY", "immers-secret")
     monkeypatch.setenv("IMMERS_BASE_URL", "https://immers.example/v1")
-    monkeypatch.setenv("IMMERS_DEFAULT_MODEL", "DeepSeek-V4-Flash-0731")
+    monkeypatch.setenv("IMMERS_DEFAULT_MODEL", "deepseek-v4-flash-0731")
 
     settings = LlmRuntimeSettings()
     settings.reasoning = settings.reasoning.model_copy(
@@ -101,7 +101,7 @@ def test_immers_profile_is_selectable_and_secret_safe(monkeypatch, tmp_path) -> 
 
     runtime = resolve_llm_runtime(LlmRole.REASONING, settings=settings)
     assert runtime.provider == "immers"
-    assert runtime.model == "DeepSeek-V4-Flash-0731"
+    assert runtime.model == "deepseek-v4-flash-0731"
     assert runtime.configured is True
     assert runtime.timeout_seconds == 180
     safe = runtime.safe_descriptor()
@@ -113,7 +113,7 @@ def test_immers_rejects_model_outside_registry(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("AIMETON_RUNTIME_DB", str(tmp_path / "runtime.sqlite3"))
     monkeypatch.setenv("IMMERS_API_KEY", "immers-secret")
     monkeypatch.setenv("IMMERS_BASE_URL", "https://immers.example/v1")
-    monkeypatch.setenv("IMMERS_DEFAULT_MODEL", "DeepSeek-V4-Flash-0731")
+    monkeypatch.setenv("IMMERS_DEFAULT_MODEL", "deepseek-v4-flash-0731")
     settings = LlmRuntimeSettings()
     settings.reasoning = settings.reasoning.model_copy(
         update={"profile_name": "immers-primary", "model_id": "unlisted-model"}
