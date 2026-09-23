@@ -11,17 +11,17 @@
       "connect_timeout_seconds": 20,
       "max_retries": 2,
       "models": {
-        "DeepSeek-V4-Flash-0731": {
+        "deepseek-v4-flash-0731": {
           "enabled": true,
           "capabilities": {
             "chat": true,
-            "streaming": true,
+            "streaming": null,
             "reasoning": true,
             "tools": null,
             "structured_output": null,
-            "json_mode": true
+            "json_mode": null
           },
-          "context_window": null,
+          "context_window": 1000000,
           "max_output_tokens": null,
           "price_input": null,
           "price_output": null,
