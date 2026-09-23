@@ -104,12 +104,21 @@
       option.textContent = `${profile.profile_name} · ${profile.model || 'model from env'} · ${profile.configured ? 'configured' : 'not configured'}`;
       return option;
     }));
-    catalog.replaceChildren(...profiles.map(profile => card(profile.profile_name, [
-      `Provider: ${profile.provider}`,
-      `Model: ${profile.model || 'задаётся environment/model override'}`,
-      `Tier: ${profile.tier}`,
-      `Credential/config: ${profile.configured ? 'готов' : 'неполный'}`,
-    ])));
+    catalog.replaceChildren(...profiles.map(profile => {
+      const capabilities = profile.capabilities
+        ? Object.entries(profile.capabilities)
+            .map(([name, value]) => `${name}=${value === null ? 'unknown' : value}`)
+            .join(', ')
+        : 'provider/profile defaults';
+      return card(profile.profile_name, [
+        `Provider: ${profile.provider}`,
+        `Model: ${profile.model || 'задаётся environment/model override'}`,
+        `Tier: ${profile.tier}`,
+        `Credential/config: ${profile.configured ? 'готов' : 'неполный'}`,
+        `Model allowlist: ${profile.model_allowed === false ? 'not allowed' : 'allowed'}`,
+        `Capabilities: ${capabilities}`,
+      ]);
+    }));
   }
 
   async function load() {
