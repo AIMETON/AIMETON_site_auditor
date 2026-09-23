@@ -23,7 +23,7 @@ The control center is runtime authority for **new LLM calls**. It does not mutat
 
 A role selects:
 
-- a governed RouterAI profile;
+- a governed runtime inference profile;
 - optional model-id override;
 - optional temperature override;
 - optional output-token cap;
@@ -38,14 +38,15 @@ Fast Research remains explicitly bounded by default: Qwen 3.5 9B, temperature 0,
 
 ## Provider boundary
 
-v0.1 accepts only profiles registered in the existing RouterAI-backed model-profile registry.
+The control center accepts RouterAI profiles plus provider-neutral runtime profiles registered in `config/inference_provider_registry.json`.
 
-This is intentional:
+This keeps the UI from becoming a second dispatcher:
 
-- the admin UI does not create a second provider/router implementation;
 - credentials remain server-side;
-- a model ID can still be overridden to another model available through the same RouterAI credential and endpoint;
-- direct OpenAI/Qwen/GLM/DeepSeek credentials remain separate observer/benchmark profiles until a common provider execution contract is explicitly adopted.
+- RouterAI defaults remain backward-compatible;
+- Immers is the first direct provider promoted through the common runtime contract;
+- observer/benchmark-only profiles remain non-routable unless explicitly promoted into the runtime registry;
+- model allowlists and capabilities are configuration, not business-logic constants.
 
 ## Secret handling
 
@@ -66,7 +67,7 @@ The safe projection contains only profile name, provider name, resolved model id
 Returns:
 
 - persisted three-role settings;
-- safe RouterAI profile catalog;
+- safe governed inference profile catalog;
 - safe resolved runtime descriptors.
 
 Requires admin authentication.
@@ -101,7 +102,7 @@ The probe is a real provider call and may incur provider usage. It is only initi
 The `LLM Control Center` panel in `/admin/workspace` provides:
 
 - role switcher;
-- registered RouterAI profile selector;
+- registered inference profile selector;
 - model-id override;
 - temperature;
 - output-token cap;
@@ -131,7 +132,7 @@ Output-token settings act as caps for bounded split phases rather than expanding
 ## Fail-safe behavior
 
 - unknown profile: reject save;
-- direct-provider profile: reject save in v0.1;
+- profile absent from the governed runtime registries: reject save;
 - missing credential/model: expose `configured=false`, do not leak why through secret material;
 - invalid CSRF: reject mutation/test;
 - invalid persisted record: fall back to product defaults rather than executing malformed policy;
