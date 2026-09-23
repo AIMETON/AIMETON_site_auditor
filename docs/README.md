@@ -75,3 +75,5 @@
 
 - [Admin LLM Control Center v0.1](architecture/ADMIN-LLM-CONTROL-CENTER-V0.1.md) — admin runtime authority for Fast Research / Extraction / Reasoning model selection, non-secret parameters and sanitized live capability probe.
 - [Aleks Dent repeat Stage audit](operations/ALEKSDENT-REPEAT-STAGE-AUDIT.md) — owner-authorized exact-SHA regression rerun for the previously bad `aleksdent24.ru` audit using the current Stage runtime and sanitized evidence publication.
+
+- [Inference Providers / Immers.cloud](architecture/INFERENCE-PROVIDER-IMMERS.md) — provider-neutral runtime/admin integration and qualification boundary.
