@@ -19,7 +19,7 @@ Secrets are never returned by the admin API.
 
 The routable model registry is `config/inference_provider_registry.json`. It is intentionally separate from any provider catalog or marketing model list.
 
-A model is runtime-eligible only when it is enabled in this registry. The pilot allowlist contains `DeepSeek-V4-Flash-0731`; changing model IDs or capability/pricing metadata is a configuration change rather than a business-logic change.
+A model is runtime-eligible only when it is enabled in this registry. The pilot allowlist contains `deepseek-v4-flash-0731`; changing model IDs or capability/pricing metadata is a configuration change rather than a business-logic change.
 
 Capability values can be `true`, `false` or `null` (unknown). Unknown is not treated as supported.
 
