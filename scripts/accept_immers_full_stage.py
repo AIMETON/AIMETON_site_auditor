@@ -219,6 +219,7 @@ def main() -> int:
             },
             timeout=30,
         )
+        switched = True
         for role in ("fast_research", "extraction", "reasoning"):
             resolved = switched_response["resolved"][role]
             if not (
@@ -227,7 +228,6 @@ def main() -> int:
                 and resolved.get("configured") is True
             ):
                 raise RuntimeError(f"immers_role_switch_failed:{role}")
-        switched = True
         _safe_event("roles_switched", {"ok": True, "roles": 3})
 
         started = _json_request(
