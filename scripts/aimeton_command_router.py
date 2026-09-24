@@ -19,6 +19,7 @@ ROUTES: dict[str, tuple[int, str, dict[str, str]]] = {
     "audit-aleksdent-stage": (293, "audit-competitor-services-realty-stage.yml", {"expected_sha": "{sha}", "target_url": "https://aleksdent24.ru/", "audit_label": "Aleks Dent regression repeat"}),
     "audit-aleksdent-deep-stage": (293, "audit-aleksdent-deep-research-stage.yml", {"expected_sha": "{sha}"}),
     "accept-routerai-synthesis-stage": (700, "accept-routerai-synthesis-stage.yml", {"expected_sha": "{sha}", "allow_paid_calls": "true", "owner_spend_authorized": "true"}),
+    "accept-immers-full-stage": (1003, "accept-immers-full-site-audit-stage.yml", {"expected_sha": "{sha}", "allow_paid_calls": "true", "owner_spend_authorized": "true"}),
     "accept-checkpoint-stage": (88, "accept-checkpoint-stage.yml", {"expected_sha": "{sha}"}),
     "accept-mobile-ui-stage": (223, "accept-mobile-ui-stage.yml", {"expected_sha": "{sha}"}),
     "accept-service-catalog-stage": (274, "accept-service-catalog-stage.yml", {"expected_sha": "{sha}"}),
