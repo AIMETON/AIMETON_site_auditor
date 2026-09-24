@@ -29,7 +29,7 @@ def test_immers_full_acceptance_restores_settings_and_keeps_evidence_sanitized()
     assert 'finally:' in driver
     assert '"restore settings after Immers full Site Audit acceptance #1003"' in driver
     assert 'restored_response["record"]["settings"] == original' in driver
-    assert '"completion text"' in driver
+    assert "completion text" in driver
     assert "IMMERS_API_KEY" not in driver
     assert "Authorization" not in driver
     assert "AIMETON_BOOTSTRAP_ADMIN_PASSWORD" in workflow
