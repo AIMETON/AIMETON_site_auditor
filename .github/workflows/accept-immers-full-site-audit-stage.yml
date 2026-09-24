@@ -1,0 +1,90 @@
+name: Accept Immers Full Site Audit Stage
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact deployed source SHA to validate
+        required: true
+        type: string
+      allow_paid_calls:
+        description: Explicitly allow provider calls
+        required: true
+        type: boolean
+        default: false
+      owner_spend_authorized:
+        description: Owner authorization for provider spend
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: accept-immers-full-site-audit-stage
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: [self-hosted, Linux, X64, stage, auditor]
+    environment: stage
+    timeout-minutes: 50
+    env:
+      STACK_DIR: /opt/aimeton/auditor-stack
+      STAGE_URL: https://stage-auditor.aimeton.ru
+      TARGET_URL: https://aleksdent24.ru/
+      AIMETON_BOOTSTRAP_ADMIN_USERNAME: ${{ vars.AIMETON_BOOTSTRAP_ADMIN_USERNAME }}
+      AIMETON_BOOTSTRAP_ADMIN_PASSWORD: ${{ secrets.AIMETON_BOOTSTRAP_ADMIN_PASSWORD }}
+
+    steps:
+      - name: Verify exact Stage and explicit provider-call authorization
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          expected='${{ inputs.expected_sha }}'
+          [[ "$expected" =~ ^[0-9a-f]{40}$ ]]
+          deployed="$(tr -d '[:space:]' < "$STACK_DIR/app-source-sha.txt")"
+          health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' aimeton-auditor)"
+          test "$deployed" = "$expected"
+          test "$health" = healthy
+          test '${{ inputs.allow_paid_calls }}' = 'true'
+          test '${{ inputs.owner_spend_authorized }}' = 'true'
+          test -n "$AIMETON_BOOTSTRAP_ADMIN_USERNAME"
+          test -n "$AIMETON_BOOTSTRAP_ADMIN_PASSWORD"
+          echo "::add-mask::$AIMETON_BOOTSTRAP_ADMIN_USERNAME"
+          echo "::add-mask::$AIMETON_BOOTSTRAP_ADMIN_PASSWORD"
+          echo "exact_stage_sha=$deployed"
+
+      - name: Run bounded Immers capability plus full Site Audit acceptance
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          REPORT_PATH: ${{ runner.temp }}/immers-full-site-audit-report.md
+        run: |
+          set -Eeuo pipefail
+          script="$STACK_DIR/app-source/scripts/accept_immers_full_stage.py"
+          test -f "$script"
+          python3 "$script"
+
+      - name: Publish sanitized evidence to Immers issue
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT_PATH: ${{ runner.temp }}/immers-full-site-audit-report.md
+        run: |
+          set -Eeuo pipefail
+          if [[ ! -f "$REPORT_PATH" ]]; then
+            echo "No sanitized report produced"
+            exit 0
+          fi
+          cat "$REPORT_PATH" >> "$GITHUB_STEP_SUMMARY"
+          payload="$(python3 -c 'import json,sys; print(json.dumps({"body": open(sys.argv[1], encoding="utf-8").read()}))' "$REPORT_PATH")"
+          curl --fail-with-body --silent --show-error -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/1003/comments" \
+            -d "$payload"
