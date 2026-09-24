@@ -109,6 +109,27 @@ def test_immers_profile_is_selectable_and_secret_safe(monkeypatch, tmp_path) -> 
     assert "https://immers.example/v1" not in str(safe)
 
 
+
+def test_immers_profile_can_be_saved_before_secret_provisioning(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AIMETON_RUNTIME_DB", str(tmp_path / "runtime.sqlite3"))
+    monkeypatch.delenv("IMMERS_API_KEY", raising=False)
+    monkeypatch.delenv("IMMERS_BASE_URL", raising=False)
+    monkeypatch.delenv("IMMERS_DEFAULT_MODEL", raising=False)
+
+    settings = LlmRuntimeSettings()
+    settings.reasoning = settings.reasoning.model_copy(
+        update={"profile_name": "immers-primary"}
+    )
+
+    repo = LlmRuntimeSettingsRepository(tmp_path / "runtime.sqlite3")
+    saved = repo.save(settings, actor_id=1, reason="preconfigure immers")
+    runtime = resolve_llm_runtime(LlmRole.REASONING, settings=saved.settings)
+
+    assert runtime.profile_name == "immers-primary"
+    assert runtime.configured is False
+    assert runtime.model == ""
+
+
 def test_immers_rejects_model_outside_registry(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("AIMETON_RUNTIME_DB", str(tmp_path / "runtime.sqlite3"))
     monkeypatch.setenv("IMMERS_API_KEY", "immers-secret")
