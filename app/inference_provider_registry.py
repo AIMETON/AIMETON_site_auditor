@@ -50,7 +50,7 @@ class ProviderProfile(BaseModel):
         api_key = os.getenv(self.api_key_env, "")
         model = (model_override or os.getenv(self.model_env, "")).strip()
         enabled_models = {model_id for model_id, spec in self.models.items() if spec.enabled}
-        model_allowed = bool(model and (not enabled_models or model in enabled_models))
+        model_allowed = bool(not model or not enabled_models or model in enabled_models)
         return ResolvedProviderProfile(
             profile_name=self.name,
             provider=self.provider,
