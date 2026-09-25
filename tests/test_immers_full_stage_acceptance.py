@@ -1,0 +1,37 @@
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+ROUTER = ROOT / "scripts" / "aimeton_command_router.py"
+WORKFLOW = ROOT / ".github" / "workflows" / "accept-immers-full-site-audit-stage.yml"
+DRIVER = ROOT / "scripts" / "accept_immers_full_stage.py"
+
+
+def test_immers_full_acceptance_is_owner_routed_and_exact_sha_gated():
+    router = ROUTER.read_text(encoding="utf-8")
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    assert (
+        '"accept-immers-full-stage": '
+        '(1003, "accept-immers-full-site-audit-stage.yml", '
+        '{"expected_sha": "{sha}", "allow_paid_calls": "true", '
+        '"owner_spend_authorized": "true"})'
+    ) in router
+    assert "workflow_dispatch:" in workflow
+    assert "inputs.expected_sha" in workflow
+    assert "allow_paid_calls" in workflow
+    assert "owner_spend_authorized" in workflow
+    assert "test \"$deployed\" = \"$expected\"" in workflow
+
+
+def test_immers_full_acceptance_restores_settings_and_keeps_evidence_sanitized():
+    driver = DRIVER.read_text(encoding="utf-8")
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    assert 'finally:' in driver
+    assert '"restore settings after Immers full Site Audit acceptance #1003"' in driver
+    assert 'restored_response["record"]["settings"] == original' in driver
+    assert "completion text" in driver
+    assert "IMMERS_API_KEY" not in driver
+    assert "Authorization" not in driver
+    assert "AIMETON_BOOTSTRAP_ADMIN_PASSWORD" in workflow
+    assert "secrets.AIMETON_BOOTSTRAP_ADMIN_PASSWORD" in workflow
+    assert "cat $AIMETON_BOOTSTRAP_ADMIN_PASSWORD" not in workflow
