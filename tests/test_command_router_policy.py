@@ -166,14 +166,14 @@ def test_stage_admin_repair_no_longer_subscribes_to_comments() -> None:
     _assert_dispatch_only(".github/workflows/repair-stage-admin.yml")
     text = Path(".github/workflows/repair-stage-admin.yml").read_text(encoding="utf-8")
     assert "Verify exact deployed SHA before mutation" in text
-    assert "requested SHA does not match deployed SHA" in text
+    assert "requested SHA does not match app-source-sha.txt" in text
 
 
 def test_stage_auth_acceptance_no_longer_subscribes_to_comments() -> None:
     _assert_dispatch_only(".github/workflows/stage-auth-acceptance.yml")
     text = Path(".github/workflows/stage-auth-acceptance.yml").read_text(encoding="utf-8")
     assert "Verify exact deployed SHA before acceptance mutation" in text
-    assert "Refusing acceptance mutation: requested SHA does not match deployed SHA" in text
+    assert "Refusing acceptance mutation: requested SHA does not match app-source-sha.txt" in text
 
 
 def test_only_router_and_optional_status_sync_subscribe_to_issue_comments() -> None:
