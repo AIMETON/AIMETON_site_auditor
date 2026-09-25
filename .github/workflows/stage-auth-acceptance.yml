@@ -179,7 +179,6 @@ jobs:
 
           docker compose \
             -f docker-compose.yml \
-            -f docker-compose.override.yml \
             -f docker-compose.runtime-secrets.yml \
             up -d --force-recreate auditor
           wait_healthy
