@@ -4,6 +4,7 @@ import asyncio
 import json
 
 import pytest
+from pydantic import BaseModel
 
 import app.routerai_strict_request as strict
 from app.routerai_profile_extraction import ManagementSlice
@@ -168,3 +169,62 @@ def test_strict_request_surfaces_output_truncation(monkeypatch) -> None:
 
     assert exc_info.value.phase == "profile_management"
     assert exc_info.value.error_type == "OutputTruncated"
+
+
+class _RepairShape(BaseModel):
+    opportunity_type: str
+    score: int
+
+
+def test_strict_request_repairs_schema_drift_once_without_reanalysis(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    class FakeResponse:
+        def __init__(self, content: str):
+            self._content = content
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "choices": [{
+                    "finish_reason": "stop",
+                    "message": {"content": self._content},
+                }],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            }
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, *, headers, json):
+            calls.append(json)
+            if len(calls) == 1:
+                return FakeResponse('{"score":72}')
+            return FakeResponse('{"opportunity_type":"Недостаточно данных","score":72}')
+
+    monkeypatch.setenv("ROUTERAI_API_KEY", "test-only")
+    monkeypatch.setattr(strict.httpx, "AsyncClient", lambda timeout: FakeClient())
+
+    result = asyncio.run(
+        strict.request_json_strict(
+            "compiled_business_commercial_synthesis",
+            _RepairShape,
+            system="Structured only",
+            prompt="Build result",
+            max_tokens=500,
+            timeout_seconds=5,
+        )
+    )
+
+    assert result.score == 72
+    assert result.opportunity_type == "Недостаточно данных"
+    assert len(calls) == 2
+    assert "VALIDATION ERRORS" in calls[1]["messages"][1]["content"]
+    assert "PREVIOUS JSON OUTPUT" in calls[1]["messages"][1]["content"]
+    assert calls[1]["reasoning"] == {"enabled": False}
