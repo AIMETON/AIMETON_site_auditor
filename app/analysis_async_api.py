@@ -579,6 +579,8 @@ def _heartbeat_detail(snapshot: dict[str, Any]) -> str:
     provider_finished = int(snapshot.get("provider_calls_finished") or 0)
     failures = int(snapshot.get("provider_failures") or 0)
     llm_state = snapshot.get("llm_state")
+    documents_attempted = int(snapshot.get("documents_attempted") or 0)
+    frontier_size = int(snapshot.get("frontier_size") or 0)
 
     if llm_state == "running":
         elapsed = snapshot.get("llm_elapsed_seconds")
@@ -589,6 +591,12 @@ def _heartbeat_detail(snapshot: dict[str, Any]) -> str:
             f"Поисковые ветви завершены {finished}/{planned or '?'}. "
             f"LLM synthesis: {snapshot.get('llm_provider') or 'routerai'} "
             f"{elapsed_text}{budget_text}."
+        )
+
+    if finished >= planned > 0 and frontier_size > 0:
+        return (
+            f"Поиск завершён {finished}/{planned}. "
+            f"Проверка документов: обработано {documents_attempted}, в очереди {frontier_size}."
         )
 
     if active:
@@ -629,6 +637,9 @@ async def _heartbeat_loop(
             return
         except asyncio.TimeoutError:
             snapshot = _trace_runtime_snapshot(mission_id, analysis_id)
+            control = CONTROLS.get(analysis_id)
+            if control is not None:
+                snapshot = {**snapshot, **control.snapshot()}
             active = snapshot.get("active_provider_calls") or []
             llm_running = snapshot.get("llm_state") == "running"
             overdue = (
