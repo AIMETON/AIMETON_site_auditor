@@ -589,7 +589,7 @@ def _heartbeat_detail(snapshot: dict[str, Any]) -> str:
         budget_text = f"/{float(budget):.0f}s" if budget else ""
         return (
             f"Поисковые ветви завершены {finished}/{planned or '?'}. "
-            f"LLM synthesis: {snapshot.get('llm_provider') or 'routerai'} "
+            f"LLM synthesis: {snapshot.get('llm_last_provider') or snapshot.get('llm_provider') or 'provider'} "
             f"{elapsed_text}{budget_text}."
         )
 
@@ -660,7 +660,7 @@ async def _heartbeat_loop(
                     "Текущий внешний этап превысил ожидаемый бюджет времени."
                     if overdue
                     else (
-                        "RouterAI выполняет аналитический синтез."
+                        "LLM-провайдер выполняет аналитический синтез."
                         if llm_running
                         else "Продолжается внешнее обогащение профиля."
                     )
