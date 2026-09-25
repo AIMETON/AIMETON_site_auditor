@@ -62,7 +62,12 @@ async def request_json_strict(
     else:
         response_format = {"type": "json_object"}
 
-    record_llm_start()
+    record_llm_start(
+        phase=phase,
+        provider=runtime.provider,
+        profile=runtime.profile_name,
+        model=runtime.model,
+    )
     payload = {
         "model": runtime.model,
         "temperature": 0.1 if runtime.temperature is None else runtime.temperature,
@@ -117,10 +122,15 @@ async def request_json_strict(
         if choice.get("finish_reason") == "length":
             raise SplitSynthesisPhaseError(phase, "OutputTruncated")
         content = choice["message"]["content"]
-        return model_type.model_validate(json.loads(content))
+        result = model_type.model_validate(json.loads(content))
+        record_llm_success(phase=phase)
+        return result
     except (asyncio.TimeoutError, httpx.TimeoutException) as exc:
+        record_llm_failure(phase=phase, error_type="timeout")
         raise SplitSynthesisPhaseTimeout(phase) from exc
-    except RuntimeError:
+    except RuntimeError as exc:
+        record_llm_failure(phase=phase, error_type=type(exc).__name__)
         raise
     except Exception as exc:
+        record_llm_failure(phase=phase, error_type=type(exc).__name__)
         raise SplitSynthesisPhaseError(phase, type(exc).__name__) from exc
