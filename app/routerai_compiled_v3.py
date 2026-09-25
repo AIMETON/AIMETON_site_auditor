@@ -250,6 +250,17 @@ business analyst, ownership/management analyst и AI-sales architect. На вх�
 3. Дай 3–5 конкретных AI-инструментов/агентов.
 4. Сформируй action_package первого контакта.
 
+Перед формированием ответа обязательно проверь полноту структуры:
+- root должен содержать business_machine_4x4, commercial_opportunity, agents, action_package;
+- commercial_opportunity ОБЯЗАТЕЛЬНО содержит opportunity_type, problem_hypothesis,
+  recommended_solution, expected_value, score, qualification, source_ids;
+- action_package ОБЯЗАТЕЛЬНО содержит decision_maker_hypothesis, contact_reason,
+  demo_scenario, first_message, next_action;
+- agents содержит от 3 до 5 объектов с name, purpose, benefit, priority;
+- отсутствие доказательств не означает отсутствие ключа: используй нейтральное
+  "Недостаточно данных", score=0, qualification="Недостаточно данных" и [] там,
+  где это допускает схема, но не выдумывай содержание.
+
 Правила:
 - ничего не добавляй сверх профиля;
 - source_ids должны существовать в профиле;
@@ -358,7 +369,9 @@ async def analyze_with_routerai_compiled_v3(
             "compiled_business_commercial_synthesis",
             CompiledSynthesisResponse,
             system=(
-                "Возвращай только валидный JSON по схеме. "
+                "Возвращай только полный валидный JSON по схеме. "
+                "Перед ответом проверь наличие всех required-полей, особенно "
+                "commercial_opportunity.opportunity_type и остальных полей commercial_opportunity. "
                 "Это единый reasoning/synthesis pass по нормализованному профилю."
             ),
             prompt=_synthesis_prompt(
