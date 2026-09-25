@@ -35,3 +35,12 @@ def test_immers_full_acceptance_restores_settings_and_keeps_evidence_sanitized()
     assert "AIMETON_BOOTSTRAP_ADMIN_PASSWORD" in workflow
     assert "secrets.AIMETON_BOOTSTRAP_ADMIN_PASSWORD" in workflow
     assert "cat $AIMETON_BOOTSTRAP_ADMIN_PASSWORD" not in workflow
+
+
+def test_immers_acceptance_targets_current_aldenta_regression_and_provider_evidence():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    driver = DRIVER.read_text(encoding="utf-8")
+    assert "TARGET_URL: https://aldenta.ru/" in workflow
+    assert "llm_last_provider" in driver
+    assert "llm_reasoning_provider" in driver
+    assert "commercial_reasoning_failure" in driver
