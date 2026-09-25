@@ -283,7 +283,7 @@ def record_llm_start(*, phase: str = "", provider: str = "", profile: str = "", 
         control.llm_last_profile = str(profile or "")[:128]
         control.llm_last_model = str(model or "")[:200]
         control.llm_last_error = ""
-        control.checkpoint("llm_started", control.snapshot())
+        control.checkpoint(f"llm_started/{control.llm_last_phase or control.llm_calls}", control.snapshot())
 
 
 def record_llm_success(*, phase: str = "") -> None:
@@ -293,7 +293,7 @@ def record_llm_success(*, phase: str = "") -> None:
             control.llm_last_phase = str(phase)[:128]
         control.llm_last_error = ""
         control.completed_chunks += 1
-        control.checkpoint("llm_completed", control.snapshot())
+        control.checkpoint(f"llm_phase/{control.llm_last_phase or control.llm_calls}", control.snapshot())
 
 
 def record_llm_failure(*, phase: str = "", error_type: str = "") -> None:
@@ -302,7 +302,7 @@ def record_llm_failure(*, phase: str = "", error_type: str = "") -> None:
         if phase:
             control.llm_last_phase = str(phase)[:128]
         control.llm_last_error = str(error_type or "failed")[:128]
-        control.checkpoint("llm_failed", control.snapshot())
+        control.checkpoint(f"llm_phase/{control.llm_last_phase or control.llm_calls}", control.snapshot())
 
 
 def record_llm_usage(body: dict) -> None:
