@@ -34,13 +34,11 @@ jobs:
           requested_sha='${{ inputs.expected_sha }}'
           [[ "$requested_sha" =~ ^[0-9a-f]{40}$ ]]
           docker ps --format '{{.Names}}' | grep -Fxq "$CONTAINER"
-          deployed_sha="$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$CONTAINER" 2>/dev/null || true)"
-          test -n "$deployed_sha" || {
-            echo "Missing deployed revision label on $CONTAINER" >&2
-            exit 1
-          }
+          test -f /opt/aimeton/auditor-stack/app-source-sha.txt
+          deployed_sha="$(tr -d '[:space:]' < /opt/aimeton/auditor-stack/app-source-sha.txt)"
+          [[ "$deployed_sha" =~ ^[0-9a-f]{40}$ ]]
           [[ "$requested_sha" == "$deployed_sha" ]] || {
-            echo "Refusing mutation: requested SHA does not match deployed SHA" >&2
+            echo "Refusing mutation: requested SHA does not match app-source-sha.txt" >&2
             exit 1
           }
           echo "deployed_sha_verified=$deployed_sha"
