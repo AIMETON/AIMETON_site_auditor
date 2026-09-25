@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.models import AnalyzeRequest, ChatRequest, CompanyFact
-from app.research_control import ResearchControl, bind_research, deep_research_enabled, record_llm_start, record_llm_usage
+from app.research_control import ResearchControl, bind_research, deep_research_enabled, record_llm_failure, record_llm_start, record_llm_success, record_llm_usage
 from app import routerai_profile_extraction as extraction
 from app.routerai_split_synthesis import SplitSynthesisPhaseError
 
@@ -380,3 +380,41 @@ async def test_verify_retains_registry_candidates_even_when_triage_keeps_none(mo
         "DOC-b4-0",
     ]
     assert all("Evidence triage: unknown/registry" in item.verification_note for item in child)
+
+
+def test_deep_document_frontier_has_independent_bound(monkeypatch):
+    from app import external_verification as verify
+
+    monkeypatch.delenv("AIMETON_DEEP_RESEARCH_MAX_DOCUMENTS", raising=False)
+    assert verify._deep_document_limit() == 80
+    monkeypatch.setenv("AIMETON_DEEP_RESEARCH_MAX_DOCUMENTS", "24")
+    assert verify._deep_document_limit() == 24
+    monkeypatch.setenv("AIMETON_DEEP_RESEARCH_MAX_DOCUMENTS", "invalid")
+    assert verify._deep_document_limit() == 80
+
+
+def test_provider_neutral_llm_phase_accounting(monkeypatch, tmp_path):
+    monkeypatch.setenv("AIMETON_RUNTIME_DB", str(tmp_path / "runtime.db"))
+    control = ResearchControl(deep=True)
+    with bind_research(control):
+        record_llm_start(
+            phase="compiled_business_commercial_synthesis",
+            provider="immers",
+            profile="immers-primary",
+            model="deepseek-v4-flash-0731",
+        )
+        record_llm_usage({"usage": {"prompt_tokens": 36, "completion_tokens": 12}})
+        record_llm_success(phase="compiled_business_commercial_synthesis")
+
+    snapshot = control.snapshot()
+    assert snapshot["llm_calls"] == 1
+    assert snapshot["completed_chunks"] == 1
+    assert snapshot["llm_last_phase"] == "compiled_business_commercial_synthesis"
+    assert snapshot["llm_last_provider"] == "immers"
+    assert snapshot["llm_last_profile"] == "immers-primary"
+    assert snapshot["llm_last_model"] == "deepseek-v4-flash-0731"
+    assert snapshot["llm_last_error"] == ""
+
+    with bind_research(control):
+        record_llm_failure(phase="compiled_business_commercial_synthesis", error_type="ValidationError")
+    assert control.snapshot()["llm_last_error"] == "ValidationError"

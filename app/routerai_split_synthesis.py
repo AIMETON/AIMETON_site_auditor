@@ -12,7 +12,7 @@ from typing import Any, TypeVar
 import httpx
 from pydantic import BaseModel, Field
 
-from app.research_control import record_llm_start, record_llm_usage
+from app.research_control import record_llm_failure, record_llm_start, record_llm_success, record_llm_usage
 from app.identity_readiness import assess_identity_readiness, identity_release_blocker
 from app.evidence_quality import assess_evidence_quality
 from app.commercial_support import assess_commercial_support, enforce_commercial_support
@@ -136,7 +136,12 @@ async def _request_json(
         payload["reasoning"] = {"enabled": False}
     elif runtime.reasoning_effort is not None:
         payload["reasoning"] = {"effort": runtime.reasoning_effort.value}
-    record_llm_start()
+    record_llm_start(
+        phase=phase,
+        provider=runtime.provider,
+        profile=runtime.profile_name,
+        model=runtime.model,
+    )
     try:
         async with httpx.AsyncClient(timeout=runtime.timeout_seconds or timeout_seconds) as client:
             response = await client.post(
@@ -151,12 +156,17 @@ async def _request_json(
         if choice.get("finish_reason") == "length":
             raise SplitSynthesisPhaseError(phase, "OutputTruncated")
         content = choice["message"]["content"]
-        return model_type.model_validate(_extract_json(content))
+        result = model_type.model_validate(_extract_json(content))
+        record_llm_success(phase=phase)
+        return result
     except (asyncio.TimeoutError, httpx.TimeoutException) as exc:
+        record_llm_failure(phase=phase, error_type="timeout")
         raise SplitSynthesisPhaseTimeout(phase) from exc
-    except RuntimeError:
+    except RuntimeError as exc:
+        record_llm_failure(phase=phase, error_type=type(exc).__name__)
         raise
     except Exception as exc:
+        record_llm_failure(phase=phase, error_type=type(exc).__name__)
         raise SplitSynthesisPhaseError(phase, type(exc).__name__) from exc
 
 

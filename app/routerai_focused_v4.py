@@ -8,6 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from app.models import CompanyFact, EconomicSignal, SiteAnalysis
+from app.llm_runtime_settings import LlmRole, resolve_llm_runtime
 from app.profile_consolidation import validate_llm_merged_profile
 from app.research_control import ResearchStopped, current_research
 from app.routerai_compiled_v3 import (
@@ -409,6 +410,8 @@ async def analyze_with_routerai_focused_v4(
 
     synthesis_error_phase = ""
     synthesis_error_descriptor = ""
+    extraction_runtime = resolve_llm_runtime(LlmRole.EXTRACTION)
+    reasoning_runtime = resolve_llm_runtime(LlmRole.REASONING)
     try:
         if control and control.stop_requested:
             raise ResearchStopped("research_stopped_by_user")
@@ -446,6 +449,8 @@ async def analyze_with_routerai_focused_v4(
         )
         synthesis_state = "succeeded"
         synthesis_calls = 1
+        result.readiness.provider_states.pop("routerai", None)
+        result.readiness.provider_states[reasoning_runtime.provider] = "active"
     except ResearchStopped:
         raise
     except Exception as exc:
@@ -459,7 +464,8 @@ async def analyze_with_routerai_focused_v4(
             commercial=_unavailable_commercial(),
             accessed_at=datetime.now(timezone.utc).isoformat(),
         )
-        result.readiness.provider_states["routerai"] = (
+        result.readiness.provider_states.pop("routerai", None)
+        result.readiness.provider_states[reasoning_runtime.provider] = (
             "reasoning_failed_extraction_preserved"
         )
         result.readiness.analysis_state = "preliminary_hypothesis"
@@ -495,5 +501,11 @@ async def analyze_with_routerai_focused_v4(
         "commercial_reasoning_error_phase": synthesis_error_phase,
         "commercial_reasoning_failure": synthesis_error_descriptor,
         "commercial_score_available": synthesis_state == "succeeded",
+        "llm_extraction_provider": extraction_runtime.provider,
+        "llm_extraction_profile": extraction_runtime.profile_name,
+        "llm_extraction_model": extraction_runtime.model,
+        "llm_reasoning_provider": reasoning_runtime.provider,
+        "llm_reasoning_profile": reasoning_runtime.profile_name,
+        "llm_reasoning_model": reasoning_runtime.model,
     })
     return result

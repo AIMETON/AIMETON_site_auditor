@@ -4,6 +4,7 @@ from app.research_execution import active_settings
 
 import asyncio
 import hashlib
+import os
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -491,6 +492,14 @@ def _best_quote_block(fetched, *, company_name: str, anchors: Any):
     return max(candidates, key=score)
 
 
+def _deep_document_limit() -> int:
+    raw = os.getenv("AIMETON_DEEP_RESEARCH_MAX_DOCUMENTS", "80")
+    try:
+        return max(8, int(raw))
+    except ValueError:
+        return 80
+
+
 async def verify_external_sources(
     sources: list[IntelligenceSource],
     *,
@@ -780,14 +789,15 @@ async def verify_external_sources(
     try:
         if deep_research_enabled():
             index = 0
-            while index < len(pending):
+            deep_limit = _deep_document_limit()
+            while index < len(pending) and index < deep_limit:
                 if current_research().stop_requested:
                     break
-                batch = pending[index:index + 4]
+                batch = pending[index:min(index + 4, deep_limit)]
                 index += len(batch)
                 await asyncio.gather(*(bounded(item) for item in batch))
                 current_research().documents_attempted += len(batch)
-                current_research().frontier_size = len(pending) - index
+                current_research().frontier_size = max(0, min(len(pending), deep_limit) - index)
                 current_research().checkpoint("acquisition", {
                     "sources": [item.model_dump(mode="json") for item in sources],
                     "evidence": [item.model_dump(mode="json") for item in verified],
