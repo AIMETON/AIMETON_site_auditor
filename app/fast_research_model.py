@@ -9,7 +9,7 @@ from typing import TypeVar
 import httpx
 from pydantic import BaseModel
 
-from app.research_control import record_llm_start, record_llm_usage
+from app.research_control import record_llm_failure, record_llm_start, record_llm_success, record_llm_usage
 from app.research_execution import operation_timeout, research_timed
 from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
 
@@ -92,7 +92,9 @@ async def request_fast_json(
     else:
         payload["reasoning"] = {"enabled": False}
 
-    record_llm_start()
+    record_llm_start(
+        phase=phase, provider=model.provider, profile=model.profile_name, model=model.model
+    )
     try:
         async with httpx.AsyncClient(
             timeout=operation_timeout("llm", timeout_seconds)
@@ -108,12 +110,17 @@ async def request_fast_json(
         choice = body["choices"][0]
         if choice.get("finish_reason") == "length":
             raise FastResearchModelUnavailable(f"{phase}:output_truncated")
-        return model_type.model_validate(json.loads(choice["message"]["content"]))
-    except FastResearchModelUnavailable:
+        result = model_type.model_validate(json.loads(choice["message"]["content"]))
+        record_llm_success(phase=phase)
+        return result
+    except FastResearchModelUnavailable as exc:
+        record_llm_failure(phase=phase, error_type=type(exc).__name__)
         raise
     except (asyncio.TimeoutError, httpx.TimeoutException) as exc:
+        record_llm_failure(phase=phase, error_type="timeout")
         raise FastResearchModelUnavailable(f"{phase}:timeout") from exc
     except Exception as exc:
+        record_llm_failure(phase=phase, error_type=type(exc).__name__)
         raise FastResearchModelUnavailable(
             f"{phase}:{type(exc).__name__}"
         ) from exc
