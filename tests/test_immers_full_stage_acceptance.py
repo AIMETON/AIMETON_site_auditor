@@ -44,3 +44,11 @@ def test_immers_acceptance_targets_current_aldenta_regression_and_provider_evide
     assert "llm_last_provider" in driver
     assert "llm_reasoning_provider" in driver
     assert "commercial_reasoning_failure" in driver
+
+
+def test_immers_acceptance_uses_production_strict_schema_policy_and_requires_reasoning_success():
+    driver = DRIVER.read_text(encoding="utf-8")
+    assert 'item["output_mode"] = "inherit"' in driver
+    assert 'item["output_mode"] = "json_object"' not in driver
+    assert 'commercial_reasoning_state") != "succeeded"' in driver
+    assert "immers_extraction_returned_no_company_facts" in driver
