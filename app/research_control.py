@@ -33,6 +33,11 @@ class ResearchControl:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     llm_usage_reports: int = 0
+    llm_last_phase: str = ""
+    llm_last_provider: str = ""
+    llm_last_profile: str = ""
+    llm_last_model: str = ""
+    llm_last_error: str = ""
     search_attempts: int = 0
     search_price_unknown: int = 0
     search_estimates: dict[str, Decimal] = field(default_factory=dict)
@@ -73,6 +78,11 @@ class ResearchControl:
                    if self.settings is not None else {}),
                 "prompt_tokens": self.prompt_tokens, "completion_tokens": self.completion_tokens,
                 "llm_usage_reports": self.llm_usage_reports,
+                "llm_last_phase": self.llm_last_phase,
+                "llm_last_provider": self.llm_last_provider,
+                "llm_last_profile": self.llm_last_profile,
+                "llm_last_model": self.llm_last_model,
+                "llm_last_error": self.llm_last_error,
                 "llm_usage_unknown": max(0, self.llm_calls - self.llm_usage_reports),
                 "completed_chunks": self.completed_chunks,
                 "documents_attempted": self.documents_attempted, "frontier_size": self.frontier_size,
@@ -260,7 +270,7 @@ def record_search_attempt(provider) -> None:
     control.checkpoint("search_usage", control.snapshot())
 
 
-def record_llm_start() -> None:
+def record_llm_start(*, phase: str = "", provider: str = "", profile: str = "", model: str = "") -> None:
     from app.research_execution import check_execution
     check_execution()
     control = current_research()
@@ -268,7 +278,31 @@ def record_llm_start() -> None:
         if control.stop_requested:
             raise ResearchStopped("research_stopped_by_user")
         control.llm_calls += 1
+        control.llm_last_phase = str(phase or "")[:128]
+        control.llm_last_provider = str(provider or "")[:64]
+        control.llm_last_profile = str(profile or "")[:128]
+        control.llm_last_model = str(model or "")[:200]
+        control.llm_last_error = ""
         control.checkpoint("llm_started", control.snapshot())
+
+
+def record_llm_success(*, phase: str = "") -> None:
+    control = current_research()
+    if control:
+        if phase:
+            control.llm_last_phase = str(phase)[:128]
+        control.llm_last_error = ""
+        control.completed_chunks += 1
+        control.checkpoint("llm_completed", control.snapshot())
+
+
+def record_llm_failure(*, phase: str = "", error_type: str = "") -> None:
+    control = current_research()
+    if control:
+        if phase:
+            control.llm_last_phase = str(phase)[:128]
+        control.llm_last_error = str(error_type or "failed")[:128]
+        control.checkpoint("llm_failed", control.snapshot())
 
 
 def record_llm_usage(body: dict) -> None:
