@@ -12,7 +12,7 @@ import httpx
 from pydantic import BaseModel
 
 from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
-from app.research_control import deep_research_enabled, record_llm_start, record_llm_usage
+from app.research_control import (deep_research_enabled, record_llm_failure, record_llm_start, record_llm_success, record_llm_usage)
 from app.routerai_split_synthesis import (
     SplitSynthesisPhaseError,
     SplitSynthesisPhaseTimeout,
