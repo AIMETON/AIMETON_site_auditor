@@ -193,6 +193,6 @@ def test_superseded_mission_ownership_v1_does_not_return() -> None:
 
 
 def test_stage_auth_acceptance_uses_runtime_compose_topology():
-    text = (ROOT / ".github" / "workflows" / "stage-auth-acceptance.yml").read_text(encoding="utf-8")
+    text = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "stage-auth-acceptance.yml").read_text(encoding="utf-8")
     assert "docker-compose.runtime-secrets.yml" in text
     assert "docker-compose.override.yml" not in text
