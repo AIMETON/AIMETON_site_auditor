@@ -124,6 +124,8 @@ class ResolvedLlmRuntime(BaseModel):
     output_mode: LlmOutputMode
     reasoning_mode: LlmReasoningMode
     reasoning_effort: LlmReasoningEffort | None
+    structured_output_supported: bool | None = None
+    json_mode_supported: bool | None = None
 
     def safe_descriptor(self) -> dict[str, object]:
         return {
@@ -136,11 +138,30 @@ class ResolvedLlmRuntime(BaseModel):
             "max_tokens": self.max_tokens,
             "timeout_seconds": self.timeout_seconds,
             "output_mode": self.output_mode.value,
+            "effective_output_mode": effective_llm_output_mode(self).value,
+            "structured_output_supported": self.structured_output_supported,
+            "json_mode_supported": self.json_mode_supported,
             "reasoning_mode": self.reasoning_mode.value,
             "reasoning_effort": (
                 self.reasoning_effort.value if self.reasoning_effort is not None else None
             ),
         }
+
+
+def effective_llm_output_mode(runtime: ResolvedLlmRuntime) -> LlmOutputMode:
+    """Resolve inherit without claiming unsupported provider transport features."""
+    if runtime.output_mode is not LlmOutputMode.INHERIT:
+        return runtime.output_mode
+    if runtime.structured_output_supported is True:
+        return LlmOutputMode.STRICT_SCHEMA
+    if runtime.json_mode_supported is True:
+        return LlmOutputMode.JSON_OBJECT
+    # Preserve the established RouterAI contract. Provider-neutral profiles with
+    # unknown strict-schema support fail soft to JSON mode and remain strictly
+    # validated by Pydantic after transport.
+    if runtime.provider == "routerai":
+        return LlmOutputMode.STRICT_SCHEMA
+    return LlmOutputMode.JSON_OBJECT
 
 
 class LlmRuntimeSettingsRepository:
@@ -264,6 +285,8 @@ def resolve_llm_runtime(
     except KeyError as exc:
         raise RuntimeError(f"unknown_llm_profile:{config.profile_name}") from exc
     resolved_model = resolved_profile.model.strip()
+    model_spec = getattr(resolved_profile, "model_spec", None)
+    capabilities = getattr(model_spec, "capabilities", None)
     return ResolvedLlmRuntime(
         role=normalized_role,
         profile_name=config.profile_name,
@@ -280,4 +303,6 @@ def resolve_llm_runtime(
         output_mode=config.output_mode,
         reasoning_mode=config.reasoning_mode,
         reasoning_effort=config.reasoning_effort,
+        structured_output_supported=getattr(capabilities, "structured_output", None),
+        json_mode_supported=getattr(capabilities, "json_mode", None),
     )
