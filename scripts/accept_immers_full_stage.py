@@ -70,7 +70,7 @@ def _immers_settings_snapshot(original: dict[str, Any]) -> dict[str, Any]:
         item = settings[role]
         item["profile_name"] = "immers-primary"
         item["model_id"] = None
-        item["output_mode"] = "json_object"
+        item["output_mode"] = "inherit"
         item["reasoning_mode"] = "inherit"
         item["reasoning_effort"] = None
         item["temperature"] = 0.0 if role == "fast_research" else 0.1
@@ -280,6 +280,20 @@ def main() -> int:
 
         if status.get("state") != "completed":
             raise RuntimeError(f"immers_full_audit_{status.get('state') or 'unknown'}")
+        result = status.get("result") if isinstance(status.get("result"), dict) else {}
+        research_status = (
+            result.get("research_status")
+            if isinstance(result.get("research_status"), dict)
+            else {}
+        )
+        if research_status.get("commercial_reasoning_state") != "succeeded":
+            raise RuntimeError(
+                "immers_commercial_reasoning_"
+                + str(research_status.get("commercial_reasoning_state") or "missing")
+            )
+        facts = result.get("company_facts")
+        if not isinstance(facts, list) or not facts:
+            raise RuntimeError("immers_extraction_returned_no_company_facts")
     except BaseException as exc:
         run_error = exc
     finally:

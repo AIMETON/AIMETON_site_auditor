@@ -9,7 +9,7 @@ import re
 from typing import Literal, TypeVar
 
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
 from app.research_control import (deep_research_enabled, record_llm_failure, record_llm_start, record_llm_success, record_llm_usage)
@@ -122,7 +122,76 @@ async def request_json_strict(
         if choice.get("finish_reason") == "length":
             raise SplitSynthesisPhaseError(phase, "OutputTruncated")
         content = choice["message"]["content"]
-        result = model_type.model_validate(json.loads(content))
+        try:
+            result = model_type.model_validate(json.loads(content))
+        except (json.JSONDecodeError, ValidationError) as validation_exc:
+            repair_phase = f"{phase}_schema_repair"
+            schema = model_type.model_json_schema()
+            if isinstance(validation_exc, ValidationError):
+                errors = validation_exc.errors(include_url=False, include_context=False)
+            else:
+                errors = [{
+                    "type": "json_decode_error",
+                    "loc": [],
+                    "msg": str(validation_exc),
+                }]
+            repair_prompt = (
+                "Исправь ТОЛЬКО структуру предыдущего JSON-ответа по указанной JSON Schema. "
+                "Не добавляй новые факты, источники, цифры, проблемы, решения или выводы. "
+                "Сохрани все корректные значения исходного ответа. "
+                "Если обязательного поля нет и его значение нельзя вывести из уже имеющихся полей, "
+                "используй консервативное нейтральное значение, допустимое схемой: "
+                "для обычной строки — 'Недостаточно данных', для массива — [], "
+                "для числового score — 0, для qualification — 'Недостаточно данных', "
+                "для source_ids — []. Не удаляй уже существующие доказательные поля. "
+                "Верни только исправленный JSON без пояснений.\n\n"
+                "VALIDATION ERRORS:\n"
+                + json.dumps(errors, ensure_ascii=False, separators=(",", ":"))
+                + "\n\nJSON SCHEMA:\n"
+                + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+                + "\n\nPREVIOUS JSON OUTPUT:\n"
+                + str(content)[:24000]
+            )
+            repair_payload = {
+                "model": runtime.model,
+                "temperature": 0.0,
+                "max_tokens": effective_max_tokens,
+                "response_format": response_format,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Ты schema-repair модуль. Исправляй только форму JSON, "
+                            "не выполняй бизнес-анализ повторно и не добавляй новые утверждения."
+                        ),
+                    },
+                    {"role": "user", "content": repair_prompt},
+                ],
+                "reasoning": {"enabled": False},
+            }
+            if output_mode == "strict_schema":
+                repair_payload["structured_outputs"] = True
+            record_llm_start(
+                phase=repair_phase,
+                provider=runtime.provider,
+                profile=runtime.profile_name,
+                model=runtime.model,
+            )
+            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+                repair_response = await client.post(
+                    f"{runtime.base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {runtime.api_key}"},
+                    json=repair_payload,
+                )
+                repair_response.raise_for_status()
+            repair_body = repair_response.json()
+            record_llm_usage(repair_body)
+            repair_choice = repair_body["choices"][0]
+            if repair_choice.get("finish_reason") == "length":
+                raise SplitSynthesisPhaseError(repair_phase, "OutputTruncated")
+            repaired_content = repair_choice["message"]["content"]
+            result = model_type.model_validate(json.loads(repaired_content))
+            record_llm_success(phase=repair_phase)
         record_llm_success(phase=phase)
         return result
     except (asyncio.TimeoutError, httpx.TimeoutException) as exc:

@@ -48,8 +48,12 @@ async def test_usage_is_accounted_before_output_validation(path, monkeypatch, tm
         else:
             with pytest.raises((ValueError, RuntimeError)):
                 await invoke(path)
-    assert len(requests) == control.llm_calls == control.llm_usage_reports == 1
-    assert (control.prompt_tokens, control.completion_tokens) == (17, 3)
+    expected_calls = 2 if path == "strict" else 1
+    assert len(requests) == control.llm_calls == control.llm_usage_reports == expected_calls
+    assert (control.prompt_tokens, control.completion_tokens) == (
+        17 * expected_calls,
+        3 * expected_calls,
+    )
     assert control.snapshot()["llm_usage_unknown"] == 0
 
 
