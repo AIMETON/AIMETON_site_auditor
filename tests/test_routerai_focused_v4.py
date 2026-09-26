@@ -236,9 +236,9 @@ def test_signal_focus_accepts_longer_text_and_normalizes_confidence() -> None:
 
 def test_focused_business_summary_prefers_one_offerings_overview() -> None:
     results = [
-        focused.IdentityFocusedSlice(summary="Юридическая идентичность компании."),
-        focused.OfferingsFocusedSlice(summary="Компания оказывает стоматологические услуги."),
-        focused.EconomicsFocusedSlice(summary="Компания использует цифровые каналы записи."),
+        focused.IdentityFocusedSlice(summary="Юридическая идентичность компании.", company_facts=[]),
+        focused.OfferingsFocusedSlice(summary="Компания оказывает стоматологические услуги.", company_facts=[]),
+        focused.EconomicsFocusedSlice(summary="Компания использует цифровые каналы записи.", company_facts=[]),
         focused.SignalsFocusedSlice(summary="Есть сигналы операционных изменений."),
     ]
 
@@ -251,8 +251,8 @@ def test_focused_business_summary_prefers_one_offerings_overview() -> None:
 
 def test_focused_business_summary_falls_back_when_offerings_pass_missing() -> None:
     results = [
-        focused.IdentityFocusedSlice(summary="Идентичность."),
-        focused.EconomicsFocusedSlice(summary="Экономика и масштаб."),
+        focused.IdentityFocusedSlice(summary="Идентичность.", company_facts=[]),
+        focused.EconomicsFocusedSlice(summary="Экономика и масштаб.", company_facts=[]),
     ]
 
     assert focused._focused_business_summary(results) == "Экономика и масштаб."
@@ -281,7 +281,7 @@ def test_focus_failure_descriptor_exposes_safe_validation_location_only() -> Non
 def test_focused_summary_accepts_observed_transport_size() -> None:
     summary = "Экономика и инфраструктура. " + ("подтверждённый факт " * 24)
 
-    result = focused.EconomicsFocusedSlice(summary=summary)
+    result = focused.EconomicsFocusedSlice(summary=summary, company_facts=[])
 
     assert len(result.summary) > 320
     assert len(result.summary) <= 700
@@ -300,6 +300,7 @@ def test_economics_transport_buffer_preserves_five_signal_profile_cap() -> None:
     ]
     result = focused.EconomicsFocusedSlice(
         summary="economics",
+        company_facts=[],
         economic_signals=items,
     )
 
@@ -313,7 +314,10 @@ def test_economics_transport_buffer_preserves_five_signal_profile_cap() -> None:
 async def test_focused_synthesis_failure_publishes_safe_phase_diagnostics(monkeypatch) -> None:
     async def fake_request(phase, model_type, **kwargs):
         if phase.startswith("profile_focus_"):
-            return model_type(summary=phase.removeprefix("profile_focus_"))
+            payload = {"summary": phase.removeprefix("profile_focus_")}
+            if "company_facts" in model_type.model_fields:
+                payload["company_facts"] = []
+            return model_type(**payload)
         if phase == "compiled_business_commercial_synthesis":
             try:
                 focused.CompiledSynthesisResponse.model_validate({
