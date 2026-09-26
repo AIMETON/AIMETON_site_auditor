@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 import app.routerai_focused_v4 as focused
 from app.models import (
@@ -345,3 +346,26 @@ async def test_focused_synthesis_failure_publishes_safe_phase_diagnostics(monkey
         "ValidationError@"
     )
     assert "not-an-int" not in result.research_status["commercial_reasoning_failure"]
+
+
+
+def test_fact_bearing_focus_rejects_silent_schema_drift():
+    payload = {
+        "focus": "identity_governance",
+        "summary": "Компания работает в Красноярске",
+        "analysis": "Свободная форма вместо объявленной схемы",
+    }
+    with pytest.raises(ValidationError):
+        focused.IdentityFocusedSlice.model_validate(payload)
+
+    with pytest.raises(ValidationError):
+        focused.OfferingsFocusedSlice.model_validate({
+            "focus": "offerings_customer_operations",
+            "summary": "Есть стоматологические услуги",
+        })
+
+    with pytest.raises(ValidationError):
+        focused.EconomicsFocusedSlice.model_validate({
+            "focus": "economics_workforce_technology",
+            "summary": "Используются цифровые каналы",
+        })
