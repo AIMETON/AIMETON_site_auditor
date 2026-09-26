@@ -279,6 +279,10 @@ def test_immers_inherit_uses_json_object_transport_with_strict_local_validation(
 
     assert captured["payload"]["response_format"] == {"type": "json_object"}
     assert "structured_outputs" not in captured["payload"]
+    user_prompt = captured["payload"]["messages"][1]["content"]
+    assert "OUTPUT JSON SCHEMA CONTRACT:" in user_prompt
+    assert '"company_facts"' in user_prompt
+    assert '"risks_and_assumptions"' in user_prompt
     assert result.company_facts[0].field == "executives"
 
 

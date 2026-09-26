@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.models import CompanyFact, EconomicSignal, SiteAnalysis
 from app.llm_runtime_settings import LlmRole, resolve_llm_runtime
@@ -39,6 +39,8 @@ from app.compiled_context_ledger import persist_compiled_context
 
 
 class FocusedPassBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     focus: str = Field(default="", max_length=80)
     summary: str = Field(default="", max_length=700)
     risks_and_assumptions: list[str] = Field(default_factory=list, max_length=5)
@@ -54,7 +56,7 @@ class IdentityFocusedFact(CompactCompanyFact):
 
 class IdentityFocusedSlice(FocusedPassBase):
     focus: Literal["identity_governance"] = "identity_governance"
-    company_facts: list[IdentityFocusedFact] = Field(default_factory=list, max_length=14)
+    company_facts: list[IdentityFocusedFact] = Field(max_length=14)
 
 
 class OfferingsFocusedFact(CompactCompanyFact):
@@ -63,7 +65,7 @@ class OfferingsFocusedFact(CompactCompanyFact):
 
 class OfferingsFocusedSlice(FocusedPassBase):
     focus: Literal["offerings_customer_operations"] = "offerings_customer_operations"
-    company_facts: list[OfferingsFocusedFact] = Field(default_factory=list, max_length=14)
+    company_facts: list[OfferingsFocusedFact] = Field(max_length=14)
     economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=3)
 
 
@@ -73,7 +75,7 @@ class EconomicsFocusedFact(CompactCompanyFact):
 
 class EconomicsFocusedSlice(FocusedPassBase):
     focus: Literal["economics_workforce_technology"] = "economics_workforce_technology"
-    company_facts: list[EconomicsFocusedFact] = Field(default_factory=list, max_length=12)
+    company_facts: list[EconomicsFocusedFact] = Field(max_length=12)
     # Transport buffer: the semantic contract remains five signals, but tolerate
     # small provider over-production and trim deterministically after validation.
     economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=10)

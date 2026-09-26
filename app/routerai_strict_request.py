@@ -112,13 +112,14 @@ async def request_json_strict(
     timeout_seconds = float(runtime.timeout_seconds or inherited_timeout)
     effective_max_tokens = min(int(max_tokens), int(runtime.max_tokens or max_tokens))
     output_mode = effective_llm_output_mode(runtime).value
+    schema = model_type.model_json_schema()
     if output_mode == "strict_schema":
         response_format = {
             "type": "json_schema",
             "json_schema": {
                 "name": _schema_name(phase),
                 "strict": True,
-                "schema": model_type.model_json_schema(),
+                "schema": schema,
             },
         }
     else:
@@ -130,6 +131,16 @@ async def request_json_strict(
         profile=runtime.profile_name,
         model=runtime.model,
     )
+    effective_prompt = prompt
+    if output_mode == "json_object":
+        effective_prompt = (
+            prompt
+            + "\n\nOUTPUT JSON SCHEMA CONTRACT:\n"
+            + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+            + "\nReturn an object that follows this schema. "
+              "Use the declared property names; do not invent replacement keys. "
+              "Include the schema properties relevant to this response even when their value is an empty array."
+        )
     payload = {
         "model": runtime.model,
         "temperature": 0.1 if runtime.temperature is None else runtime.temperature,
@@ -137,7 +148,7 @@ async def request_json_strict(
         "response_format": response_format,
         "messages": [
             {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
+            {"role": "user", "content": effective_prompt},
         ],
     }
     if output_mode == "strict_schema" and runtime.provider == "routerai":
@@ -187,7 +198,6 @@ async def request_json_strict(
             result = model_type.model_validate(json.loads(content))
         except (json.JSONDecodeError, ValidationError) as validation_exc:
             repair_phase = f"{phase}_schema_repair"
-            schema = model_type.model_json_schema()
             if isinstance(validation_exc, ValidationError):
                 errors = validation_exc.errors(include_url=False, include_context=False)
             else:
