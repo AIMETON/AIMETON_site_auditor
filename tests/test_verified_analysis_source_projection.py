@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 from app import verified_analysis as audit
@@ -228,3 +230,42 @@ async def test_official_requisites_evidence_triggers_identifier_followup_and_dad
     assert result.research_status["deterministic_first_party_identifier_count"] == 2
     assert result.research_status["dadata_identifier_candidates_checked"] == 2
     assert collect_calls == 2
+
+
+
+@pytest.mark.asyncio
+async def test_audit_llm_fallback_attributes_the_resolved_provider(monkeypatch):
+    async def collect(*args, **kwargs):
+        return [], [], audit.SearchDiagnostics(state="success")
+
+    async def triage(items, **kwargs):
+        return items, audit.SearchTriageSummary(
+            total=len(items), selected=len(items), rejected=0
+        )
+
+    async def verify(*args, **kwargs):
+        return []
+
+    async def fail_synthesis(*args, **kwargs):
+        raise RuntimeError("focused_profile_insufficient:test")
+
+    async def no_dadata(anchors):
+        return anchors, None, [], ["DaData not_attempted"]
+
+    monkeypatch.setattr(audit, "collect_external_sources_adaptive", collect)
+    monkeypatch.setattr(audit, "triage_search_candidates", triage)
+    monkeypatch.setattr(audit, "verify_external_sources", verify)
+    monkeypatch.setattr(audit, "analyze_with_routerai", fail_synthesis)
+    monkeypatch.setattr(audit, "enrich_identity_with_dadata", no_dadata)
+    monkeypatch.setattr(
+        audit,
+        "resolve_llm_runtime",
+        lambda role: SimpleNamespace(provider="immers"),
+    )
+
+    result = await audit._run_verified_enriched_site_analysis(
+        "https://example.org", "Example", "Example company page"
+    )
+
+    assert result.readiness.provider_states["immers"] == "failed"
+    assert "routerai" not in result.readiness.provider_states
