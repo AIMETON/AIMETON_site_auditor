@@ -102,7 +102,7 @@ async def request_json_strict(
     reasoning_enabled: bool | None = None,
     reasoning_effort: ReasoningEffort | None = None,
 ) -> TModel:
-    """Request schema-validated JSON output using the provider-safe transport."""
+    """Request schema-validated JSON via provider-safe transport with bounded 429 retries."""
     role = LlmRole.EXTRACTION if phase.startswith("profile_") else LlmRole.REASONING
     runtime = resolve_llm_runtime(role)
     if not runtime.configured:
