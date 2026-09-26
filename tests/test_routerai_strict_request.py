@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 
+import httpx
 import pytest
 from pydantic import BaseModel
 
@@ -303,3 +304,125 @@ def test_immers_explicit_strict_schema_uses_standard_json_schema_without_routera
 
     assert captured["payload"]["response_format"]["type"] == "json_schema"
     assert "structured_outputs" not in captured["payload"]
+
+
+
+def test_strict_request_retries_429_twice_then_succeeds(monkeypatch) -> None:
+    calls: list[dict] = []
+    starts: list[dict] = []
+    failures: list[dict] = []
+    delays: list[float] = []
+
+    class FakeSuccessResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "choices": [{
+                    "finish_reason": "stop",
+                    "message": {"content": _management_content()},
+                }],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+            }
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, *, headers, json):
+            calls.append(json)
+            if len(calls) <= 2:
+                request = httpx.Request("POST", url)
+                response = httpx.Response(
+                    429,
+                    headers={"Retry-After": "0"},
+                    request=request,
+                )
+                response.raise_for_status()
+            return FakeSuccessResponse()
+
+    async def fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr(
+        strict,
+        "resolve_llm_runtime",
+        lambda role: _immers_runtime(LlmOutputMode.INHERIT),
+    )
+    monkeypatch.setattr(strict.httpx, "AsyncClient", lambda timeout: FakeClient())
+    monkeypatch.setattr(strict.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(strict, "record_llm_start", lambda **kwargs: starts.append(kwargs))
+    monkeypatch.setattr(strict, "record_llm_failure", lambda **kwargs: failures.append(kwargs))
+
+    result = asyncio.run(
+        strict.request_json_strict(
+            "compiled_business_commercial_synthesis",
+            ManagementSlice,
+            system="Structured only",
+            prompt="Build result",
+            max_tokens=600,
+            timeout_seconds=5,
+        )
+    )
+
+    assert result.company_facts[0].field == "executives"
+    assert len(calls) == 3
+    assert len(starts) == 3
+    assert len(failures) == 2
+    assert all(item["error_type"] == "HTTPStatusError_429_retrying" for item in failures)
+    assert delays == []
+
+
+def test_strict_request_stops_after_bounded_429_retries(monkeypatch) -> None:
+    calls: list[dict] = []
+    starts: list[dict] = []
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, *, headers, json):
+            calls.append(json)
+            request = httpx.Request("POST", url)
+            response = httpx.Response(
+                429,
+                headers={"Retry-After": "0"},
+                request=request,
+            )
+            response.raise_for_status()
+
+    async def fake_sleep(delay: float) -> None:
+        return None
+
+    monkeypatch.setattr(
+        strict,
+        "resolve_llm_runtime",
+        lambda role: _immers_runtime(LlmOutputMode.INHERIT),
+    )
+    monkeypatch.setattr(strict.httpx, "AsyncClient", lambda timeout: FakeClient())
+    monkeypatch.setattr(strict.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(strict, "record_llm_start", lambda **kwargs: starts.append(kwargs))
+
+    with pytest.raises(SplitSynthesisPhaseError) as exc_info:
+        asyncio.run(
+            strict.request_json_strict(
+                "compiled_business_commercial_synthesis",
+                ManagementSlice,
+                system="Structured only",
+                prompt="Build result",
+                max_tokens=600,
+                timeout_seconds=5,
+            )
+        )
+
+    assert exc_info.value.phase == "compiled_business_commercial_synthesis"
+    assert exc_info.value.error_type == "HTTPStatusError_429"
+    assert len(calls) == 3
+    assert len(starts) == 3
