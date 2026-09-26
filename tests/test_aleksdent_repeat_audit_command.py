@@ -37,3 +37,14 @@ def test_aleksdent_deep_audit_is_fixed_target_authenticated_and_bounded() -> Non
     assert '[[ "$terminal" == completed || "$terminal" == failed ]]' in workflow
     assert "/stop" not in workflow
     assert "raw prompts, raw provider payloads or chain-of-thought are published" in workflow
+
+
+def test_noncompany_documentation_control_uses_generic_stage_audit_workflow() -> None:
+    text = ROUTER.read_text(encoding="utf-8")
+    expected = (
+        '"audit-noncompany-docs-stage": '
+        '(293, "audit-competitor-services-realty-stage.yml", '
+        '{"expected_sha": "{sha}", "target_url": "https://docs.python.org/3/", '
+        '"audit_label": "Python documentation non-company control"})'
+    )
+    assert expected in text
