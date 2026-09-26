@@ -23,6 +23,16 @@ A model is runtime-eligible only when it is enabled in this registry. The pilot 
 
 Capability values can be `true`, `false` or `null` (unknown). Unknown is not treated as supported.
 
+For the current Immers pilot, live Stage evidence confirms JSON object mode. Strict
+provider-enforced JSON Schema support remains `null` until separately qualified.
+When a role uses `output_mode=inherit`, the runtime therefore selects the strongest
+transport capability that is actually known: RouterAI keeps its established strict
+schema path, while Immers currently uses JSON object mode. In both cases AIMETON
+still applies the same Pydantic schema validation after transport and performs at
+most one bounded structural repair on JSON/schema drift. Choosing explicit
+`strict_schema` remains an operator override and is not inferred from an unknown
+capability.
+
 ## Admin LLM Control Center
 
 `/admin/workspace` exposes all governed runtime inference profiles in the existing LLM Control Center. Immers can be selected independently for `fast_research`, `extraction` or `reasoning`.
