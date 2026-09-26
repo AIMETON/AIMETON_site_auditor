@@ -165,6 +165,7 @@ def test_probe_uses_unsaved_role_settings_and_returns_sanitized_telemetry(monkey
     assert body["ok"] is True
     assert body["resolved_model"] == "qwen/qwen3.5-14b"
     assert body["structured_output_valid"] is True
+    assert body["effective_output_mode"] == "strict_schema"
     assert body["total_tokens"] == 15
     assert captured["payload"]["model"] == "qwen/qwen3.5-14b"
     assert captured["payload"]["reasoning"] == {"enabled": False}
@@ -204,6 +205,8 @@ def test_admin_catalog_includes_immers_without_exposing_secret(monkeypatch, tmp_
     assert immers["configured"] is True
     assert immers["model_allowed"] is True
     assert immers["capabilities"]["reasoning"] is True
+    assert immers["capabilities"]["structured_output"] is None
+    assert immers["capabilities"]["json_mode"] is True
     dumped = json.dumps(body)
     assert "immers-must-not-leak" not in dumped
     assert "https://immers.example/v1" not in dumped
@@ -232,3 +235,65 @@ def test_admin_can_save_immers_for_reasoning(monkeypatch, tmp_path) -> None:
     assert resolved["provider"] == "immers"
     assert resolved["model"] == "deepseek-v4-flash-0731"
     assert resolved["configured"] is True
+
+
+
+def test_immers_probe_inherit_matches_production_json_object_transport(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AIMETON_RUNTIME_DB", str(tmp_path / "runtime.sqlite3"))
+    monkeypatch.setenv("IMMERS_API_KEY", "immers-key")
+    monkeypatch.setenv("IMMERS_BASE_URL", "https://immers.example/v1")
+    monkeypatch.setenv("IMMERS_DEFAULT_MODEL", "deepseek-v4-flash-0731")
+    captured: dict = {}
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "model": "deepseek-v4-flash-0731",
+                "choices": [{
+                    "finish_reason": "stop",
+                    "message": {"content": '{"ok":true,"message":"ready"}'},
+                }],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            }
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, *, headers, json):
+            captured["payload"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout: FakeClient())
+    csrf = "csrf-test"
+    response = _client().post(
+        "/api/admin/llm-settings/test",
+        json={
+            "role": "reasoning",
+            "settings": {
+                "profile_name": "immers-primary",
+                "model_id": None,
+                "temperature": 0.1,
+                "max_tokens": 512,
+                "timeout_seconds": 30,
+                "output_mode": "inherit",
+                "reasoning_mode": "inherit",
+                "reasoning_effort": None,
+            },
+        },
+        cookies={"aimeton_csrf": csrf},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["effective_output_mode"] == "json_object"
+    assert captured["payload"]["response_format"] == {"type": "json_object"}
+    assert "structured_outputs" not in captured["payload"]

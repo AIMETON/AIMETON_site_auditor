@@ -40,6 +40,7 @@ from app.external_sources import (
 from app.external_verification import verify_external_sources
 from app.heuristics import heuristic_analysis
 from app.identity_anchor_guard import guard_identity_anchors
+from app.llm_runtime_settings import LlmRole, resolve_llm_runtime
 from app.routerai_runtime import run_bounded_routerai_analysis as analyze_with_routerai
 from app.models import CompanyFact, IntelligenceSource, PreliminaryResultReadiness, SiteAnalysis, SourceKind
 from app.research_control import (
@@ -785,10 +786,15 @@ async def _run_verified_enriched_site_analysis(
         )
     except Exception as exc:
         analysis = heuristic_analysis(url, title, text)
-        analysis.readiness.provider_states["routerai"] = (
+        try:
+            failed_provider = resolve_llm_runtime(LlmRole.EXTRACTION).provider
+        except Exception:
+            failed_provider = "llm"
+        analysis.readiness.provider_states.pop("routerai", None)
+        analysis.readiness.provider_states[failed_provider] = (
             "not_configured"
             if isinstance(exc, RuntimeError)
-            and "ROUTERAI_API_KEY" in str(exc)
+            and "llm_runtime_not_configured:" in str(exc)
             else "failed"
         )
         analysis.risks_and_assumptions.append(

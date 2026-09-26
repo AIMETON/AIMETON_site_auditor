@@ -7,6 +7,12 @@ import pytest
 from pydantic import BaseModel
 
 import app.routerai_strict_request as strict
+from app.llm_runtime_settings import (
+    LlmOutputMode,
+    LlmReasoningMode,
+    LlmRole,
+    ResolvedLlmRuntime,
+)
 from app.routerai_profile_extraction import ManagementSlice
 from app.routerai_split_synthesis import SplitSynthesisPhaseError
 
@@ -228,3 +234,72 @@ def test_strict_request_repairs_schema_drift_once_without_reanalysis(monkeypatch
     assert "VALIDATION ERRORS" in calls[1]["messages"][1]["content"]
     assert "PREVIOUS JSON OUTPUT" in calls[1]["messages"][1]["content"]
     assert calls[1]["reasoning"] == {"enabled": False}
+
+
+def _immers_runtime(output_mode: LlmOutputMode) -> ResolvedLlmRuntime:
+    return ResolvedLlmRuntime(
+        role=LlmRole.EXTRACTION,
+        profile_name="immers-primary",
+        provider="immers",
+        base_url="https://immers.example/v1",
+        api_key="test-only",
+        model="deepseek-v4-flash-0731",
+        configured=True,
+        temperature=0.1,
+        max_tokens=None,
+        timeout_seconds=30,
+        output_mode=output_mode,
+        reasoning_mode=LlmReasoningMode.INHERIT,
+        reasoning_effort=None,
+        structured_output_supported=None,
+        json_mode_supported=True,
+    )
+
+
+def test_immers_inherit_uses_json_object_transport_with_strict_local_validation(monkeypatch) -> None:
+    captured: dict = {}
+    _install_fake_client(monkeypatch, captured)
+    monkeypatch.setattr(
+        strict,
+        "resolve_llm_runtime",
+        lambda role: _immers_runtime(LlmOutputMode.INHERIT),
+    )
+
+    result = asyncio.run(
+        strict.request_json_strict(
+            "profile_management",
+            ManagementSlice,
+            system="Structured only",
+            prompt="Extract management",
+            max_tokens=600,
+            timeout_seconds=5,
+        )
+    )
+
+    assert captured["payload"]["response_format"] == {"type": "json_object"}
+    assert "structured_outputs" not in captured["payload"]
+    assert result.company_facts[0].field == "executives"
+
+
+def test_immers_explicit_strict_schema_uses_standard_json_schema_without_routerai_extension(monkeypatch) -> None:
+    captured: dict = {}
+    _install_fake_client(monkeypatch, captured)
+    monkeypatch.setattr(
+        strict,
+        "resolve_llm_runtime",
+        lambda role: _immers_runtime(LlmOutputMode.STRICT_SCHEMA),
+    )
+
+    asyncio.run(
+        strict.request_json_strict(
+            "profile_management",
+            ManagementSlice,
+            system="Structured only",
+            prompt="Extract management",
+            max_tokens=600,
+            timeout_seconds=5,
+        )
+    )
+
+    assert captured["payload"]["response_format"]["type"] == "json_schema"
+    assert "structured_outputs" not in captured["payload"]

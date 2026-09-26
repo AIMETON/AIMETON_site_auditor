@@ -11,7 +11,12 @@ from typing import Literal, TypeVar
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
+from app.llm_runtime_settings import (
+    LlmReasoningMode,
+    LlmRole,
+    effective_llm_output_mode,
+    resolve_llm_runtime,
+)
 from app.research_control import (deep_research_enabled, record_llm_failure, record_llm_start, record_llm_success, record_llm_usage)
 from app.routerai_split_synthesis import (
     SplitSynthesisPhaseError,
@@ -40,7 +45,7 @@ async def request_json_strict(
     reasoning_enabled: bool | None = None,
     reasoning_effort: ReasoningEffort | None = None,
 ) -> TModel:
-    """Request provider-enforced JSON Schema output for a bounded split phase."""
+    """Request schema-validated JSON output using the provider-safe transport."""
     role = LlmRole.EXTRACTION if phase.startswith("profile_") else LlmRole.REASONING
     runtime = resolve_llm_runtime(role)
     if not runtime.configured:
@@ -49,7 +54,7 @@ async def request_json_strict(
     inherited_timeout = max(float(timeout_seconds), 120.0) if deep_research_enabled() else float(timeout_seconds)
     timeout_seconds = float(runtime.timeout_seconds or inherited_timeout)
     effective_max_tokens = min(int(max_tokens), int(runtime.max_tokens or max_tokens))
-    output_mode = "strict_schema" if runtime.output_mode.value == "inherit" else runtime.output_mode.value
+    output_mode = effective_llm_output_mode(runtime).value
     if output_mode == "strict_schema":
         response_format = {
             "type": "json_schema",
@@ -78,7 +83,7 @@ async def request_json_strict(
             {"role": "user", "content": prompt},
         ],
     }
-    if output_mode == "strict_schema":
+    if output_mode == "strict_schema" and runtime.provider == "routerai":
         payload["structured_outputs"] = True
 
     explicit_off = reasoning_enabled is False
@@ -169,7 +174,7 @@ async def request_json_strict(
                 ],
                 "reasoning": {"enabled": False},
             }
-            if output_mode == "strict_schema":
+            if output_mode == "strict_schema" and runtime.provider == "routerai":
                 repair_payload["structured_outputs"] = True
             record_llm_start(
                 phase=repair_phase,
@@ -194,6 +199,10 @@ async def request_json_strict(
             record_llm_success(phase=repair_phase)
         record_llm_success(phase=phase)
         return result
+    except httpx.HTTPStatusError as exc:
+        safe_error = f"HTTPStatusError_{exc.response.status_code}"
+        record_llm_failure(phase=phase, error_type=safe_error)
+        raise SplitSynthesisPhaseError(phase, safe_error) from exc
     except (asyncio.TimeoutError, httpx.TimeoutException) as exc:
         record_llm_failure(phase=phase, error_type="timeout")
         raise SplitSynthesisPhaseTimeout(phase) from exc

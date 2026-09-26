@@ -18,6 +18,7 @@ from app.llm_runtime_settings import (
     LlmRoleSettings,
     LlmRuntimeSettings,
     LlmRuntimeSettingsRecord,
+    effective_llm_output_mode,
     get_llm_runtime_settings_repository,
     resolve_llm_runtime,
 )
@@ -60,6 +61,7 @@ class AdminLlmProbeResult(BaseModel):
     completion_tokens: int | None = None
     total_tokens: int | None = None
     error_code: str | None = None
+    effective_output_mode: str | None = None
 
 
 def _require_csrf(cookie_token: str | None, header_token: str | None) -> None:
@@ -183,7 +185,7 @@ async def test_llm_settings(
 
     schema = _ProbeSchema.model_json_schema()
     response_format: dict[str, Any]
-    output_mode = "json_object" if runtime.output_mode.value == "inherit" else runtime.output_mode.value
+    output_mode = effective_llm_output_mode(runtime).value
     if output_mode == "strict_schema":
         response_format = {
             "type": "json_schema",
@@ -214,7 +216,7 @@ async def test_llm_settings(
             },
         ],
     }
-    if output_mode == "strict_schema":
+    if output_mode == "strict_schema" and runtime.provider == "routerai":
         request_json["structured_outputs"] = True
     if runtime.reasoning_mode is LlmReasoningMode.ON:
         reasoning: dict[str, Any] = {"enabled": True}
@@ -253,6 +255,7 @@ async def test_llm_settings(
             prompt_tokens=usage.get("prompt_tokens"),
             completion_tokens=usage.get("completion_tokens"),
             total_tokens=usage.get("total_tokens"),
+            effective_output_mode=output_mode,
         )
     except (asyncio.TimeoutError, httpx.TimeoutException):
         error_code = "timeout"
@@ -269,4 +272,5 @@ async def test_llm_settings(
         resolved_model=runtime.model,
         latency_ms=round((perf_counter() - started) * 1000),
         error_code=error_code,
+        effective_output_mode=output_mode,
     )

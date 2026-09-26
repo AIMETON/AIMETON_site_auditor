@@ -5,11 +5,13 @@ import os
 import pytest
 
 from app.llm_runtime_settings import (
+    LlmOutputMode,
     LlmReasoningEffort,
     LlmReasoningMode,
     LlmRole,
     LlmRuntimeSettings,
     LlmRuntimeSettingsRepository,
+    effective_llm_output_mode,
     resolve_llm_runtime,
 )
 
@@ -73,6 +75,7 @@ def test_routerai_current_preserves_legacy_model_fallback(monkeypatch, tmp_path)
 
     assert runtime.model == "openai/gpt-4o-mini"
     assert runtime.configured is True
+    assert effective_llm_output_mode(runtime) is LlmOutputMode.STRICT_SCHEMA
 
 
 def test_repository_rejects_unregistered_direct_provider_profile(tmp_path) -> None:
@@ -104,7 +107,11 @@ def test_immers_profile_is_selectable_and_secret_safe(monkeypatch, tmp_path) -> 
     assert runtime.model == "deepseek-v4-flash-0731"
     assert runtime.configured is True
     assert runtime.timeout_seconds == 180
+    assert runtime.structured_output_supported is None
+    assert runtime.json_mode_supported is True
+    assert effective_llm_output_mode(runtime) is LlmOutputMode.JSON_OBJECT
     safe = runtime.safe_descriptor()
+    assert safe["effective_output_mode"] == "json_object"
     assert "immers-secret" not in str(safe)
     assert "https://immers.example/v1" not in str(safe)
 
