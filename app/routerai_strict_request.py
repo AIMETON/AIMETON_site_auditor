@@ -33,6 +33,63 @@ def _schema_name(phase: str) -> str:
     return (safe or "aimeton_structured_output")[:64]
 
 
+_RATE_LIMIT_MAX_RETRIES = 2
+_RATE_LIMIT_BACKOFF_BASE_SECONDS = 2.0
+_RATE_LIMIT_BACKOFF_MAX_SECONDS = 30.0
+
+
+def _rate_limit_retry_delay(response: httpx.Response, retry_index: int) -> float:
+    retry_after = (response.headers.get("Retry-After") or "").strip()
+    if retry_after:
+        try:
+            seconds = float(retry_after)
+        except (TypeError, ValueError):
+            seconds = -1.0
+        if seconds >= 0:
+            return min(_RATE_LIMIT_BACKOFF_MAX_SECONDS, seconds)
+    return min(
+        _RATE_LIMIT_BACKOFF_MAX_SECONDS,
+        _RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** retry_index),
+    )
+
+
+async def _post_with_rate_limit_retry(
+    *,
+    phase: str,
+    runtime,
+    payload: dict,
+    timeout_seconds: float,
+) -> httpx.Response:
+    retries = 0
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+                response = await client.post(
+                    f"{runtime.base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {runtime.api_key}"},
+                    json=payload,
+                )
+                response.raise_for_status()
+            return response
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 429 or retries >= _RATE_LIMIT_MAX_RETRIES:
+                raise
+            record_llm_failure(
+                phase=phase,
+                error_type="HTTPStatusError_429_retrying",
+            )
+            delay = _rate_limit_retry_delay(exc.response, retries)
+            retries += 1
+            if delay > 0:
+                await asyncio.sleep(delay)
+            record_llm_start(
+                phase=phase,
+                provider=runtime.provider,
+                profile=runtime.profile_name,
+                model=runtime.model,
+            )
+
+
 @research_timed("llm")
 async def request_json_strict(
     phase: str,
@@ -114,13 +171,12 @@ async def request_json_strict(
             payload["reasoning"] = reasoning
 
     try:
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-            response = await client.post(
-                f"{runtime.base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {runtime.api_key}"},
-                json=payload,
-            )
-            response.raise_for_status()
+        response = await _post_with_rate_limit_retry(
+            phase=phase,
+            runtime=runtime,
+            payload=payload,
+            timeout_seconds=timeout_seconds,
+        )
         body = response.json()
         record_llm_usage(body)
         choice = body["choices"][0]
@@ -182,13 +238,12 @@ async def request_json_strict(
                 profile=runtime.profile_name,
                 model=runtime.model,
             )
-            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-                repair_response = await client.post(
-                    f"{runtime.base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {runtime.api_key}"},
-                    json=repair_payload,
-                )
-                repair_response.raise_for_status()
+            repair_response = await _post_with_rate_limit_retry(
+                phase=repair_phase,
+                runtime=runtime,
+                payload=repair_payload,
+                timeout_seconds=timeout_seconds,
+            )
             repair_body = repair_response.json()
             record_llm_usage(repair_body)
             repair_choice = repair_body["choices"][0]
