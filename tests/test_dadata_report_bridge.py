@@ -400,7 +400,7 @@ async def test_name_candidate_discovery_rechecks_identifier_before_promotion(mon
     calls = []
 
     class FakeProvider:
-        def suggest(self, query: str, *, count: int = 10):
+        def suggest(self, query: str, *, count: int | None = None):
             calls.append(("suggest", query, count))
             return DaDataLookupResult(
                 state=RegistryMirrorState.UNRESOLVED,
@@ -431,7 +431,7 @@ async def test_name_candidate_discovery_rechecks_identifier_before_promotion(mon
     )
 
     assert checked == 2
-    assert calls[0] == ("suggest", "Альфа Дент Красноярск", 8)
+    assert calls[0] == ("suggest", "Альфа Дент Красноярск", None)
     assert calls[1] == ("lookup", "7707083893")
     assert result is not None
     assert result.state is RegistryMirrorState.VERIFIED
@@ -463,7 +463,7 @@ async def test_name_candidate_discovery_does_not_promote_ambiguous_tie(monkeypat
     })
 
     class FakeProvider:
-        def suggest(self, query: str, *, count: int = 10):
+        def suggest(self, query: str, *, count: int | None = None):
             return DaDataLookupResult(
                 state=RegistryMirrorState.UNRESOLVED,
                 query=query,
