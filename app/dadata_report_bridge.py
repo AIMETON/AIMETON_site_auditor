@@ -171,6 +171,166 @@ def _candidate_match_score(
     return score
 
 
+async def discover_identity_candidate_with_dadata(
+    anchors: Any,
+    *,
+    company_hint: str,
+) -> tuple[Any, DaDataLookupResult | None, list[CompanyFact], list[str], int]:
+    """Discover a preliminary legal-entity candidate by name, then re-check its identifier.
+
+    Name search is candidate discovery only. Promotion requires an unambiguous name
+    score and a second exact findById lookup. DaData remains a non-authoritative
+    registry mirror; official FNS verification stays mandatory.
+    """
+    hint = " ".join(str(company_hint or "").split()).strip()
+    target_tokens = _identity_name_tokens(getattr(anchors, "legal_name", None))
+    target_tokens |= _identity_name_tokens(hint)
+    if not hint or not target_tokens:
+        return anchors, None, [], [
+            f"{DADATA_NOTE_PREFIX}: name_discovery_not_attempted — company name is too generic."
+        ], 0
+
+    region = str(getattr(anchors, "primary_region", None) or "").strip()
+    query = hint
+    if region and region.casefold() not in query.casefold():
+        query = f"{query} {region}"
+    query = query[:300]
+
+    provider = get_dadata_registry_mirror_provider()
+    try:
+        suggested = await asyncio.to_thread(provider.suggest, query, count=8)
+    except RuntimeError:
+        return anchors, None, [], [
+            f"{DADATA_NOTE_PREFIX}: name_discovery_unavailable — suggestion lookup failed."
+        ], 0
+
+    checked = len(suggested.records)
+    notes = [
+        f"{DADATA_NOTE_PREFIX}: name_discovery records={checked}; "
+        f"cache_hit={str(suggested.cache_hit).lower()}; authority_verified=false."
+    ]
+    if suggested.state is RegistryMirrorState.UNAVAILABLE or not suggested.records:
+        notes.append(
+            f"{DADATA_NOTE_PREFIX}: name_discovery did not yield a usable candidate."
+        )
+        return anchors, suggested, [], notes, checked
+
+    ranked = sorted(
+        (
+            (
+                _candidate_match_score(
+                    record,
+                    query=query,
+                    anchors=anchors,
+                    company_hint=hint,
+                    target_scoped=False,
+                ),
+                record,
+            )
+            for record in suggested.records
+        ),
+        key=lambda item: (-item[0], str(item[1].inn or item[1].ogrn or "")),
+    )
+    best_score, best_record = ranked[0]
+    runner_up = ranked[1][0] if len(ranked) > 1 else -1
+    if best_score < 4 or best_score == runner_up:
+        state = (
+            RegistryMirrorState.CONFLICTING
+            if best_score >= 4 and best_score == runner_up
+            else RegistryMirrorState.UNRESOLVED
+        )
+        notes.append(
+            f"{DADATA_NOTE_PREFIX}: name candidate ownership ambiguous "
+            f"(best_score={best_score}, runner_up={runner_up}); identity not promoted."
+        )
+        return anchors, DaDataLookupResult(
+            state=state,
+            query=query,
+            records=suggested.records,
+            conflicts=(
+                ["ambiguous_name_candidates"]
+                if state is RegistryMirrorState.CONFLICTING
+                else []
+            ),
+            authority_verified=False,
+        ), [], notes, checked
+
+    identifier = best_record.inn or best_record.ogrn
+    if not identifier:
+        notes.append(
+            f"{DADATA_NOTE_PREFIX}: selected name candidate has no INN/OGRN; identity not promoted."
+        )
+        return anchors, suggested, [], notes, checked
+
+    try:
+        exact = await asyncio.to_thread(provider.lookup, str(identifier))
+    except RuntimeError:
+        notes.append(
+            f"{DADATA_NOTE_PREFIX}: exact lookup after name discovery failed."
+        )
+        return anchors, None, [], notes, checked
+
+    if exact.state is not RegistryMirrorState.VERIFIED or len(exact.records) != 1:
+        notes.append(
+            f"{DADATA_NOTE_PREFIX}: exact lookup after name discovery is not uniquely verified; "
+            "identity not promoted."
+        )
+        return anchors, exact, [], notes, checked
+
+    exact_record = exact.records[0]
+    exact_score = _candidate_match_score(
+        exact_record,
+        query=str(identifier),
+        anchors=anchors,
+        company_hint=hint,
+        target_scoped=False,
+    )
+    if exact_score < 4:
+        notes.append(
+            f"{DADATA_NOTE_PREFIX}: exact record no longer matches target name strongly enough; "
+            "identity not promoted."
+        )
+        return anchors, DaDataLookupResult(
+            state=RegistryMirrorState.UNRESOLVED,
+            query=str(identifier),
+            records=exact.records,
+            authority_verified=False,
+        ), [], notes, checked
+
+    updated = replace(
+        anchors,
+        legal_name=exact_record.legal_name or getattr(anchors, "legal_name", None),
+        inn=exact_record.inn or getattr(anchors, "inn", None),
+        ogrn=exact_record.ogrn or getattr(anchors, "ogrn", None),
+    )
+    fact_note = (
+        f"{DADATA_NOTE_PREFIX}; name_candidate_discovery=true; exact_identifier_recheck=true; "
+        f"authority_verified=false; response_digest={exact_record.response_digest}"
+    )
+    facts: list[CompanyFact] = []
+    for field, value in (
+        ("legal_name", exact_record.legal_name),
+        ("inn", exact_record.inn),
+        ("ogrn", exact_record.ogrn),
+        ("registration_status", exact_record.status),
+    ):
+        if value:
+            facts.append(
+                CompanyFact(
+                    field=field,
+                    value=str(value),
+                    confidence="Средняя",
+                    source_ids=[],
+                    note=fact_note,
+                )
+            )
+    notes.append(
+        f"{DADATA_NOTE_PREFIX}: unique name candidate re-checked by identifier "
+        f"(score={exact_score}); authority gate ФНС remains open."
+    )
+    return updated, exact, facts, notes, checked
+
+
 async def enrich_identifier_candidates_with_dadata(
     anchors: Any,
     candidates: list[tuple[str, str, bool]],
