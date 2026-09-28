@@ -59,3 +59,7 @@ def test_immers_acceptance_uses_production_inherited_output_policy_and_requires_
     assert '"late_identity_retry_attempted"' in driver
     assert '"late_identity_retry_succeeded"' in driver
     assert '"identity_runtime_evidence"' in driver
+    assert '"focused_extraction_evidence"' in driver
+    assert '"focused_profile_passes_succeeded"' in driver
+    assert '"focused_profile_failures"' in driver
+    assert '"extraction_coverage"' in driver
