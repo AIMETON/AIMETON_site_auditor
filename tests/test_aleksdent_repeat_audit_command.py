@@ -31,7 +31,10 @@ def test_aleksdent_deep_audit_is_fixed_target_authenticated_and_bounded() -> Non
     assert '"unlimited_llm_budget": True' in workflow
     assert "/api/auth/login" in workflow
     assert "/api/admin/llm-settings" in workflow
-    assert '~deepseek/deepseek-v4-flash-latest' in workflow
+    assert '~deepseek/deepseek-v4-flash-latest' not in workflow
+    assert 'assert extraction.get("configured") is True, extraction' in workflow
+    assert 'assert provider, extraction' in workflow
+    assert 'assert model, extraction' in workflow
     assert "timeout-minutes: 45" in workflow
     assert "for _ in $(seq 1 800)" in workflow
     assert '[[ "$terminal" == completed || "$terminal" == failed ]]' in workflow
