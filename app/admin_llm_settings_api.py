@@ -19,6 +19,7 @@ from app.llm_runtime_settings import (
     LlmRuntimeSettings,
     LlmRuntimeSettingsRecord,
     effective_llm_output_mode,
+    effective_llm_transport_mode,
     get_llm_runtime_settings_repository,
     resolve_llm_runtime,
 )
@@ -184,29 +185,24 @@ async def test_llm_settings(
         )
 
     schema = _ProbeSchema.model_json_schema()
-    response_format: dict[str, Any]
     output_mode = effective_llm_output_mode(runtime).value
-    if output_mode == "strict_schema":
-        response_format = {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "aimeton_admin_llm_probe",
-                "strict": True,
-                "schema": schema,
-            },
-        }
-    else:
-        response_format = {"type": "json_object"}
-
+    transport_mode = effective_llm_transport_mode(runtime)
     request_json: dict[str, Any] = {
         "model": runtime.model,
         "temperature": 0.1 if runtime.temperature is None else runtime.temperature,
         "max_tokens": min(runtime.max_tokens or 256, 256),
-        "response_format": response_format,
         "messages": [
             {
                 "role": "system",
-                "content": "Return only JSON. This is an AIMETON admin model capability probe.",
+                "content": (
+                    "Return only JSON. This is an AIMETON admin model capability probe. "
+                    + (
+                        "The response must match this schema: "
+                        + json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+                        if transport_mode == "prompt_json"
+                        else ""
+                    )
+                ),
             },
             {
                 "role": "user",
@@ -216,17 +212,27 @@ async def test_llm_settings(
             },
         ],
     }
-    if output_mode == "strict_schema" and runtime.provider == "routerai":
-        request_json["structured_outputs"] = True
-    if runtime.reasoning_mode is LlmReasoningMode.ON:
+    if transport_mode == "strict_schema":
+        request_json["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "aimeton_admin_llm_probe",
+                "strict": True,
+                "schema": schema,
+            },
+        }
+        if runtime.provider == "routerai":
+            request_json["structured_outputs"] = True
+    elif transport_mode == "json_object":
+        request_json["response_format"] = {"type": "json_object"}
+
+    if runtime.reasoning_mode is LlmReasoningMode.ON and runtime.provider == "routerai":
         reasoning: dict[str, Any] = {"enabled": True}
         if runtime.reasoning_effort is not None:
             reasoning["effort"] = runtime.reasoning_effort.value
         request_json["reasoning"] = reasoning
-    elif runtime.reasoning_mode is LlmReasoningMode.OFF:
+    elif runtime.reasoning_mode is LlmReasoningMode.OFF and runtime.provider == "routerai":
         request_json["reasoning"] = {"enabled": False}
-    elif runtime.reasoning_effort is not None:
-        request_json["reasoning"] = {"effort": runtime.reasoning_effort.value}
 
     started = perf_counter()
     try:
@@ -255,7 +261,7 @@ async def test_llm_settings(
             prompt_tokens=usage.get("prompt_tokens"),
             completion_tokens=usage.get("completion_tokens"),
             total_tokens=usage.get("total_tokens"),
-            effective_output_mode=output_mode,
+            effective_output_mode=transport_mode,
         )
     except (asyncio.TimeoutError, httpx.TimeoutException):
         error_code = "timeout"
@@ -272,5 +278,5 @@ async def test_llm_settings(
         resolved_model=runtime.model,
         latency_ms=round((perf_counter() - started) * 1000),
         error_code=error_code,
-        effective_output_mode=output_mode,
+        effective_output_mode=transport_mode,
     )
