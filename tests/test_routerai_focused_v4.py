@@ -393,3 +393,29 @@ def test_identity_focus_preserves_long_atomic_values_without_length_cap() -> Non
     fact_def = schema["$defs"]["IdentityFocusedFact"]
     assert "maxLength" not in fact_def["properties"]["value"]
 
+
+
+
+def test_compiled_context_preserves_semantically_selected_long_evidence() -> None:
+    root = "Официальный факт " * 3000
+    external = [{
+        "id": "R1",
+        "url": "https://registry.example/company",
+        "source_class": "registry",
+        "query_kind": "registry",
+        "evidence_level": "corroborated_signal",
+        "evidence_quote": "Реестровый факт " * 2000,
+    }]
+
+    context, stats = focused.compile_company_context(
+        url="https://example.org/",
+        title="Example",
+        text=root,
+        external_sources=external,
+    )
+
+    payload = __import__("json").loads(context)
+    assert payload["official_root_text"] == " ".join(root.split())
+    assert payload["documents"][0]["text"] == " ".join(external[0]["evidence_quote"].split())
+    assert stats.truncated is False
+    assert stats.context_chars == len(context)
