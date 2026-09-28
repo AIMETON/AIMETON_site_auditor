@@ -386,6 +386,7 @@ async def test_name_candidate_discovery_rechecks_identifier_before_promotion(mon
         "short_name": "АЛЬФА ДЕНТ",
         "inn": "7707083893",
         "ogrn": "1027700132195",
+        "address": "г Красноярск, ул Тестовая, д 1",
     })
     other = _record().model_copy(update={
         "id": "dadata_party_other_name",
@@ -490,3 +491,45 @@ async def test_name_candidate_discovery_does_not_promote_ambiguous_tie(monkeypat
     assert "ambiguous_name_candidates" in result.conflicts
     assert facts == []
     assert any("ambiguous" in note for note in notes)
+
+
+
+@pytest.mark.asyncio
+async def test_name_candidate_discovery_rejects_wrong_region(monkeypatch):
+    target_name_wrong_city = _record().model_copy(update={
+        "query": "Альфа Дент Красноярск",
+        "legal_name": 'ООО "АЛЬФА ДЕНТ"',
+        "short_name": "АЛЬФА ДЕНТ",
+        "inn": "7707083893",
+        "ogrn": "1027700132195",
+        "address": "г Москва, ул Тестовая, д 1",
+    })
+
+    class FakeProvider:
+        def suggest(self, query: str, *, count: int = 10):
+            return DaDataLookupResult(
+                state=RegistryMirrorState.UNRESOLVED,
+                query=query,
+                records=[target_name_wrong_city],
+                authority_verified=False,
+            )
+
+        def lookup(self, query: str):
+            raise AssertionError("wrong-region suggestion must not reach exact lookup")
+
+    monkeypatch.setattr(
+        "app.dadata_report_bridge.get_dadata_registry_mirror_provider",
+        lambda: FakeProvider(),
+    )
+    anchors = IdentityAnchors(domain="example.org", cities=("Красноярск",))
+    updated, result, facts, notes, checked = await discover_identity_candidate_with_dadata(
+        anchors,
+        company_hint="Альфа Дент",
+    )
+
+    assert checked == 1
+    assert updated == anchors
+    assert result is not None
+    assert result.state is RegistryMirrorState.UNRESOLVED
+    assert facts == []
+    assert any("do not match first-party region" in note for note in notes)
