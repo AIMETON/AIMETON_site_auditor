@@ -117,6 +117,7 @@ def main() -> int:
             timeout=60,
         )
         probes[role] = _safe_probe(probe)
+        print(json.dumps({"event": "immers_probe", "probe": probes[role]}, ensure_ascii=False, sort_keys=True), flush=True)
         if not probe.get("ok") or probe.get("provider") != "immers":
             raise RuntimeError(f"immers_probe_failed:{role}")
         expected_model = (

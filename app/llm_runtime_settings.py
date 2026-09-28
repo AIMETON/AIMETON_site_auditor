@@ -139,6 +139,7 @@ class ResolvedLlmRuntime(BaseModel):
             "timeout_seconds": self.timeout_seconds,
             "output_mode": self.output_mode.value,
             "effective_output_mode": effective_llm_output_mode(self).value,
+            "effective_transport_mode": effective_llm_transport_mode(self),
             "structured_output_supported": self.structured_output_supported,
             "json_mode_supported": self.json_mode_supported,
             "reasoning_mode": self.reasoning_mode.value,
@@ -148,18 +149,31 @@ class ResolvedLlmRuntime(BaseModel):
         }
 
 
-def effective_llm_output_mode(runtime: ResolvedLlmRuntime) -> LlmOutputMode:
-    """Resolve inherit without claiming unsupported provider transport features."""
-    if runtime.output_mode is not LlmOutputMode.INHERIT:
-        return runtime.output_mode
+def effective_llm_transport_mode(runtime: ResolvedLlmRuntime) -> str:
+    """Resolve structured transport without inventing unsupported provider features.
+
+    prompt_json means a normal chat completion request: JSON is required by prompt
+    and validated locally, but provider-specific response_format controls are omitted.
+    """
+    if runtime.output_mode is LlmOutputMode.STRICT_SCHEMA:
+        return LlmOutputMode.STRICT_SCHEMA.value
+    if runtime.output_mode is LlmOutputMode.JSON_OBJECT:
+        return LlmOutputMode.JSON_OBJECT.value
     if runtime.structured_output_supported is True:
-        return LlmOutputMode.STRICT_SCHEMA
+        return LlmOutputMode.STRICT_SCHEMA.value
     if runtime.json_mode_supported is True:
-        return LlmOutputMode.JSON_OBJECT
-    # Preserve the established RouterAI contract. Provider-neutral profiles with
-    # unknown strict-schema support fail soft to JSON mode and remain strictly
-    # validated by Pydantic after transport.
+        return LlmOutputMode.JSON_OBJECT.value
     if runtime.provider == "routerai":
+        if runtime.role is LlmRole.FAST_RESEARCH:
+            return LlmOutputMode.JSON_OBJECT.value
+        return LlmOutputMode.STRICT_SCHEMA.value
+    return "prompt_json"
+
+
+def effective_llm_output_mode(runtime: ResolvedLlmRuntime) -> LlmOutputMode:
+    """Backward-compatible local validation mode for existing callers."""
+    mode = effective_llm_transport_mode(runtime)
+    if mode == LlmOutputMode.STRICT_SCHEMA.value:
         return LlmOutputMode.STRICT_SCHEMA
     return LlmOutputMode.JSON_OBJECT
 
