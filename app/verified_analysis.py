@@ -594,6 +594,10 @@ async def _run_verified_enriched_site_analysis(
                 company_hint=identity_company_hint,
             )
             dadata_name_candidates_checked = name_checked
+            dadata_notes = [
+                note for note in dadata_notes
+                if "not_attempted" not in note
+            ]
             dadata_notes.extend(name_notes)
             if name_result is not None:
                 dadata_result = name_result
