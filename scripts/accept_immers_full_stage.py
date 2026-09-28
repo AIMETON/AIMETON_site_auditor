@@ -148,6 +148,16 @@ def _write_report(
             if key in research
         },
         "readiness": result.get("readiness"),
+        "identity_runtime_evidence": {
+            key: (result.get("research_status") or {}).get(key)
+            for key in (
+                "dadata_identifier_candidates_checked",
+                "dadata_name_candidates_checked",
+                "dadata_name_queries_attempted",
+                "late_identity_retry_attempted",
+                "late_identity_retry_succeeded",
+            )
+        },
         "runtime_provider_evidence": {
             key: (result.get("research_status") or {}).get(key)
             for key in (
