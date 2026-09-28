@@ -53,8 +53,8 @@ from app.research_control import (
 from app.search_result_triage import SearchTriageSummary, triage_search_candidates
 from app.research_coverage_controller import (
     CoverageSnapshot,
-    MAX_PROGRESSIVE_WAVES,
     assess_coverage,
+    assess_wave_semantic_gain,
     gap_wave,
     initial_wave,
     optional_wave,
@@ -529,6 +529,11 @@ async def _run_verified_enriched_site_analysis(
     search_waves_executed = 1
     optional_wave_model_used = False
     optional_wave_model_unavailable = False
+    semantic_gain_model_used = False
+    semantic_gain_model_unavailable = False
+    semantic_gain_exhausted = False
+    semantic_state: tuple[str, ...] = ()
+    semantic_gain_history: list[dict[str, object]] = []
     search_triage = SearchTriageSummary(total=0, selected=0, rejected=0)
     try:
         external_sources, notes, diagnostics = await collect_external_sources_adaptive(
@@ -731,8 +736,28 @@ async def _run_verified_enriched_site_analysis(
         [kind for kind, _ in attempted_queries],
     )
 
-    if (progressive_search and search_waves_executed < MAX_PROGRESSIVE_WAVES
-            and not (current_research() and current_research().stop_requested)):
+    if progressive_search:
+        empty_coverage = assess_coverage([], [])
+        initial_gain = await assess_wave_semantic_gain(
+            empty_coverage,
+            coverage,
+            new_verified=verified,
+            semantic_state=semantic_state,
+        )
+        semantic_state = initial_gain.semantic_state
+        semantic_gain_model_used = semantic_gain_model_used or initial_gain.model_used
+        semantic_gain_model_unavailable = (
+            semantic_gain_model_unavailable or initial_gain.model_unavailable
+        )
+        semantic_gain_history.append({
+            "wave": "initial",
+            **initial_gain.safe_dict(),
+        })
+
+    if (
+        progressive_search
+        and not (current_research() and current_research().stop_requested)
+    ):
         attempted_query_text = {query for _, query in attempted_queries}
         gaps = gap_wave(
             full_plan,
@@ -740,6 +765,8 @@ async def _run_verified_enriched_site_analysis(
             already_attempted=attempted_query_text,
         )
         if gaps:
+            before_gap = coverage
+            gap_verified: list[IntelligenceSource] = []
             search_waves_executed += 1
             attempted_queries.extend(gaps)
             try:
@@ -775,63 +802,118 @@ async def _run_verified_enriched_site_analysis(
                 verified,
                 [kind for kind, _ in attempted_queries],
             )
+            gap_gain = await assess_wave_semantic_gain(
+                before_gap,
+                coverage,
+                new_verified=gap_verified,
+                semantic_state=semantic_state,
+            )
+            semantic_state = gap_gain.semantic_state
+            semantic_gain_model_used = semantic_gain_model_used or gap_gain.model_used
+            semantic_gain_model_unavailable = (
+                semantic_gain_model_unavailable or gap_gain.model_unavailable
+            )
+            semantic_gain_history.append({
+                "wave": "mandatory_gap",
+                **gap_gain.safe_dict(),
+            })
 
-    if (progressive_search and search_waves_executed < MAX_PROGRESSIVE_WAVES
-            and not (current_research() and current_research().stop_requested)):
+    while (
+        progressive_search
+        and not coverage.evidence_sufficient
+        and not semantic_gain_exhausted
+        and not (current_research() and current_research().stop_requested)
+    ):
         selection = await optional_wave(
             full_plan,
             coverage,
             company_name=company_hint,
             anchors=anchors,
             already_attempted={query for _, query in attempted_queries},
+            semantic_state=semantic_state,
         )
-        optional_wave_model_used = selection.model_used
-        optional_wave_model_unavailable = selection.model_unavailable
+        optional_wave_model_used = optional_wave_model_used or selection.model_used
+        optional_wave_model_unavailable = (
+            optional_wave_model_unavailable or selection.model_unavailable
+        )
         optional_plan = list(selection.queries)
-        if optional_plan:
-            search_waves_executed += 1
-            attempted_queries.extend(optional_plan)
-            try:
-                (
-                    optional_verified,
-                    optional_notes,
-                    optional_diagnostics,
-                    optional_triage,
-                    optional_selected,
-                ) = await _search_verify_wave(
-                    plan=optional_plan,
-                    prefix=f"W{search_waves_executed}",
-                    company_name=company_hint,
-                    official_url=url,
-                    anchors=anchors,
-                    deep=deep,
-                    existing_sources=external_sources,
-                )
-                verified.extend(optional_verified)
-                notes.extend(optional_notes)
-                notes.append(
-                    "Progressive optional recovery/enrichment wave: "
-                    f"queries={len(optional_plan)}/{selection.candidate_count}, "
-                    f"selected_urls={optional_selected}, "
-                    f"verified_records={len(optional_verified)}, "
-                    f"model_used={selection.model_used}, "
-                    f"model_unavailable={selection.model_unavailable}."
-                )
-                diagnostics = SearchDiagnostics.aggregate([diagnostics, optional_diagnostics])
-                search_triage = _merge_search_triage(search_triage, optional_triage)
-            except Exception as exc:
-                notes.append(
-                    f"Progressive optional wave не завершена ({type(exc).__name__})."
-                )
-            coverage = assess_coverage(
-                verified,
-                [kind for kind, _ in attempted_queries],
+        if not optional_plan:
+            semantic_gain_exhausted = True
+            semantic_gain_history.append({
+                "wave": "optional_selection",
+                "meaningful_gain": False,
+                "semantic_state_items": len(semantic_state),
+                "model_used": selection.model_used,
+                "model_unavailable": selection.model_unavailable,
+                "reason": "no_candidate_with_expected_semantic_gain",
+            })
+            break
+
+        before_optional = coverage
+        optional_verified: list[IntelligenceSource] = []
+        search_waves_executed += 1
+        attempted_queries.extend(optional_plan)
+        try:
+            (
+                optional_verified,
+                optional_notes,
+                optional_diagnostics,
+                optional_triage,
+                optional_selected,
+            ) = await _search_verify_wave(
+                plan=optional_plan,
+                prefix=f"W{search_waves_executed}",
+                company_name=company_hint,
+                official_url=url,
+                anchors=anchors,
+                deep=deep,
+                existing_sources=external_sources,
             )
+            verified.extend(optional_verified)
+            notes.extend(optional_notes)
+            notes.append(
+                "Progressive semantic recovery/enrichment wave: "
+                f"queries={len(optional_plan)}/{selection.candidate_count}, "
+                f"selected_urls={optional_selected}, "
+                f"verified_records={len(optional_verified)}, "
+                f"model_used={selection.model_used}, "
+                f"model_unavailable={selection.model_unavailable}."
+            )
+            diagnostics = SearchDiagnostics.aggregate([diagnostics, optional_diagnostics])
+            search_triage = _merge_search_triage(search_triage, optional_triage)
+        except Exception as exc:
+            notes.append(
+                f"Progressive semantic wave не завершена ({type(exc).__name__})."
+            )
+
+        coverage = assess_coverage(
+            verified,
+            [kind for kind, _ in attempted_queries],
+        )
+        gain = await assess_wave_semantic_gain(
+            before_optional,
+            coverage,
+            new_verified=optional_verified,
+            semantic_state=semantic_state,
+        )
+        semantic_state = gain.semantic_state
+        semantic_gain_model_used = semantic_gain_model_used or gain.model_used
+        semantic_gain_model_unavailable = (
+            semantic_gain_model_unavailable or gain.model_unavailable
+        )
+        semantic_gain_history.append({
+            "wave": f"optional_{search_waves_executed}",
+            **gain.safe_dict(),
+        })
+        if not gain.meaningful_gain:
+            semantic_gain_exhausted = True
 
     if progressive_search:
         notes.append(
             "Progressive search coverage: "
             f"waves={search_waves_executed}, "
+            f"semantic_state_items={len(semantic_state)}, "
+            f"semantic_gain_exhausted={semantic_gain_exhausted}, "
             f"missing={','.join(coverage.missing_verticals) or 'none'}, "
             f"searched_without_evidence={','.join(coverage.searched_without_evidence) or 'none'}."
         )
@@ -1048,10 +1130,12 @@ async def _run_verified_enriched_site_analysis(
         search_stop_reason = "fixed_query_plan_complete"
     elif coverage.evidence_sufficient:
         search_stop_reason = "evidence_sufficient"
-    elif search_waves_executed >= MAX_PROGRESSIVE_WAVES:
-        search_stop_reason = "bounded_waves_exhausted_with_evidence_gaps"
+    elif current_research() and current_research().stop_requested:
+        search_stop_reason = "stopped_by_user"
+    elif semantic_gain_exhausted:
+        search_stop_reason = "marginal_semantic_gain_exhausted"
     else:
-        search_stop_reason = "bounded_plan_ended_with_evidence_gaps"
+        search_stop_reason = "semantic_candidate_plan_exhausted_with_evidence_gaps"
     analysis.research_status = {
         "extraction_input_coverage_complete": False,
         **analysis.research_status,
@@ -1068,6 +1152,11 @@ async def _run_verified_enriched_site_analysis(
         "search_coverage_searched_no_evidence": ",".join(coverage.searched_without_evidence),
         "search_optional_wave_model_used": optional_wave_model_used,
         "search_optional_wave_model_unavailable": optional_wave_model_unavailable,
+        "search_semantic_gain_model_used": semantic_gain_model_used,
+        "search_semantic_gain_model_unavailable": semantic_gain_model_unavailable,
+        "search_semantic_gain_exhausted": semantic_gain_exhausted,
+        "search_semantic_state_items": len(semantic_state),
+        "search_semantic_gain_history": semantic_gain_history,
         "search_results_triaged": search_triage.total,
         "search_results_selected": search_triage.selected,
         "search_results_rejected": search_triage.rejected,
