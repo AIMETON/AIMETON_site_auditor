@@ -4,20 +4,39 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.evidence_triage import triage_document_blocks
+from app.evidence_triage import (
+    BlockTriageDecision,
+    BlockTriageResponse,
+    triage_document_blocks,
+)
 from app.external_sources import IdentityAnchors
 from app.models import IntelligenceSource
 from app.research_control import ResearchControl, bind_research
-from app.search_result_triage import triage_search_candidates
+from app.search_result_triage import (
+    SearchCandidateDecision,
+    SearchTriageResponse,
+    triage_search_candidates,
+)
 
 
 @pytest.mark.asyncio
-async def test_compiled_deep_search_triage_does_not_call_llm(monkeypatch) -> None:
+async def test_deep_search_triage_keeps_fast_llm_for_ambiguous_candidates(monkeypatch) -> None:
     monkeypatch.setenv("AIMETON_COMPILED_TWO_CALL", "1")
     monkeypatch.setenv("AIMETON_MINIMAL_LLM_ROUTING", "1")
+    calls: list[str] = []
 
-    async def forbidden(*args, **kwargs):
-        raise AssertionError("LLM triage must not run in compiled deep mode")
+    async def fast(phase, model_type, **kwargs):
+        calls.append(phase)
+        return SearchTriageResponse(decisions=[
+            SearchCandidateDecision(
+                source_id="H1",
+                action="fetch",
+                relation="possible_target",
+                query_kind="news",
+                confidence=.8,
+                reason="semantic relevance requires fetch",
+            )
+        ])
 
     source = IntelligenceSource(
         id="H1",
@@ -36,25 +55,39 @@ async def test_compiled_deep_search_triage_does_not_call_llm(monkeypatch) -> Non
             company_name="Target Company",
             anchors=IdentityAnchors(),
             official_url="https://target.example/",
-            request_json=forbidden,
+            request_json=fast,
         )
 
-    assert selected == []
-    assert summary.model_used is False
-    assert summary.model_unavailable is False
+    assert calls == ["search_result_triage"]
+    assert [item.id for item in selected] == ["H1"]
+    assert summary.model_used is True
+    assert summary.model_selected == 1
 
 
 @pytest.mark.asyncio
-async def test_compiled_deep_evidence_triage_rejects_ambiguous_without_llm(monkeypatch) -> None:
+async def test_deep_evidence_triage_keeps_fast_llm_for_ambiguous_blocks(monkeypatch) -> None:
     monkeypatch.setenv("AIMETON_COMPILED_TWO_CALL", "1")
     monkeypatch.setenv("AIMETON_MINIMAL_LLM_ROUTING", "1")
+    calls: list[str] = []
 
-    async def forbidden(*args, **kwargs):
-        raise AssertionError("LLM evidence triage must not run in compiled deep mode")
+    async def fast(phase, model_type, **kwargs):
+        calls.append(phase)
+        return BlockTriageResponse(decisions=[
+            BlockTriageDecision(
+                block_id="B0",
+                keep=True,
+                relevance="medium",
+                entity_relation="target",
+                query_kind="news",
+                role="context",
+                confidence=.8,
+                reason="target context",
+            )
+        ])
 
     blocks = [
         SimpleNamespace(
-            text="General market commentary without target identity anchors",
+            text="General market commentary that may describe the target company context",
             locator="main/p[1]",
         )
     ]
@@ -68,10 +101,9 @@ async def test_compiled_deep_evidence_triage_rejects_ambiguous_without_llm(monke
             document_title="Article",
             source_query_kind="news",
             source_is_official=False,
-            request_json=forbidden,
+            request_json=fast,
         )
 
-    assert outcome.model_used is False
-    assert outcome.model_unavailable is False
-    assert outcome.decisions[0].keep is False
-    assert outcome.decisions[0].reason == "compiled_deep_deterministic_triage"
+    assert calls == ["evidence_block_triage"]
+    assert outcome.model_used is True
+    assert outcome.decisions[0].keep is True
