@@ -45,8 +45,8 @@ def test_frozen_case_initial_search_targets_core_semantic_directions(case: dict)
         "official",
         "contact",
         "registry",
-        "ownership",
         "finance",
+        "ownership",
         "other",
     ]
 
