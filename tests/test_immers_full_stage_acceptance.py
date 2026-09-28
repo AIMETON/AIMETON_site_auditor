@@ -55,3 +55,7 @@ def test_immers_acceptance_uses_production_inherited_output_policy_and_requires_
     assert "immers_extraction_returned_no_company_facts" in driver
     assert '"dadata_identifier_candidates_checked"' in driver
     assert '"dadata_name_candidates_checked"' in driver
+    assert '"dadata_name_queries_attempted"' in driver
+    assert '"late_identity_retry_attempted"' in driver
+    assert '"late_identity_retry_succeeded"' in driver
+    assert '"identity_runtime_evidence"' in driver
