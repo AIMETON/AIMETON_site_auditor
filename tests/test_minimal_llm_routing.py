@@ -87,7 +87,7 @@ async def test_deep_evidence_triage_keeps_fast_llm_for_ambiguous_blocks(monkeypa
 
     blocks = [
         SimpleNamespace(
-            text="General market commentary that may describe the target company context",
+            text="General market commentary with unclear entity ownership and no exact anchors",
             locator="main/p[1]",
         )
     ]
