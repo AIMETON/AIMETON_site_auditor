@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import random
 import re
 from typing import TypeVar
 
@@ -11,7 +12,7 @@ from pydantic import BaseModel
 
 from app.research_control import record_llm_failure, record_llm_start, record_llm_success, record_llm_usage
 from app.research_execution import operation_timeout, research_timed
-from app.llm_runtime_settings import LlmReasoningMode, LlmRole, resolve_llm_runtime
+from app.llm_runtime_settings import LlmOutputMode, LlmReasoningMode, LlmRole, resolve_llm_runtime
 
 
 TModel = TypeVar("TModel", bound=BaseModel)
@@ -60,7 +61,14 @@ async def request_fast_json(
     model = resolve_fast_research_model()
     timeout_seconds = min(30.0, max(2.0, float(model.timeout_seconds or timeout_seconds)))
     effective_max_tokens = min(int(max_tokens), int(model.max_tokens or max_tokens))
-    output_mode = "strict_schema" if model.output_mode.value == "inherit" else model.output_mode.value
+    if model.output_mode is LlmOutputMode.INHERIT:
+        output_mode = (
+            LlmOutputMode.STRICT_SCHEMA.value
+            if model.structured_output_supported is True
+            else LlmOutputMode.JSON_OBJECT.value
+        )
+    else:
+        output_mode = model.output_mode.value
     if output_mode == "strict_schema":
         response_format = {
             "type": "json_schema",
@@ -92,19 +100,48 @@ async def request_fast_json(
     else:
         payload["reasoning"] = {"enabled": False}
 
-    record_llm_start(
-        phase=phase, provider=model.provider, profile=model.profile_name, model=model.model
-    )
-    try:
-        async with httpx.AsyncClient(
-            timeout=operation_timeout("llm", timeout_seconds)
-        ) as client:
-            response = await client.post(
-                f"{model.base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {model.api_key}"},
-                json=payload,
+    async def post_with_retry() -> httpx.Response:
+        delays = (2.0, 4.0, 8.0, 16.0)
+        attempt = 0
+        while True:
+            record_llm_start(
+                phase=phase,
+                provider=model.provider,
+                profile=model.profile_name,
+                model=model.model,
             )
-            response.raise_for_status()
+            try:
+                async with httpx.AsyncClient(
+                    timeout=operation_timeout("llm", timeout_seconds)
+                ) as client:
+                    response = await client.post(
+                        f"{model.base_url}/chat/completions",
+                        headers={"Authorization": f"Bearer {model.api_key}"},
+                        json=payload,
+                    )
+                    response.raise_for_status()
+                return response
+            except httpx.HTTPStatusError as exc:
+                retryable = exc.response.status_code == 429 or 500 <= exc.response.status_code < 600
+                if not retryable or attempt >= len(delays):
+                    raise
+                record_llm_failure(
+                    phase=phase,
+                    error_type=f"HTTPStatusError_{exc.response.status_code}_retrying",
+                )
+            except (asyncio.TimeoutError, httpx.TransportError) as exc:
+                if attempt >= len(delays):
+                    raise
+                record_llm_failure(
+                    phase=phase,
+                    error_type=f"{type(exc).__name__}_retrying",
+                )
+            delay = delays[attempt] + random.uniform(0.0, min(1.0, delays[attempt] * 0.1))
+            attempt += 1
+            await asyncio.sleep(delay)
+
+    try:
+        response = await post_with_retry()
         body = response.json()
         record_llm_usage(body)
         choice = body["choices"][0]
@@ -116,9 +153,13 @@ async def request_fast_json(
     except FastResearchModelUnavailable as exc:
         record_llm_failure(phase=phase, error_type=type(exc).__name__)
         raise
-    except (asyncio.TimeoutError, httpx.TimeoutException) as exc:
-        record_llm_failure(phase=phase, error_type="timeout")
-        raise FastResearchModelUnavailable(f"{phase}:timeout") from exc
+    except (asyncio.TimeoutError, httpx.TransportError) as exc:
+        record_llm_failure(phase=phase, error_type=type(exc).__name__)
+        raise FastResearchModelUnavailable(f"{phase}:{type(exc).__name__}") from exc
+    except httpx.HTTPStatusError as exc:
+        error_type = f"HTTPStatusError_{exc.response.status_code}"
+        record_llm_failure(phase=phase, error_type=error_type)
+        raise FastResearchModelUnavailable(f"{phase}:{error_type}") from exc
     except Exception as exc:
         record_llm_failure(phase=phase, error_type=type(exc).__name__)
         raise FastResearchModelUnavailable(

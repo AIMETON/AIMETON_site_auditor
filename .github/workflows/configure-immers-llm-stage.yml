@@ -1,0 +1,81 @@
+name: Configure Immers LLM Stage
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact deployed source SHA to configure
+        required: true
+        type: string
+      allow_provider_calls:
+        description: Allow bounded Immers capability probes
+        required: true
+        type: boolean
+        default: false
+      owner_spend_authorized:
+        description: Owner authorization for provider calls
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: configure-immers-llm-stage
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    runs-on: [self-hosted, Linux, X64, stage, auditor]
+    environment: stage
+    timeout-minutes: 15
+    env:
+      STACK_DIR: /opt/aimeton/auditor-stack
+      STAGE_URL: https://stage-auditor.aimeton.ru
+      AIMETON_BOOTSTRAP_ADMIN_USERNAME: ${{ vars.AIMETON_BOOTSTRAP_ADMIN_USERNAME }}
+      AIMETON_BOOTSTRAP_ADMIN_PASSWORD: ${{ secrets.AIMETON_BOOTSTRAP_ADMIN_PASSWORD }}
+
+    steps:
+      - name: Verify exact Stage and provider-call authorization
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          expected='${{ inputs.expected_sha }}'
+          [[ "$expected" =~ ^[0-9a-f]{40}$ ]]
+          deployed="$(tr -d '[:space:]' < "$STACK_DIR/app-source-sha.txt")"
+          health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' aimeton-auditor)"
+          test "$deployed" = "$expected"
+          test "$health" = healthy
+          test '${{ inputs.allow_provider_calls }}' = 'true'
+          test '${{ inputs.owner_spend_authorized }}' = 'true'
+          test -n "$AIMETON_BOOTSTRAP_ADMIN_USERNAME"
+          test -n "$AIMETON_BOOTSTRAP_ADMIN_PASSWORD"
+          echo "::add-mask::$AIMETON_BOOTSTRAP_ADMIN_USERNAME"
+          echo "::add-mask::$AIMETON_BOOTSTRAP_ADMIN_PASSWORD"
+          echo "exact_stage_sha=$deployed"
+
+      - name: Persist role-specific Immers runtime policy
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          script="$STACK_DIR/app-source/scripts/configure_immers_llm_stage.py"
+          test -f "$script"
+          python3 "$script" | tee "$RUNNER_TEMP/immers-llm-runtime.json"
+
+      - name: Publish sanitized runtime read-back
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          {
+            echo '## Immers LLM Stage runtime'
+            echo
+            echo '- fast_research: immers-primary / qwen3.6-35b-a3b'
+            echo '- extraction: immers-primary / deepseek-v4-flash-0731'
+            echo '- reasoning: immers-primary / deepseek-v4-flash-0731'
+            echo
+            echo '```json'
+            cat "$RUNNER_TEMP/immers-llm-runtime.json" 2>/dev/null || echo '{"ok":false,"reason":"no_readback"}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -66,12 +66,17 @@ def _json_request(
 
 def _immers_settings_snapshot(original: dict[str, Any]) -> dict[str, Any]:
     settings = json.loads(json.dumps(original))
-    for role in ("fast_research", "extraction", "reasoning"):
+    role_models = {
+        "fast_research": "qwen3.6-35b-a3b",
+        "extraction": "deepseek-v4-flash-0731",
+        "reasoning": "deepseek-v4-flash-0731",
+    }
+    for role, model_id in role_models.items():
         item = settings[role]
         item["profile_name"] = "immers-primary"
-        item["model_id"] = None
+        item["model_id"] = model_id
         item["output_mode"] = "inherit"
-        item["reasoning_mode"] = "inherit"
+        item["reasoning_mode"] = "off" if role == "fast_research" else "inherit"
         item["reasoning_effort"] = None
         item["temperature"] = 0.0 if role == "fast_research" else 0.1
         item["timeout_seconds"] = 30 if role == "fast_research" else 180
@@ -262,11 +267,16 @@ def main() -> int:
             timeout=30,
         )
         switched = True
-        for role in ("fast_research", "extraction", "reasoning"):
+        expected_models = {
+            "fast_research": "qwen3.6-35b-a3b",
+            "extraction": "deepseek-v4-flash-0731",
+            "reasoning": "deepseek-v4-flash-0731",
+        }
+        for role, expected_model in expected_models.items():
             resolved = switched_response["resolved"][role]
             if not (
                 resolved.get("provider") == "immers"
-                and resolved.get("model") == "deepseek-v4-flash-0731"
+                and resolved.get("model") == expected_model
                 and resolved.get("configured") is True
             ):
                 raise RuntimeError(f"immers_role_switch_failed:{role}")

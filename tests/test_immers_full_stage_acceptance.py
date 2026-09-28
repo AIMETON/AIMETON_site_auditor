@@ -63,3 +63,10 @@ def test_immers_acceptance_uses_production_inherited_output_policy_and_requires_
     assert '"focused_profile_passes_succeeded"' in driver
     assert '"focused_profile_failures"' in driver
     assert '"extraction_coverage"' in driver
+
+
+def test_immers_acceptance_uses_fast_qwen_and_deepseek_for_heavy_roles():
+    driver = DRIVER.read_text(encoding="utf-8")
+    assert '"fast_research": "qwen3.6-35b-a3b"' in driver
+    assert '"extraction": "deepseek-v4-flash-0731"' in driver
+    assert '"reasoning": "deepseek-v4-flash-0731"' in driver
