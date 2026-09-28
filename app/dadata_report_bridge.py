@@ -208,11 +208,10 @@ async def discover_identity_candidate_with_dadata(
     query = hint
     if region and region.casefold() not in query.casefold():
         query = f"{query} {region}"
-    query = query[:300]
 
     provider = get_dadata_registry_mirror_provider()
     try:
-        suggested = await asyncio.to_thread(provider.suggest, query, count=8)
+        suggested = await asyncio.to_thread(provider.suggest, query)
     except RuntimeError:
         return anchors, None, [], [
             f"{DADATA_NOTE_PREFIX}: name_discovery_unavailable — suggestion lookup failed."
