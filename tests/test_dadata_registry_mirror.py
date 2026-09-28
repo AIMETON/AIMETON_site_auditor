@@ -27,6 +27,9 @@ def _payload(*, inn: str = "7707083893", ogrn: str = "1027700132195") -> dict:
                         "status": "ACTIVE",
                         "actuality_date": 1_785_283_200_000,
                     },
+                    "address": {
+                        "value": "г Москва, ул Тестовая, д 1",
+                    },
                 },
             }
         ]
@@ -198,6 +201,7 @@ def test_name_suggest_is_candidate_only_and_uses_suggest_endpoint():
     assert captured["url"].endswith("/suggest/party")
     assert '"count":8' in captured["payload"]
     assert result.records
+    assert result.records[0].address == "г Москва, ул Тестовая, д 1"
     assert str(result.records[0].source_url).endswith("/suggest/party")
     assert result.records[0].authority_verified is False
 
