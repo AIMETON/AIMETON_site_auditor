@@ -7,7 +7,7 @@ Scope: AIMETON Site Auditor runtime LLM provider layer
 
 Immers.cloud is registered as a provider-neutral OpenAI-compatible runtime profile. Site Audit business logic does not contain Immers credentials, endpoints or model IDs.
 
-The first profile is `immers-primary`. Its endpoint, credential and default model are resolved from:
+The first profile is `immers-primary`. It is provider-neutral and may route different governed models by runtime role. Its endpoint, credential and default model are resolved from:
 
 - `IMMERS_BASE_URL`;
 - `IMMERS_API_KEY`;
@@ -19,7 +19,7 @@ Secrets are never returned by the admin API.
 
 The routable model registry is `config/inference_provider_registry.json`. It is intentionally separate from any provider catalog or marketing model list.
 
-A model is runtime-eligible only when it is enabled in this registry. The pilot allowlist contains `deepseek-v4-flash-0731`; changing model IDs or capability/pricing metadata is a configuration change rather than a business-logic change.
+A model is runtime-eligible only when it is enabled in this registry. The governed allowlist contains `deepseek-v4-flash-0731` for extraction/reasoning and `qwen3.6-35b-a3b` for fast research. Role selection remains runtime configuration rather than business-logic code. Immers public endpoints remain provider-controlled, and model/capability metadata must be revalidated as the catalog evolves.
 
 Capability values can be `true`, `false` or `null` (unknown). Unknown is not treated as supported.
 
@@ -73,3 +73,14 @@ Acceptance still requires live qualification against configured Immers credentia
 - Authorization headers and endpoint URLs are not projected through admin responses;
 - raw prompts/completions are not added to admin diagnostics;
 - Russian hosting/location is not treated as proof of legal compliance with personal-data requirements.
+
+
+## Current role routing
+
+For the current Site Auditor Stage validation profile:
+
+- `fast_research` -> `immers-primary / qwen3.6-35b-a3b`;
+- `extraction` -> `immers-primary / deepseek-v4-flash-0731`;
+- `reasoning` -> `immers-primary / deepseek-v4-flash-0731`.
+
+This keeps semantic triage/classification on a smaller sparse MoE model while reserving the longer-context DeepSeek model for structured extraction and synthesis. RouterAI remains a governed fallback/alternate provider and is not required as the primary path when Immers is healthy and selected.
