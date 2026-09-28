@@ -373,3 +373,38 @@ def test_fact_bearing_focus_rejects_silent_schema_drift():
             "focus": "economics_workforce_technology",
             "summary": "Используются цифровые каналы",
         })
+
+
+
+def test_identity_focus_allows_moderately_long_atomic_values() -> None:
+    value = "г. Красноярск, " + ("ул. Тестовая, д. 1; " * 15)
+
+    result = focused.IdentityFocusedSlice(
+        summary="Идентичность и контакты",
+        company_facts=[{
+            "field": "address",
+            "value": value,
+            "confidence": "Высокая",
+            "source_ids": ["S1"],
+        }],
+    )
+
+    assert len(result.company_facts[0].value) > 200
+    assert len(result.company_facts[0].value) <= 600
+
+
+def test_identity_focus_transport_bound_remains_finite() -> None:
+    with pytest.raises(ValidationError):
+        focused.IdentityFocusedSlice(
+            summary="Идентичность",
+            company_facts=[{
+                "field": "address",
+                "value": "x" * 601,
+                "confidence": "Средняя",
+                "source_ids": ["S1"],
+            }],
+        )
+
+    schema = focused.IdentityFocusedSlice.model_json_schema()
+    fact_def = schema["$defs"]["IdentityFocusedFact"]
+    assert fact_def["properties"]["value"]["maxLength"] == 600
