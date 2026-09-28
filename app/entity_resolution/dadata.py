@@ -50,6 +50,7 @@ class DaDataPartyRecord(DaDataModel):
     entity_type: str | None = None
     branch_type: str | None = None
     status: str | None = None
+    address: str | None = Field(default=None, max_length=1000)
     actuality_date: int | None = None
     raw_hid: str | None = None
     lifecycle_state: str = "evidence"
@@ -274,6 +275,7 @@ class DaDataRegistryMirrorProvider:
             return None
         name = data.get("name") if isinstance(data.get("name"), dict) else {}
         state = data.get("state") if isinstance(data.get("state"), dict) else {}
+        address = data.get("address") if isinstance(data.get("address"), dict) else {}
         legal_name = name.get("full_with_opf") or suggestion.get("value")
         if not isinstance(legal_name, str) or not legal_name.strip():
             return None
@@ -293,6 +295,7 @@ class DaDataRegistryMirrorProvider:
             entity_type=data.get("type"),
             branch_type=data.get("branch_type"),
             status=state.get("status"),
+            address=address.get("value") if isinstance(address.get("value"), str) else None,
             actuality_date=state.get("actuality_date"),
             raw_hid=data.get("hid"),
         )
