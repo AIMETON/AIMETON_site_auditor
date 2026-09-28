@@ -158,6 +158,20 @@ def _write_report(
                 "late_identity_retry_succeeded",
             )
         },
+        "focused_extraction_evidence": {
+            key: (result.get("research_status") or {}).get(key)
+            for key in (
+                "focused_profile_passes_requested",
+                "focused_profile_passes_succeeded",
+                "focused_profile_passes_failed",
+                "focused_profile_failures",
+                "profile_consolidation",
+                "extraction_coverage",
+                "core_llm_focus_calls",
+                "core_llm_synthesis_calls",
+                "core_llm_calls",
+            )
+        },
         "runtime_provider_evidence": {
             key: (result.get("research_status") or {}).get(key)
             for key in (
