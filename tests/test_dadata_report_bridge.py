@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.dadata_report_bridge import enrich_identity_with_dadata, enrich_identifier_candidates_with_dadata
+from app.dadata_report_bridge import discover_identity_candidate_with_dadata, enrich_identity_with_dadata, enrich_identifier_candidates_with_dadata
 from app.entity_resolution.dadata import (
     DaDataLookupResult,
     DaDataPartyRecord,
@@ -373,5 +373,120 @@ async def test_multiple_title_brand_segments_remain_ambiguous(monkeypatch):
     assert updated == anchors
     assert result is not None
     assert result.state is RegistryMirrorState.CONFLICTING
+    assert facts == []
+    assert any("ambiguous" in note for note in notes)
+
+
+
+@pytest.mark.asyncio
+async def test_name_candidate_discovery_rechecks_identifier_before_promotion(monkeypatch):
+    target = _record().model_copy(update={
+        "query": "Альфа Дент Красноярск",
+        "legal_name": 'ООО "АЛЬФА ДЕНТ"',
+        "short_name": "АЛЬФА ДЕНТ",
+        "inn": "7707083893",
+        "ogrn": "1027700132195",
+    })
+    other = _record().model_copy(update={
+        "id": "dadata_party_other_name",
+        "response_digest": "sha256:" + "b" * 64,
+        "query": "Альфа Дент Красноярск",
+        "legal_name": 'ООО "БЕТА СЕРВИС"',
+        "short_name": "БЕТА СЕРВИС",
+        "inn": "7811111113",
+        "ogrn": "1027800000000",
+    })
+    calls = []
+
+    class FakeProvider:
+        def suggest(self, query: str, *, count: int = 10):
+            calls.append(("suggest", query, count))
+            return DaDataLookupResult(
+                state=RegistryMirrorState.UNRESOLVED,
+                query=query,
+                records=[target, other],
+                authority_verified=False,
+            )
+
+        def lookup(self, query: str):
+            calls.append(("lookup", query))
+            assert query == "7707083893"
+            exact = target.model_copy(update={"query": query})
+            return DaDataLookupResult(
+                state=RegistryMirrorState.VERIFIED,
+                query=query,
+                records=[exact],
+                authority_verified=False,
+            )
+
+    monkeypatch.setattr(
+        "app.dadata_report_bridge.get_dadata_registry_mirror_provider",
+        lambda: FakeProvider(),
+    )
+    anchors = IdentityAnchors(domain="example.org", cities=("Красноярск",))
+    updated, result, facts, notes, checked = await discover_identity_candidate_with_dadata(
+        anchors,
+        company_hint="Альфа Дент",
+    )
+
+    assert checked == 2
+    assert calls[0] == ("suggest", "Альфа Дент Красноярск", 8)
+    assert calls[1] == ("lookup", "7707083893")
+    assert result is not None
+    assert result.state is RegistryMirrorState.VERIFIED
+    assert updated.legal_name == 'ООО "АЛЬФА ДЕНТ"'
+    assert updated.inn == "7707083893"
+    assert updated.ogrn == "1027700132195"
+    assert {fact.field for fact in facts} >= {"legal_name", "inn", "ogrn", "registration_status"}
+    assert all("authority_verified=false" in fact.note for fact in facts)
+    assert any("authority gate ФНС remains open" in note for note in notes)
+
+
+@pytest.mark.asyncio
+async def test_name_candidate_discovery_does_not_promote_ambiguous_tie(monkeypatch):
+    first = _record().model_copy(update={
+        "id": "dadata_party_first",
+        "query": "Альфа Дент",
+        "legal_name": 'ООО "АЛЬФА ДЕНТ"',
+        "short_name": "АЛЬФА ДЕНТ",
+        "inn": "7707083893",
+    })
+    second = _record().model_copy(update={
+        "id": "dadata_party_second",
+        "response_digest": "sha256:" + "c" * 64,
+        "query": "Альфа Дент",
+        "legal_name": 'АО "АЛЬФА ДЕНТ"',
+        "short_name": "АЛЬФА ДЕНТ",
+        "inn": "7811111113",
+        "ogrn": None,
+    })
+
+    class FakeProvider:
+        def suggest(self, query: str, *, count: int = 10):
+            return DaDataLookupResult(
+                state=RegistryMirrorState.UNRESOLVED,
+                query=query,
+                records=[first, second],
+                authority_verified=False,
+            )
+
+        def lookup(self, query: str):
+            raise AssertionError("ambiguous name candidates must not reach exact lookup")
+
+    monkeypatch.setattr(
+        "app.dadata_report_bridge.get_dadata_registry_mirror_provider",
+        lambda: FakeProvider(),
+    )
+    anchors = IdentityAnchors(domain="example.org")
+    updated, result, facts, notes, checked = await discover_identity_candidate_with_dadata(
+        anchors,
+        company_hint="Альфа Дент",
+    )
+
+    assert checked == 2
+    assert updated == anchors
+    assert result is not None
+    assert result.state is RegistryMirrorState.CONFLICTING
+    assert "ambiguous_name_candidates" in result.conflicts
     assert facts == []
     assert any("ambiguous" in note for note in notes)
