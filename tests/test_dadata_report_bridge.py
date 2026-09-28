@@ -194,7 +194,7 @@ async def test_multi_candidate_resolution_keeps_identity_provisional_when_semant
     assert result.state is RegistryMirrorState.CONFLICTING
     assert "ambiguous_target_ownership" in result.conflicts
     assert facts == []
-    assert any("ambiguous" in note for note in notes)
+    assert any("semantic selector" in note for note in notes)
 
 
 
@@ -387,7 +387,7 @@ async def test_multiple_title_brand_segments_can_remain_ambiguous(monkeypatch):
     assert result is not None
     assert result.state is RegistryMirrorState.CONFLICTING
     assert facts == []
-    assert any("ambiguous" in note for note in notes)
+    assert any("semantic selector" in note for note in notes)
 
 
 
@@ -505,7 +505,7 @@ async def test_name_candidate_discovery_does_not_promote_ambiguous_tie(monkeypat
     assert result.state is RegistryMirrorState.CONFLICTING
     assert "ambiguous_name_candidates" in result.conflicts
     assert facts == []
-    assert any("ambiguous" in note for note in notes)
+    assert any("semantic selector" in note for note in notes)
 
 
 
