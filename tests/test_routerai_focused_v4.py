@@ -419,3 +419,98 @@ def test_compiled_context_preserves_semantically_selected_long_evidence() -> Non
     assert payload["documents"][0]["text"] == " ".join(external[0]["evidence_quote"].split())
     assert stats.truncated is False
     assert stats.context_chars == len(context)
+
+
+@pytest.mark.asyncio
+async def test_focused_output_truncation_recovers_by_evidence_boundaries(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    async def fake_request(phase, model_type, **kwargs):
+        assert kwargs["max_tokens"] is None
+        marker = "PREPARED EVIDENCE CONTEXT:\n"
+        payload = __import__("json").loads(kwargs["prompt"].split(marker, 1)[1])
+        calls.append(payload)
+        documents = payload.get("documents") or []
+        if len(documents) > 1:
+            raise SplitSynthesisPhaseError(phase, "OutputTruncated")
+        source_id = documents[0]["id"] if documents else "S1"
+        return model_type(
+            summary=f"slice-{source_id}",
+            company_facts=[{
+                "field": "legal_name",
+                "value": f"Company {source_id}",
+                "confidence": "Высокая",
+                "source_ids": [source_id],
+            }],
+        )
+
+    monkeypatch.setattr(focused, "request_json_strict", fake_request)
+    context = __import__("json").dumps({
+        "official_url": "https://example.org/",
+        "official_root_source_id": "S1",
+        "title": "Example",
+        "official_root_text": "",
+        "documents": [
+            {"id": "R1", "text": "Registry identity"},
+            {"id": "R2", "text": "Second registry identity"},
+        ],
+    }, ensure_ascii=False, separators=(",", ":"))
+
+    outcome = await focused._run_focused_pass_resilient(
+        focus="identity_governance",
+        model_type=focused.IdentityFocusedSlice,
+        instructions="identity only",
+        context=context,
+    )
+
+    assert outcome.recovered is True
+    assert outcome.subdivisions == 1
+    assert outcome.recovery_failures == ()
+    assert len(outcome.results) == 2
+    assert {item.company_facts[0].source_ids[0] for item in outcome.results} == {"R1", "R2"}
+    assert len(calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_focused_truncation_preserves_successful_children_when_one_leaf_is_indivisible(monkeypatch) -> None:
+    async def fake_request(phase, model_type, **kwargs):
+        marker = "PREPARED EVIDENCE CONTEXT:\n"
+        payload = __import__("json").loads(kwargs["prompt"].split(marker, 1)[1])
+        documents = payload.get("documents") or []
+        if len(documents) > 1:
+            raise SplitSynthesisPhaseError(phase, "OutputTruncated")
+        source_id = documents[0]["id"] if documents else "S1"
+        if source_id == "R2":
+            raise SplitSynthesisPhaseError(phase, "OutputTruncated")
+        return model_type(
+            summary="kept child",
+            company_facts=[{
+                "field": "legal_name",
+                "value": "Company R1",
+                "confidence": "Высокая",
+                "source_ids": ["R1"],
+            }],
+        )
+
+    monkeypatch.setattr(focused, "request_json_strict", fake_request)
+    context = __import__("json").dumps({
+        "official_url": "https://example.org/",
+        "official_root_source_id": "S1",
+        "title": "Example",
+        "official_root_text": "",
+        "documents": [
+            {"id": "R1", "text": "one indivisible evidence unit"},
+            {"id": "R2", "text": "another indivisible evidence unit"},
+        ],
+    }, ensure_ascii=False, separators=(",", ":"))
+
+    outcome = await focused._run_focused_pass_resilient(
+        focus="identity_governance",
+        model_type=focused.IdentityFocusedSlice,
+        instructions="identity only",
+        context=context,
+    )
+
+    assert len(outcome.results) == 1
+    assert outcome.results[0].company_facts[0].source_ids == ["R1"]
+    assert "OutputTruncated@indivisible_evidence" in outcome.recovery_failures
