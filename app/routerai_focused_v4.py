@@ -52,6 +52,11 @@ class IdentityFocusedFact(CompactCompanyFact):
         "address", "phones", "emails", "website", "social_accounts", "geography",
         "founders", "executives", "beneficial_owners", "affiliates",
     ]
+    # Identity values can legitimately be longer than the generic compact 200-char
+    # transport bound (postal addresses, management/ownership labels, social URLs).
+    # Keep the field bounded, but do not discard the whole identity pass for a
+    # moderately long atomic value.
+    value: str = Field(max_length=600)
 
 
 class IdentityFocusedSlice(FocusedPassBase):
@@ -105,6 +110,9 @@ registration_status, address, phones, emails, website, social_accounts, geograph
 founders, executives, beneficial_owners, affiliates.
 Не превращай учредителя, директора, врача или контактное лицо автоматически в
 beneficial_owner. Для relationship-фактов нужен прямой source_id.
+Один company_fact должен содержать один атомарный факт. Не склеивай несколько адресов,
+людей, телефонов, аккаунтов или связей в одну длинную строку; разделяй их на отдельные
+company_facts. Значение одного факта держи короче 600 символов.
 Не извлекай каталог услуг, цены и коммерческие рекомендации.""",
     ),
     (
