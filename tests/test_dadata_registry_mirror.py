@@ -173,3 +173,47 @@ def test_invalid_json_has_typed_failure_without_response_body():
 
     with pytest.raises(RuntimeError, match=r"^dadata_registry_mirror_invalid_json$"):
         provider.lookup("7707083893")
+
+
+
+def test_name_suggest_is_candidate_only_and_uses_suggest_endpoint():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["payload"] = request.content.decode("utf-8")
+        assert request.headers["Authorization"] == "Token test-token"
+        return httpx.Response(200, json=_payload())
+
+    provider = DaDataRegistryMirrorProvider(
+        api_token="test-token",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    result = provider.suggest("Сбербанк Москва", count=8)
+
+    assert result.state == RegistryMirrorState.UNRESOLVED
+    assert result.authority_verified is False
+    assert "name_candidate_only" in result.gaps
+    assert captured["url"].endswith("/suggest/party")
+    assert '"count":8' in captured["payload"]
+    assert result.records
+    assert str(result.records[0].source_url).endswith("/suggest/party")
+    assert result.records[0].authority_verified is False
+
+
+def test_name_suggest_without_token_is_fail_closed():
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise AssertionError("network must not be called without a token")
+
+    provider = DaDataRegistryMirrorProvider(
+        api_token="",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    result = provider.suggest("Тестовая компания")
+
+    assert result.state == RegistryMirrorState.UNAVAILABLE
+    assert result.records == []
+    assert "dadata_api_token_missing" in result.gaps
+    assert "name_candidate_only" in result.gaps
