@@ -149,3 +149,30 @@ def test_immers_rejects_model_outside_registry(monkeypatch, tmp_path) -> None:
 
     with pytest.raises(RuntimeError, match="llm_model_not_allowed"):
         resolve_llm_runtime(LlmRole.REASONING, settings=settings)
+
+
+def test_immers_fast_research_can_use_qwen36_35b_a3b(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AIMETON_RUNTIME_DB", str(tmp_path / "runtime.sqlite3"))
+    monkeypatch.setenv("IMMERS_API_KEY", "immers-secret")
+    monkeypatch.setenv("IMMERS_BASE_URL", "https://chat.immers.cloud/v1/endpoints/generate/")
+    monkeypatch.setenv("IMMERS_DEFAULT_MODEL", "deepseek-v4-flash-0731")
+
+    settings = LlmRuntimeSettings()
+    settings.fast_research = settings.fast_research.model_copy(
+        update={
+            "profile_name": "immers-primary",
+            "model_id": "qwen3.6-35b-a3b",
+            "temperature": 0.0,
+            "max_tokens": 1200,
+            "timeout_seconds": 30,
+            "reasoning_mode": LlmReasoningMode.OFF,
+        }
+    )
+
+    runtime = resolve_llm_runtime(LlmRole.FAST_RESEARCH, settings=settings)
+
+    assert runtime.provider == "immers"
+    assert runtime.model == "qwen3.6-35b-a3b"
+    assert runtime.configured is True
+    assert runtime.structured_output_supported is None
+    assert effective_llm_output_mode(runtime) is LlmOutputMode.JSON_OBJECT
