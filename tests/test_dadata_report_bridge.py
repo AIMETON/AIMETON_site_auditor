@@ -261,6 +261,7 @@ async def test_semantic_selector_can_match_brand_to_legal_name(monkeypatch):
             ("ogrn", "1112468013030", False),
         ],
         company_hint="Алекс Дент",
+        request_json=_semantic_choice("C0"),
     )
     assert checked == 2
     assert result is not None
