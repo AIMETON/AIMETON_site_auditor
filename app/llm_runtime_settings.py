@@ -164,6 +164,8 @@ def effective_llm_transport_mode(runtime: ResolvedLlmRuntime) -> str:
     if runtime.json_mode_supported is True:
         return LlmOutputMode.JSON_OBJECT.value
     if runtime.provider == "routerai":
+        if runtime.role is LlmRole.FAST_RESEARCH:
+            return LlmOutputMode.JSON_OBJECT.value
         return LlmOutputMode.STRICT_SCHEMA.value
     return "prompt_json"
 
