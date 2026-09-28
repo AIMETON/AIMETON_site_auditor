@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from urllib.parse import urlparse
 import re
 from uuid import uuid4
@@ -428,6 +429,54 @@ async def _search_verify_wave(
     return verified, notes, diagnostics, triage, len(unique_sources)
 
 
+def _late_identity_name_hints(
+    analysis: SiteAnalysis,
+    *,
+    exclude: str = "",
+) -> list[str]:
+    """Return a bounded set of LLM-normalized identity hints for one late retry."""
+    values: list[str] = []
+    for field_name in ("legal_name", "brand_name"):
+        for fact in analysis.company_facts:
+            if fact.field != field_name:
+                continue
+            value = " ".join(str(fact.value or "").split()).strip()
+            if value:
+                values.append(value)
+    company_name = " ".join(str(analysis.company_name or "").split()).strip()
+    if company_name:
+        values.append(company_name)
+
+    excluded = " ".join(str(exclude or "").split()).casefold()
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        key = value.casefold()
+        if not key or key == excluded or key in seen:
+            continue
+        seen.add(key)
+        result.append(value[:240])
+        if len(result) >= 3:
+            break
+    return result
+
+
+def _late_identity_anchors(
+    anchors,
+    analysis: SiteAnalysis,
+):
+    """Reuse first-party anchors, adding only an LLM-extracted geography hint if absent."""
+    if anchors.primary_region:
+        return anchors
+    for fact in analysis.company_facts:
+        if fact.field != "geography":
+            continue
+        value = " ".join(str(fact.value or "").split()).strip()
+        if value and len(value) <= 120:
+            return replace(anchors, cities=(value,))
+    return anchors
+
+
 async def _run_verified_enriched_site_analysis(
     url: str,
     title: str,
@@ -471,6 +520,7 @@ async def _run_verified_enriched_site_analysis(
         1 if (first_party_anchors.inn or first_party_anchors.ogrn) and dadata_result is not None else 0
     )
     dadata_name_candidates_checked = 0
+    dadata_name_queries_attempted = 0
 
     full_plan = research_queries if research_queries is not None else query_plan(company_hint, anchors=anchors)
     progressive_search = bool(deep and research_queries is None)
@@ -593,6 +643,7 @@ async def _run_verified_enriched_site_analysis(
                 first_party_anchors,
                 company_hint=identity_company_hint,
             )
+            dadata_name_queries_attempted += 1
             dadata_name_candidates_checked = name_checked
             dadata_notes = [
                 note for note in dadata_notes
@@ -826,6 +877,58 @@ async def _run_verified_enriched_site_analysis(
             f"Использован резервный локальный анализ: {type(exc).__name__}."
         )
 
+    late_identity_retry_attempted = False
+    late_identity_retry_succeeded = False
+    if (
+        not dadata_facts
+        and not (anchors.inn or anchors.ogrn)
+        and not (current_research() and current_research().stop_requested)
+    ):
+        late_anchors = _late_identity_anchors(anchors, analysis)
+        late_hints = _late_identity_name_hints(
+            analysis,
+            exclude=identity_company_hint,
+        )
+        for late_hint in late_hints:
+            late_identity_retry_attempted = True
+            (
+                candidate_anchors,
+                candidate_result,
+                candidate_facts,
+                candidate_notes,
+                candidate_checked,
+            ) = await discover_identity_candidate_with_dadata(
+                late_anchors,
+                company_hint=late_hint,
+            )
+            dadata_name_queries_attempted += 1
+            dadata_name_candidates_checked += candidate_checked
+            dadata_notes.extend(candidate_notes)
+            if candidate_result is not None:
+                dadata_result = candidate_result
+            if candidate_facts and (candidate_anchors.inn or candidate_anchors.ogrn):
+                anchors = candidate_anchors
+                dadata_facts = candidate_facts
+                late_identity_retry_succeeded = True
+                break
+
+        if late_identity_retry_attempted:
+            identity_progress_state = (
+                dadata_result.state.value
+                if dadata_result is not None
+                else "unavailable"
+            )
+            identity_selected = bool(dadata_facts and (anchors.inn or anchors.ogrn))
+            record_identity_resolution_progress(
+                candidates_checked=(
+                    dadata_identifier_candidates_checked
+                    + dadata_name_candidates_checked
+                ),
+                resolution_state=identity_progress_state,
+                selected_inn=anchors.inn if identity_selected else None,
+                selected_ogrn=anchors.ogrn if identity_selected else None,
+            )
+
     late_identity_duplicates_merged = _merge_late_enrichment_facts(
         analysis.company_facts,
         [*deterministic_identity_facts, *dadata_facts],
@@ -1010,6 +1113,9 @@ async def _run_verified_enriched_site_analysis(
         "late_identity_duplicates_merged": late_identity_duplicates_merged,
         "dadata_identifier_candidates_checked": dadata_identifier_candidates_checked,
         "dadata_name_candidates_checked": dadata_name_candidates_checked,
+        "dadata_name_queries_attempted": dadata_name_queries_attempted,
+        "late_identity_retry_attempted": late_identity_retry_attempted,
+        "late_identity_retry_succeeded": late_identity_retry_succeeded,
     }
     if current_research():
         analysis.research_status.update(current_research().snapshot())
