@@ -430,3 +430,27 @@ def test_strict_request_stops_after_bounded_429_retries(monkeypatch) -> None:
     assert exc_info.value.error_type == "HTTPStatusError_429"
     assert len(calls) == 3
     assert len(starts) == 3
+
+
+def test_strict_request_can_use_provider_default_output_budget(monkeypatch) -> None:
+    captured: dict = {}
+    _install_fake_client(monkeypatch, captured)
+    monkeypatch.setattr(
+        strict,
+        "resolve_llm_runtime",
+        lambda role: _immers_runtime(LlmOutputMode.INHERIT),
+    )
+
+    result = asyncio.run(
+        strict.request_json_strict(
+            "profile_management",
+            ManagementSlice,
+            system="Structured only",
+            prompt="Extract management",
+            max_tokens=None,
+            timeout_seconds=5,
+        )
+    )
+
+    assert "max_tokens" not in captured["payload"]
+    assert result.company_facts[0].field == "executives"
