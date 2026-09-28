@@ -613,7 +613,7 @@ async def _run_verified_enriched_site_analysis(
         )
         identity_selected = bool(dadata_facts and (anchors.inn or anchors.ogrn))
         record_identity_resolution_progress(
-            candidates_checked=dadata_identifier_candidates_checked,
+            candidates_checked=dadata_identifier_candidates_checked + dadata_name_candidates_checked,
             resolution_state=identity_progress_state,
             selected_inn=anchors.inn if identity_selected else None,
             selected_ogrn=anchors.ogrn if identity_selected else None,
