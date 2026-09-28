@@ -10,9 +10,10 @@ from app.external_sources import IdentityAnchors, query_plan
 from app.models import IntelligenceSource
 from app.research_control import ResearchControl, bind_research
 from app.research_coverage_controller import (
-    DEFAULT_DEEP_RESULTS_PER_QUERY,
     FastCoverageWaveChoice,
+    SemanticGainDecision,
     assess_coverage,
+    assess_wave_semantic_gain,
     gap_wave,
     initial_wave,
     optional_wave,
@@ -120,11 +121,11 @@ async def test_optional_wave_fast_model_can_only_select_existing_candidates() ->
     # Recovery queries may be relaxed variants, but the model cannot inject Q999 or
     # arbitrary query text: every selected item came from the controller candidate map.
     assert all(query and "Q999" not in query for _, query in selection.queries)
-    assert selection.candidate_count > 6
+    assert selection.candidate_count > len(selection.queries)
 
 
 @pytest.mark.asyncio
-async def test_optional_wave_model_failure_uses_bounded_deterministic_fallback() -> None:
+async def test_optional_wave_model_failure_falls_back_only_to_unresolved_recovery() -> None:
     plan = query_plan(
         "Алекс Дент",
         anchors=IdentityAnchors(domain="aleksdent24.ru", cities=("Красноярск",)),
@@ -149,12 +150,13 @@ async def test_optional_wave_model_failure_uses_bounded_deterministic_fallback()
 
     assert selection.model_used is False
     assert selection.model_unavailable is True
-    assert len(selection.queries) == 6
-    assert selection.candidate_count > len(selection.queries)
+    assert selection.queries
+    assert all(kind not in {"news", "review", "social", "tender", "patent"} for kind, _ in selection.queries)
+    assert selection.candidate_count >= len(selection.queries)
 
 
 @pytest.mark.asyncio
-async def test_deep_search_uses_bounded_results_per_query(monkeypatch) -> None:
+async def test_deep_search_uses_runtime_policy_page_size_not_auditor_hardcode(monkeypatch) -> None:
     limits: list[int] = []
 
     class FakeGateway:
@@ -181,7 +183,7 @@ async def test_deep_search_uses_bounded_results_per_query(monkeypatch) -> None:
     monkeypatch.setattr(
         adaptive,
         "resolve_hunter_search_policy",
-        lambda: SimpleNamespace(policy=SearchPolicy()),
+        lambda: SimpleNamespace(policy=SearchPolicy(target_results=13)),
     )
 
     with bind_research(ResearchControl(deep=True)):
@@ -194,8 +196,7 @@ async def test_deep_search_uses_bounded_results_per_query(monkeypatch) -> None:
         )
 
     assert sources
-    assert limits == [DEFAULT_DEEP_RESULTS_PER_QUERY]
-    assert DEFAULT_DEEP_RESULTS_PER_QUERY == 8
+    assert limits == [13]
 
 
 def test_sensitive_verticals_require_sufficient_evidence_level() -> None:
@@ -281,3 +282,85 @@ def test_evidence_sufficiency_requires_every_mandatory_vertical_covered() -> Non
 
     assert coverage.search_complete is True
     assert coverage.evidence_sufficient is True
+
+
+
+@pytest.mark.asyncio
+async def test_semantic_gain_model_stops_on_redundant_volume() -> None:
+    before = assess_coverage([_evidence("R1", "registry")], {"registry"})
+    after = assess_coverage([_evidence("R1", "registry"), _evidence("R2", "registry")], {"registry"})
+    redundant = _evidence("R2", "registry")
+    redundant.title = "Повтор тех же реквизитов"
+    redundant.evidence_quote = "Те же ИНН и ОГРН уже известной организации"
+
+    async def fake_request(_phase, model_type, **_kwargs):
+        assert model_type is SemanticGainDecision
+        return SemanticGainDecision(
+            meaningful_gain=False,
+            new_information=[],
+            authority_gain=[],
+            reason="same identity facts repeated",
+        )
+
+    assessment = await assess_wave_semantic_gain(
+        before,
+        after,
+        new_verified=[redundant],
+        semantic_state=("ИНН и ОГРН организации уже установлены",),
+        request_json=fake_request,
+    )
+
+    assert assessment.model_used is True
+    assert assessment.meaningful_gain is False
+    assert assessment.semantic_state == ("ИНН и ОГРН организации уже установлены",)
+
+
+@pytest.mark.asyncio
+async def test_semantic_gain_model_continues_for_new_business_meaning() -> None:
+    before = assess_coverage([], {"official"})
+    after = assess_coverage([_evidence("W1", "workforce")], {"official", "workforce"})
+    workforce = _evidence("W1", "workforce")
+    workforce.title = "Вакансии клиники"
+    workforce.evidence_quote = "Открыта вакансия администратора контакт-центра"
+
+    async def fake_request(_phase, model_type, **_kwargs):
+        assert model_type is SemanticGainDecision
+        return SemanticGainDecision(
+            meaningful_gain=True,
+            new_information=["Компания нанимает администратора контакт-центра"],
+            authority_gain=[],
+            reason="new workforce fact",
+        )
+
+    assessment = await assess_wave_semantic_gain(
+        before,
+        after,
+        new_verified=[workforce],
+        semantic_state=(),
+        request_json=fake_request,
+    )
+
+    assert assessment.meaningful_gain is True
+    assert "Компания нанимает администратора контакт-центра" in assessment.semantic_state
+
+
+@pytest.mark.asyncio
+async def test_semantic_gain_model_failure_uses_only_structural_authority_gain() -> None:
+    before = assess_coverage([], {"registry"})
+    registry = _evidence("R1", "registry")
+    after = assess_coverage([registry], {"registry"})
+
+    async def fail(*_args, **_kwargs):
+        raise RuntimeError("fast model unavailable")
+
+    assessment = await assess_wave_semantic_gain(
+        before,
+        after,
+        new_verified=[registry],
+        semantic_state=(),
+        request_json=fail,
+    )
+
+    assert assessment.model_unavailable is True
+    assert assessment.meaningful_gain is True
+    assert any("identity:" in item for item in assessment.semantic_state)
