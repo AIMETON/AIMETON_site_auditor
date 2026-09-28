@@ -163,12 +163,14 @@ async def test_large_document_preflight_uses_fast_classifier_by_default(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_compiled_deep_large_document_preflight_uses_no_llm(monkeypatch):
+async def test_compiled_deep_large_document_preflight_keeps_fast_llm(monkeypatch):
     monkeypatch.setenv("AIMETON_COMPILED_TWO_CALL", "1")
     monkeypatch.setenv("AIMETON_MINIMAL_LLM_ROUTING", "1")
+    calls = []
 
-    async def forbidden(*args, **kwargs):
-        raise AssertionError("preflight LLM must not run")
+    async def fast(phase, model_type, **kwargs):
+        calls.append(phase)
+        return RelevanceVote(decision="include", confidence=.99, reason="useful_semantic_preview")
 
     fetched = NS(
         normalized_text="x" * 50_000,
@@ -180,9 +182,10 @@ async def test_compiled_deep_large_document_preflight_uses_no_llm(monkeypatch):
             fetched,
             company_name="Company",
             anchors=IdentityAnchors(),
-            request_json=forbidden,
+            request_json=fast,
         )
 
     assert result.decision == "include"
-    assert result.reason == "compiled_deep_no_llm_preflight"
-    assert result.passes == 0
+    assert result.reason == "useful_semantic_preview"
+    assert result.passes == 1
+    assert calls == ["document_preflight"]
