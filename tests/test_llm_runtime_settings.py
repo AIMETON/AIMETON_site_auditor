@@ -12,6 +12,7 @@ from app.llm_runtime_settings import (
     LlmRuntimeSettings,
     LlmRuntimeSettingsRepository,
     effective_llm_output_mode,
+    effective_llm_transport_mode,
     resolve_llm_runtime,
 )
 
@@ -176,3 +177,4 @@ def test_immers_fast_research_can_use_qwen36_35b_a3b(monkeypatch, tmp_path) -> N
     assert runtime.configured is True
     assert runtime.structured_output_supported is None
     assert effective_llm_output_mode(runtime) is LlmOutputMode.JSON_OBJECT
+    assert effective_llm_transport_mode(runtime) == "prompt_json"
