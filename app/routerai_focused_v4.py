@@ -41,12 +41,24 @@ from app.compiled_context_ledger import persist_compiled_context
 class FocusedPassBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    focus: str = Field(default="", max_length=80)
-    summary: str = Field(default="", max_length=700)
-    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=5)
+    focus: str = ""
+    summary: str = ""
+    risks_and_assumptions: list[str] = Field(default_factory=list)
 
 
-class IdentityFocusedFact(CompactCompanyFact):
+class FocusedCompanyFact(CompactCompanyFact):
+    """Focused extraction fact without arbitrary semantic-size caps.
+
+    The focused agent is responsible for atomicity and semantic compression. Runtime
+    controls decide whether more research adds meaning; transport validation must not
+    discard a pass merely because a meaningful value is long.
+    """
+    value: str
+    period: str | None = None
+    source_ids: list[str] = Field(default_factory=list)
+
+
+class IdentityFocusedFact(FocusedCompanyFact):
     field: Literal[
         "legal_name", "brand_name", "inn", "ogrn", "registration_status",
         "address", "phones", "emails", "website", "social_accounts", "geography",
@@ -56,43 +68,41 @@ class IdentityFocusedFact(CompactCompanyFact):
 
 class IdentityFocusedSlice(FocusedPassBase):
     focus: Literal["identity_governance"] = "identity_governance"
-    company_facts: list[IdentityFocusedFact] = Field(max_length=14)
+    company_facts: list[IdentityFocusedFact]
 
 
-class OfferingsFocusedFact(CompactCompanyFact):
+class OfferingsFocusedFact(FocusedCompanyFact):
     field: Literal["products", "customers", "suppliers"]
 
 
 class OfferingsFocusedSlice(FocusedPassBase):
     focus: Literal["offerings_customer_operations"] = "offerings_customer_operations"
-    company_facts: list[OfferingsFocusedFact] = Field(max_length=14)
-    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=3)
+    company_facts: list[OfferingsFocusedFact]
+    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list)
 
 
-class EconomicsFocusedFact(CompactCompanyFact):
+class EconomicsFocusedFact(FocusedCompanyFact):
     field: Literal["headcount", "revenue", "profit", "assets", "taxes", "other"]
 
 
 class EconomicsFocusedSlice(FocusedPassBase):
     focus: Literal["economics_workforce_technology"] = "economics_workforce_technology"
-    company_facts: list[EconomicsFocusedFact] = Field(max_length=12)
-    # Transport buffer: the semantic contract remains five signals, but tolerate
-    # small provider over-production and trim deterministically after validation.
-    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=10)
+    company_facts: list[EconomicsFocusedFact]
+    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list)
 
 
 class FocusedEconomicSignal(BaseModel):
-    signal: str = Field(max_length=240)
-    evidence: str = Field(max_length=360)
-    business_effect: str = Field(max_length=360)
-    confidence: str = Field(default="Средняя", max_length=32)
-    source_ids: list[str] = Field(default_factory=list, max_length=5)
+    signal: str
+    evidence: str
+    business_effect: str
+    confidence: str = "Средняя"
+    source_ids: list[str] = Field(default_factory=list)
 
 
 class SignalsFocusedSlice(FocusedPassBase):
     focus: Literal["signals_risks_change"] = "signals_risks_change"
-    economic_signals: list[FocusedEconomicSignal] = Field(default_factory=list, max_length=10)
-    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=6)
+    economic_signals: list[FocusedEconomicSignal] = Field(default_factory=list)
+    risks_and_assumptions: list[str] = Field(default_factory=list)
 
 
 _FOCUS_PASSES: tuple[tuple[str, type[FocusedPassBase], str], ...] = (
@@ -105,6 +115,10 @@ registration_status, address, phones, emails, website, social_accounts, geograph
 founders, executives, beneficial_owners, affiliates.
 Не превращай учредителя, директора, врача или контактное лицо автоматически в
 beneficial_owner. Для relationship-фактов нужен прямой source_id.
+Один company_fact должен содержать один атомарный факт. Не склеивай несколько адресов,
+людей, телефонов, аккаунтов или связей в одну строку; разделяй их на отдельные
+company_facts. Сжимай формулировку по смыслу, но не обрезай значимые детали ради
+формального лимита длины.
 Не извлекай каталог услуг, цены и коммерческие рекомендации.""",
     ),
     (
@@ -127,7 +141,8 @@ beneficial_owner. Для relationship-фактов нужен прямой sourc
 процессов, оборудования, цифровых каналов, автоматизации, вакансий и операционных
 ограничений. Для финансов обязательно сохраняй период. Если отдельного поля нет,
 используй other только для конкретного проверяемого бизнес-факта, а не рекламного
-слогана. Верни не более 5 economic_signals, по убыванию бизнес-значимости.
+слогана. Economic signals возвращай только когда каждый следующий сигнал добавляет
+новый бизнес-смысл, а не перефразирует уже найденное.
 Не повторяй полный каталог услуг.""",
     ),
     (
@@ -213,15 +228,9 @@ def _normalized_signal(item: BaseModel) -> EconomicSignal:
     )
 
 
-def _bounded_focused_signal_items(result: FocusedPassBase) -> list[BaseModel]:
-    items = list(getattr(result, "economic_signals", []))
-    caps = {
-        "offerings_customer_operations": 3,
-        "economics_workforce_technology": 5,
-        "signals_risks_change": 10,
-    }
-    cap = caps.get(str(getattr(result, "focus", "")), len(items))
-    return items[:cap]
+def _focused_signal_items(result: FocusedPassBase) -> list[BaseModel]:
+    """Preserve all semantically distinct signals produced by the focused agent."""
+    return list(getattr(result, "economic_signals", []))
 
 
 def _safe_phase_failure_descriptor(outcome: Exception) -> str:
@@ -269,12 +278,8 @@ def _focused_business_summary(results: list[FocusedPassBase]) -> str:
     ordered.extend(result for result in results if result not in ordered)
     for result in ordered:
         value = " ".join(str(result.summary or "").split()).strip()
-        if not value:
-            continue
-        if len(value) <= 700:
+        if value:
             return value
-        clipped = value[:700].rsplit(" ", 1)[0].rstrip(" ,;:-")
-        return clipped + "…"
     return ""
 
 
@@ -359,7 +364,7 @@ async def analyze_with_routerai_focused_v4(
     focused_signals = [
         _normalized_signal(item)
         for focused_result in focused_results
-        for item in _bounded_focused_signal_items(focused_result)
+        for item in _focused_signal_items(focused_result)
     ]
     focused_risks = [
         str(item)

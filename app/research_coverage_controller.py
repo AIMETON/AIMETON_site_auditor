@@ -5,7 +5,6 @@ from typing import Iterable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.analysis_mode import compiled_two_call_enabled, focused_multipass_enabled, minimal_llm_routing_enabled
 from app.evidence_source_projection import evidence_parent_id
 from app.research_control import deep_research_enabled
 from app.external_sources import IdentityAnchors
@@ -49,8 +48,6 @@ ENRICHMENT_KINDS: tuple[SourceKind, ...] = (
 )
 
 DEFAULT_DEEP_RESULTS_PER_QUERY = 8
-MAX_PROGRESSIVE_WAVES = 3
-MAX_OPTIONAL_QUERIES_PER_WAVE = 6
 
 _EVIDENCE_LEVEL_RANK = {
     "unverified_mention": 0,
@@ -135,8 +132,36 @@ class WaveSelection:
 
 class FastCoverageWaveChoice(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    query_ids: list[str] = Field(default_factory=list, max_length=MAX_OPTIONAL_QUERIES_PER_WAVE)
-    reason: str = Field(default="", max_length=500)
+    query_ids: list[str] = Field(default_factory=list)
+    reason: str = ""
+
+
+class SemanticGainDecision(BaseModel):
+    """Fast-model judgment of whether a completed wave added business meaning."""
+
+    model_config = ConfigDict(extra="forbid")
+    meaningful_gain: bool
+    new_information: list[str] = Field(default_factory=list)
+    authority_gain: list[str] = Field(default_factory=list)
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class SemanticGainAssessment:
+    meaningful_gain: bool
+    semantic_state: tuple[str, ...]
+    model_used: bool = False
+    model_unavailable: bool = False
+    reason: str = ""
+
+    def safe_dict(self) -> dict[str, object]:
+        return {
+            "meaningful_gain": self.meaningful_gain,
+            "semantic_state_items": len(self.semantic_state),
+            "model_used": self.model_used,
+            "model_unavailable": self.model_unavailable,
+            "reason": self.reason,
+        }
 
 
 def _document_kinds(
@@ -304,6 +329,153 @@ def _deduplicate_queries(
     return result
 
 
+
+def _coverage_state_rank(state: CoverageState) -> int:
+    return {"missing": 0, "searched_no_evidence": 1, "covered": 2}[state]
+
+
+def _structural_semantic_gain(
+    before: CoverageSnapshot,
+    after: CoverageSnapshot,
+) -> tuple[bool, list[str]]:
+    gains: list[str] = []
+    for vertical, after_state in after.states.items():
+        before_state = before.states.get(vertical, "missing")
+        if _coverage_state_rank(after_state) > _coverage_state_rank(before_state):
+            gains.append(f"{vertical}:{before_state}->{after_state}")
+    # More documents inside an already-covered vertical are not semantic progress
+    # by themselves. Corroboration/authority gain there must be judged from meaning
+    # by the semantic model, not inferred from a counter increase.
+    return bool(gains), gains
+
+
+def _semantic_evidence_rows(items: Iterable[IntelligenceSource]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for item in items:
+        if item.lifecycle_state != "evidence":
+            continue
+        text = " ".join(
+            value.strip()
+            for value in (
+                str(item.title or ""),
+                str(item.evidence_quote or ""),
+                str(item.snippet or ""),
+                str(item.verification_note or ""),
+            )
+            if value and str(value).strip()
+        )
+        rows.append({
+            "id": str(item.id),
+            "kind": str(item.query_kind),
+            "source_class": str(item.source_class),
+            "evidence_level": str(item.evidence_level),
+            "content": text,
+        })
+    return rows
+
+
+def _merge_semantic_state(
+    state: Iterable[str],
+    additions: Iterable[str],
+) -> tuple[str, ...]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for value in [*state, *additions]:
+        compact = " ".join(str(value or "").split()).strip()
+        key = compact.casefold()
+        if not compact or key in seen:
+            continue
+        seen.add(key)
+        merged.append(compact)
+    return tuple(merged)
+
+
+async def assess_wave_semantic_gain(
+    before: CoverageSnapshot,
+    after: CoverageSnapshot,
+    *,
+    new_verified: Iterable[IntelligenceSource],
+    semantic_state: Iterable[str] = (),
+    request_json=None,
+) -> SemanticGainAssessment:
+    """Judge marginal research value by meaning, not by document/query counts.
+
+    A wave is useful when it adds a new business fact/entity/relation, closes or
+    strengthens an evidence/authority gap, or changes the research picture. More
+    documents that only restate existing meaning are not progress.
+    """
+    new_verified = list(new_verified)
+    structural_gain, structural_reasons = _structural_semantic_gain(before, after)
+    rows = _semantic_evidence_rows(new_verified)
+    current_state = tuple(semantic_state)
+    if not rows:
+        return SemanticGainAssessment(
+            meaningful_gain=structural_gain,
+            semantic_state=_merge_semantic_state(current_state, structural_reasons),
+            reason="; ".join(structural_reasons) or "no_new_verified_evidence",
+        )
+
+    request = request_json or request_fast_json
+    try:
+        response = await request(
+            "research_semantic_gain",
+            SemanticGainDecision,
+            system=(
+                "Ты Research Semantic Gain Judge. Оценивай прирост смысла, а не объёма. "
+                "Новые документы сами по себе не являются прогрессом. meaningful_gain=true "
+                "только если появилась новая бизнес-сущность, факт, отношение, изменение, "
+                "новый уровень authority/corroboration или был закрыт содержательный пробел. "
+                "Повторы, перефразы и дополнительные документы с тем же смыслом — false. "
+                "Не извлекай коммерческие рекомендации."
+            ),
+            prompt=(
+                "SEMANTIC STATE BEFORE:\n"
+                + str(list(current_state))
+                + "\nCOVERAGE BEFORE:\n"
+                + str(before.safe_dict())
+                + "\nCOVERAGE AFTER:\n"
+                + str(after.safe_dict())
+                + "\nNEW VERIFIED EVIDENCE:\n"
+                + str(rows)
+                + "\nВерни только действительно новые смысловые утверждения в "
+                  "new_information и отдельно прирост authority в authority_gain."
+            ),
+            max_tokens=1200,
+            timeout_seconds=15,
+        )
+        additions = [
+            *response.new_information,
+            *response.authority_gain,
+            *structural_reasons,
+        ]
+        meaningful = bool(response.meaningful_gain or structural_gain)
+        return SemanticGainAssessment(
+            meaningful_gain=meaningful,
+            semantic_state=(
+                _merge_semantic_state(current_state, additions)
+                if meaningful
+                else current_state
+            ),
+            model_used=True,
+            reason=response.reason,
+        )
+    except Exception:
+        return SemanticGainAssessment(
+            meaningful_gain=structural_gain,
+            semantic_state=(
+                _merge_semantic_state(current_state, structural_reasons)
+                if structural_gain
+                else current_state
+            ),
+            model_unavailable=True,
+            reason=(
+                "structural_coverage_gain_fallback"
+                if structural_gain
+                else "semantic_gain_model_unavailable_no_structural_gain"
+            ),
+        )
+
+
 async def optional_wave(
     full_plan: Iterable[tuple[SourceKind, str]],
     coverage: CoverageSnapshot,
@@ -311,13 +483,14 @@ async def optional_wave(
     company_name: str,
     anchors: IdentityAnchors,
     already_attempted: set[str],
+    semantic_state: Iterable[str] = (),
     request_json=None,
 ) -> WaveSelection:
-    """Fast-model prioritization for the final bounded recovery/enrichment wave.
+    """Let the fast model choose only queries with expected marginal semantic value.
 
-    Deterministic coverage defines the candidate set. The cheap model may only select
-    candidate IDs; it cannot invent search queries, provider policies or evidence.
-    Failure is fail-open to a bounded deterministic priority order.
+    The candidate set remains deterministic and policy-bounded. The model may select
+    any subset of those candidates or select none. There is no arbitrary query-count
+    threshold: stopping is driven by expected/observed semantic gain.
     """
     recovery = relaxed_recovery_wave(
         company_name=company_name,
@@ -336,24 +509,6 @@ async def optional_wave(
     if not candidates:
         return WaveSelection(queries=(), candidate_count=0)
 
-    if len(candidates) <= MAX_OPTIONAL_QUERIES_PER_WAVE:
-        return WaveSelection(
-            queries=tuple(candidates),
-            candidate_count=len(candidates),
-        )
-
-    if (
-        deep_research_enabled()
-        and (focused_multipass_enabled() or compiled_two_call_enabled())
-        and minimal_llm_routing_enabled()
-    ):
-        return WaveSelection(
-            queries=tuple(candidates[:MAX_OPTIONAL_QUERIES_PER_WAVE]),
-            candidate_count=len(candidates),
-            model_used=False,
-            model_unavailable=False,
-        )
-
     rows = [
         {
             "id": f"Q{index}",
@@ -371,19 +526,22 @@ async def optional_wave(
             "research_coverage_wave",
             FastCoverageWaveChoice,
             system=(
-                "Ты быстрый Research Coverage Router. Выбирай только query_ids из "
-                "переданного списка. Не извлекай факты, не меняй provider policy и "
-                "не объявляй evidence подтверждённым. Приоритет: recovery для "
-                "mandatory verticals без evidence, затем недостающие бизнес-сигналы."
+                "Ты Research Coverage Router. Выбирай только query_ids из списка. "
+                "Выбирай запрос только если он способен добавить новый бизнес-смысл, "
+                "закрыть evidence/authority gap или проверить важное противоречие. "
+                "Не выбирай запросы ради количества документов. Если ожидаемый смысловой "
+                "прирост отсутствует, верни пустой query_ids."
             ),
             prompt=(
                 "COVERAGE:\n"
                 + str(coverage.safe_dict())
+                + "\nCURRENT SEMANTIC STATE:\n"
+                + str(list(semantic_state))
                 + "\nCANDIDATE QUERIES:\n"
                 + str(rows)
-                + f"\nВыбери не более {MAX_OPTIONAL_QUERIES_PER_WAVE} query_ids."
+                + "\nВыбери только query_ids с ожидаемым независимым смысловым приростом."
             ),
-            max_tokens=900,
+            max_tokens=1000,
             timeout_seconds=10,
         )
         chosen: list[tuple[SourceKind, str]] = []
@@ -393,21 +551,18 @@ async def optional_wave(
                 continue
             seen_ids.add(query_id)
             chosen.append(by_id[query_id])
-        if chosen:
-            return WaveSelection(
-                queries=tuple(chosen[:MAX_OPTIONAL_QUERIES_PER_WAVE]),
-                candidate_count=len(candidates),
-                model_used=True,
-            )
-    except Exception:
         return WaveSelection(
-            queries=tuple(candidates[:MAX_OPTIONAL_QUERIES_PER_WAVE]),
+            queries=tuple(chosen),
+            candidate_count=len(candidates),
+            model_used=True,
+        )
+    except Exception:
+        # Fail closed for optional enrichment. Mandatory recovery queries remain
+        # eligible because they correspond to explicit unresolved coverage gaps.
+        fallback = tuple(recovery)
+        return WaveSelection(
+            queries=fallback,
             candidate_count=len(candidates),
             model_unavailable=True,
         )
 
-    return WaveSelection(
-        queries=tuple(candidates[:MAX_OPTIONAL_QUERIES_PER_WAVE]),
-        candidate_count=len(candidates),
-        model_used=True,
-    )

@@ -13,6 +13,12 @@ from app.entity_resolution.dadata import (
 from app.external_sources import IdentityAnchors
 
 
+def _semantic_choice(candidate_id: str | None):
+    async def choose(_phase, model_type, **_kwargs):
+        return model_type(candidate_id=candidate_id, reason="test semantic choice")
+    return choose
+
+
 def _record() -> DaDataPartyRecord:
     return DaDataPartyRecord(
         id="dadata_party_test",
@@ -126,6 +132,7 @@ async def test_multi_candidate_resolution_checks_all_and_selects_unique_target(m
             ("inn", "7811111113", False),
         ],
         company_hint="Альфа Дент — стоматология",
+        request_json=_semantic_choice("C0"),
     )
     assert checked == 2
     assert calls == ["7707083893", "7811111113"]
@@ -137,7 +144,7 @@ async def test_multi_candidate_resolution_checks_all_and_selects_unique_target(m
 
 
 @pytest.mark.asyncio
-async def test_multi_candidate_resolution_keeps_identity_provisional_on_tie(monkeypatch):
+async def test_multi_candidate_resolution_keeps_identity_provisional_when_semantic_selector_is_ambiguous(monkeypatch):
     def make_record(query: str, suffix: str) -> DaDataPartyRecord:
         return DaDataPartyRecord(
             id=f"dadata_party_{suffix}",
@@ -179,6 +186,7 @@ async def test_multi_candidate_resolution_keeps_identity_provisional_on_tie(monk
             ("inn", "7811111113", False),
         ],
         company_hint="Альфа",
+        request_json=_semantic_choice(None),
     )
     assert checked == 2
     assert updated == anchors
@@ -186,7 +194,7 @@ async def test_multi_candidate_resolution_keeps_identity_provisional_on_tie(monk
     assert result.state is RegistryMirrorState.CONFLICTING
     assert "ambiguous_target_ownership" in result.conflicts
     assert facts == []
-    assert any("ambiguous" in note for note in notes)
+    assert any("semantic selector" in note for note in notes)
 
 
 
@@ -215,6 +223,7 @@ async def test_inn_and_ogrn_for_same_entity_reinforce_instead_of_tie(monkeypatch
             ("ogrn", "1027700132195", True),
         ],
         company_hint="Альфа Дент",
+        request_json=_semantic_choice("C0"),
     )
     assert checked == 2
     assert result is not None
@@ -224,7 +233,7 @@ async def test_inn_and_ogrn_for_same_entity_reinforce_instead_of_tie(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_compact_brand_name_matches_spaceless_legal_name(monkeypatch):
+async def test_semantic_selector_can_match_brand_to_legal_name(monkeypatch):
     record = _record().model_copy(update={
         "query": "2462215501",
         "legal_name": 'ООО "АЛЕКСДЕНТ"',
@@ -252,6 +261,7 @@ async def test_compact_brand_name_matches_spaceless_legal_name(monkeypatch):
             ("ogrn", "1112468013030", False),
         ],
         company_hint="Алекс Дент",
+        request_json=_semantic_choice("C0"),
     )
     assert checked == 2
     assert result is not None
@@ -262,7 +272,7 @@ async def test_compact_brand_name_matches_spaceless_legal_name(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_compact_name_match_does_not_use_substring(monkeypatch):
+async def test_semantic_selector_can_reject_superficially_similar_name(monkeypatch):
     records = {
         "7707083893": _record().model_copy(update={
             "query": "7707083893",
@@ -289,6 +299,7 @@ async def test_compact_name_match_does_not_use_substring(monkeypatch):
         anchors,
         [("inn", "7707083893", False)],
         company_hint="Альфа Дент",
+        request_json=_semantic_choice(None),
     )
     assert checked == 1
     assert updated == anchors
@@ -298,7 +309,7 @@ async def test_compact_name_match_does_not_use_substring(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_title_segments_preserve_brand_hint_for_compact_match(monkeypatch):
+async def test_semantic_selector_receives_title_brand_context(monkeypatch):
     record = _record().model_copy(update={
         "query": "7707083893",
         "legal_name": 'ООО "АЛЬФАДЕНТ"',
@@ -323,6 +334,7 @@ async def test_title_segments_preserve_brand_hint_for_compact_match(monkeypatch)
         anchors,
         [("inn", "7707083893", False)],
         company_hint="Лечение зубов в регионе | Стоматология Альфа Дент",
+        request_json=_semantic_choice("C0"),
     )
     assert checked == 1
     assert result is not None
@@ -332,7 +344,7 @@ async def test_title_segments_preserve_brand_hint_for_compact_match(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_multiple_title_brand_segments_remain_ambiguous(monkeypatch):
+async def test_multiple_title_brand_segments_can_remain_ambiguous(monkeypatch):
     def make_record(query: str, brand: str, digest: str) -> DaDataPartyRecord:
         return _record().model_copy(update={
             "id": f"dadata_party_{digest}",
@@ -368,13 +380,14 @@ async def test_multiple_title_brand_segments_remain_ambiguous(monkeypatch):
             ("inn", "7811111113", False),
         ],
         company_hint="Стоматология Альфа Дент | Стоматология Бета Дент",
+        request_json=_semantic_choice(None),
     )
     assert checked == 2
     assert updated == anchors
     assert result is not None
     assert result.state is RegistryMirrorState.CONFLICTING
     assert facts == []
-    assert any("ambiguous" in note for note in notes)
+    assert any("semantic selector" in note for note in notes)
 
 
 
@@ -400,7 +413,7 @@ async def test_name_candidate_discovery_rechecks_identifier_before_promotion(mon
     calls = []
 
     class FakeProvider:
-        def suggest(self, query: str, *, count: int = 10):
+        def suggest(self, query: str, *, count: int | None = None):
             calls.append(("suggest", query, count))
             return DaDataLookupResult(
                 state=RegistryMirrorState.UNRESOLVED,
@@ -428,10 +441,11 @@ async def test_name_candidate_discovery_rechecks_identifier_before_promotion(mon
     updated, result, facts, notes, checked = await discover_identity_candidate_with_dadata(
         anchors,
         company_hint="Альфа Дент",
+        request_json=_semantic_choice("C0"),
     )
 
     assert checked == 2
-    assert calls[0] == ("suggest", "Альфа Дент Красноярск", 8)
+    assert calls[0] == ("suggest", "Альфа Дент Красноярск", None)
     assert calls[1] == ("lookup", "7707083893")
     assert result is not None
     assert result.state is RegistryMirrorState.VERIFIED
@@ -463,7 +477,7 @@ async def test_name_candidate_discovery_does_not_promote_ambiguous_tie(monkeypat
     })
 
     class FakeProvider:
-        def suggest(self, query: str, *, count: int = 10):
+        def suggest(self, query: str, *, count: int | None = None):
             return DaDataLookupResult(
                 state=RegistryMirrorState.UNRESOLVED,
                 query=query,
@@ -482,6 +496,7 @@ async def test_name_candidate_discovery_does_not_promote_ambiguous_tie(monkeypat
     updated, result, facts, notes, checked = await discover_identity_candidate_with_dadata(
         anchors,
         company_hint="Альфа Дент",
+        request_json=_semantic_choice(None),
     )
 
     assert checked == 2
@@ -490,7 +505,7 @@ async def test_name_candidate_discovery_does_not_promote_ambiguous_tie(monkeypat
     assert result.state is RegistryMirrorState.CONFLICTING
     assert "ambiguous_name_candidates" in result.conflicts
     assert facts == []
-    assert any("ambiguous" in note for note in notes)
+    assert any("semantic selector" in note for note in notes)
 
 
 
@@ -506,7 +521,7 @@ async def test_name_candidate_discovery_rejects_wrong_region(monkeypatch):
     })
 
     class FakeProvider:
-        def suggest(self, query: str, *, count: int = 10):
+        def suggest(self, query: str, *, count: int | None = None):
             return DaDataLookupResult(
                 state=RegistryMirrorState.UNRESOLVED,
                 query=query,
@@ -533,3 +548,40 @@ async def test_name_candidate_discovery_rejects_wrong_region(monkeypatch):
     assert result.state is RegistryMirrorState.UNRESOLVED
     assert facts == []
     assert any("do not match first-party region" in note for note in notes)
+
+
+
+@pytest.mark.asyncio
+async def test_semantic_selector_cannot_invent_candidate_id(monkeypatch):
+    record = _record().model_copy(update={
+        "legal_name": 'ООО "АЛЬФА ДЕНТ"',
+        "short_name": "АЛЬФА ДЕНТ",
+    })
+
+    class FakeProvider:
+        def lookup(self, query: str):
+            return DaDataLookupResult(
+                state=RegistryMirrorState.VERIFIED,
+                query=query,
+                records=[record],
+                authority_verified=False,
+            )
+
+    monkeypatch.setattr(
+        "app.dadata_report_bridge.get_dadata_registry_mirror_provider",
+        lambda: FakeProvider(),
+    )
+    anchors = IdentityAnchors(domain="example.org")
+    updated, result, facts, notes, checked = await enrich_identifier_candidates_with_dadata(
+        anchors,
+        [("inn", "7707083893", True)],
+        company_hint="Альфа Дент",
+        request_json=_semantic_choice("INVENTED"),
+    )
+
+    assert checked == 1
+    assert updated == anchors
+    assert result is not None
+    assert result.state is RegistryMirrorState.UNRESOLVED
+    assert facts == []
+    assert any("semantic selector" in note for note in notes)

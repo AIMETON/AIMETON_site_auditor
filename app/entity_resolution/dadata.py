@@ -194,11 +194,10 @@ class DaDataRegistryMirrorProvider:
         )
         return result
 
-    def suggest(self, query: str, *, count: int = 10) -> DaDataLookupResult:
+    def suggest(self, query: str, *, count: int | None = None) -> DaDataLookupResult:
         """Discover preliminary party candidates by name/address without asserting identity."""
         normalized_query = _clean_query(query)
-        bounded_count = max(1, min(20, int(count)))
-        cache_key = f"suggest:{bounded_count}:{normalized_query.casefold()}"
+        cache_key = f"suggest:{count if count is not None else 'provider-default'}:{normalized_query.casefold()}"
         cached = self._cache.get(cache_key)
         now = time.monotonic()
         if cached and cached.expires_at > now:
@@ -224,7 +223,11 @@ class DaDataRegistryMirrorProvider:
                     "Content-Type": "application/json",
                     "Authorization": f"Token {self._api_token}",
                 },
-                json={"query": normalized_query, "count": bounded_count},
+                json=(
+                    {"query": normalized_query, "count": int(count)}
+                    if count is not None
+                    else {"query": normalized_query}
+                ),
             )
             response.raise_for_status()
             payload = response.json()

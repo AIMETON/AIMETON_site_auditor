@@ -5,6 +5,8 @@ from dataclasses import replace
 from typing import Any
 import re
 
+from pydantic import BaseModel, ConfigDict
+from app.fast_research_model import request_fast_json
 
 from app.entity_resolution.dadata import (
     DaDataLookupResult,
@@ -46,7 +48,7 @@ async def enrich_identity_with_dadata(
         f"cache_hit={str(result.cache_hit).lower()}; authority_verified=false."
     ]
     facts: list[CompanyFact] = []
-    for record in result.records[:10]:
+    for record in result.records:
         fact_note = (
             f"{DADATA_NOTE_PREFIX}; state={result.state.value}; "
             f"authority_verified=false; response_digest={record.response_digest}"
@@ -94,53 +96,16 @@ async def enrich_identity_with_dadata(
     return anchors, result, facts, notes
 
 
-_GENERIC_NAME_TOKENS = {
-    "ооо", "ао", "пао", "ип", "зао", "оао", "компания", "центр", "клиника",
-    "медицинский", "медицинская", "стоматология", "стоматологическая",
-}
+class IdentityCandidateChoice(BaseModel):
+    """Closed-list semantic identity decision made by the fast research model."""
 
-
-def _identity_name_tokens(value: str | None) -> set[str]:
-    if not value:
-        return set()
-    tokens = {
-        token.casefold()
-        for token in re.findall(r"[0-9A-Za-zА-Яа-яЁё]{3,}", value)
-    }
-    return {token for token in tokens if token not in _GENERIC_NAME_TOKENS}
-
-
-def _identity_name_compact(value: str | None) -> str:
-    """Normalize brand/legal-name spacing and punctuation without fuzzy substringing."""
-    tokens = sorted(
-        _identity_name_tokens(value),
-        key=lambda token: (
-            re.search(re.escape(token), str(value or ""), re.IGNORECASE).start()
-            if re.search(re.escape(token), str(value or ""), re.IGNORECASE)
-            else 10_000
-        ),
-    )
-    compact = "".join(tokens)
-    return compact if len(compact) >= 6 else ""
-
-
-def _identity_name_compacts(value: str | None) -> set[str]:
-    """Return exact compact forms for meaningful title/name segments."""
-    raw = str(value or "").strip()
-    if not raw:
-        return set()
-    parts = [
-        part.strip()
-        for part in re.split(r"\s*(?:\||—|–|\s-\s)\s*", raw)
-        if part.strip()
-    ]
-    compacts = {_identity_name_compact(part) for part in parts}
-    compacts.discard("")
-    return compacts
+    model_config = ConfigDict(extra="forbid")
+    candidate_id: str | None = None
+    reason: str = ""
 
 
 def _identity_region_matches(record: DaDataPartyRecord, region: str | None) -> bool:
-    """Require an explicit address-region match when first-party region is known."""
+    """Require explicit region agreement when a first-party region is known."""
     region_value = str(region or "").strip()
     if not region_value:
         return True
@@ -153,66 +118,96 @@ def _identity_region_matches(record: DaDataPartyRecord, region: str | None) -> b
     return bool(region_key and region_key in address_key)
 
 
-def _candidate_match_score(
-    record: DaDataPartyRecord,
+async def _choose_identity_candidate(
+    candidates: list[tuple[str, DaDataPartyRecord, bool]],
     *,
-    query: str,
     anchors: Any,
     company_hint: str,
-    target_scoped: bool,
-) -> int:
-    score = 0
-    # Candidate identifiers extracted from the same site are hypotheses, not
-    # pre-trusted identity. Do not let an earlier first-match extractor make
-    # itself the winner merely by being present in anchors.
-    if target_scoped:
-        score += 2
+    request_json=None,
+) -> tuple[DaDataPartyRecord | None, str]:
+    """Choose only from observed candidates; ambiguity or model failure is fail-closed."""
+    if not candidates:
+        return None, "no_candidates"
 
-    target_tokens = _identity_name_tokens(getattr(anchors, "legal_name", None))
-    target_tokens |= _identity_name_tokens(company_hint)
-    record_tokens = _identity_name_tokens(record.legal_name)
-    record_tokens |= _identity_name_tokens(record.short_name)
-    overlap = target_tokens & record_tokens
-    if overlap:
-        score += 3 + min(3, len(overlap))
+    rows = [
+        {
+            "candidate_id": candidate_id,
+            "legal_name": record.legal_name,
+            "short_name": record.short_name,
+            "address": record.address,
+            "inn": record.inn,
+            "ogrn": record.ogrn,
+            "target_scoped_first_party_identifier": target_scoped,
+        }
+        for candidate_id, record, target_scoped in candidates
+    ]
+    allowed = {candidate_id: record for candidate_id, record, _ in candidates}
+    request = request_json or request_fast_json
+    try:
+        decision = await request(
+            "identity_candidate_selection",
+            IdentityCandidateChoice,
+            system=(
+                "Ты Identity Candidate Resolver. Выбирай юридическое лицо только из "
+                "переданного закрытого списка. Сопоставляй смысл названия/бренда, регион, "
+                "адрес и first-party контекст. target_scoped_first_party_identifier — "
+                "сильный сигнал, но не автоматическое доказательство. Если несколько "
+                "кандидатов правдоподобны, имя слишком общее или данных недостаточно — "
+                "верни candidate_id=null. Не придумывай новую организацию."
+            ),
+            prompt=(
+                "TARGET CONTEXT:\n"
+                + str({
+                    "company_hint": company_hint,
+                    "first_party_legal_name": getattr(anchors, "legal_name", None),
+                    "first_party_region": getattr(anchors, "primary_region", None),
+                    "domain": getattr(anchors, "domain", None),
+                })
+                + "\nCANDIDATES:\n"
+                + str(rows)
+                + "\nВыбери candidate_id только при однозначном смысловом соответствии."
+            ),
+            max_tokens=900,
+            timeout_seconds=15,
+        )
+    except Exception:
+        return None, "semantic_selector_unavailable"
 
-    target_compacts = _identity_name_compacts(getattr(anchors, "legal_name", None))
-    target_compacts |= _identity_name_compacts(company_hint)
-    record_compacts = _identity_name_compacts(record.legal_name)
-    record_compacts |= _identity_name_compacts(record.short_name)
-    if target_compacts & record_compacts:
-        score += 6
-    return score
+    selected = str(decision.candidate_id or "").strip()
+    if not selected:
+        return None, decision.reason or "semantic_selector_ambiguous"
+    record = allowed.get(selected)
+    if record is None:
+        return None, "semantic_selector_invalid_candidate"
+    return record, decision.reason or "semantic_selector_selected"
 
 
 async def discover_identity_candidate_with_dadata(
     anchors: Any,
     *,
     company_hint: str,
+    request_json=None,
 ) -> tuple[Any, DaDataLookupResult | None, list[CompanyFact], list[str], int]:
     """Discover a preliminary legal-entity candidate by name, then re-check its identifier.
 
-    Name search is candidate discovery only. Promotion requires an unambiguous name
-    score and a second exact findById lookup. DaData remains a non-authoritative
+    Name search is candidate discovery only. Promotion requires an unambiguous
+    semantic closed-list selection and a second exact findById lookup. DaData remains a non-authoritative
     registry mirror; official FNS verification stays mandatory.
     """
     hint = " ".join(str(company_hint or "").split()).strip()
-    target_tokens = _identity_name_tokens(getattr(anchors, "legal_name", None))
-    target_tokens |= _identity_name_tokens(hint)
-    if not hint or not target_tokens:
+    if not hint:
         return anchors, None, [], [
-            f"{DADATA_NOTE_PREFIX}: name_discovery_not_attempted — company name is too generic."
+            f"{DADATA_NOTE_PREFIX}: name_discovery_not_attempted — company name is empty."
         ], 0
 
     region = str(getattr(anchors, "primary_region", None) or "").strip()
     query = hint
     if region and region.casefold() not in query.casefold():
         query = f"{query} {region}"
-    query = query[:300]
 
     provider = get_dadata_registry_mirror_provider()
     try:
-        suggested = await asyncio.to_thread(provider.suggest, query, count=8)
+        suggested = await asyncio.to_thread(provider.suggest, query)
     except RuntimeError:
         return anchors, None, [], [
             f"{DADATA_NOTE_PREFIX}: name_discovery_unavailable — suggestion lookup failed."
@@ -246,38 +241,30 @@ async def discover_identity_candidate_with_dadata(
             authority_verified=False,
         ), [], notes, checked
 
-    ranked = sorted(
-        (
-            (
-                _candidate_match_score(
-                    record,
-                    query=query,
-                    anchors=anchors,
-                    company_hint=hint,
-                    target_scoped=False,
-                ),
-                record,
-            )
-            for record in (region_matched_records or suggested.records)
-        ),
-        key=lambda item: (-item[0], str(item[1].inn or item[1].ogrn or "")),
+    semantic_candidates = [
+        (f"C{index}", record, False)
+        for index, record in enumerate(region_matched_records or suggested.records)
+    ]
+    best_record, selection_reason = await _choose_identity_candidate(
+        semantic_candidates,
+        anchors=anchors,
+        company_hint=hint,
+        request_json=request_json,
     )
-    best_score, best_record = ranked[0]
-    runner_up = ranked[1][0] if len(ranked) > 1 else -1
-    if best_score < 4 or best_score == runner_up:
+    if best_record is None:
+        notes.append(
+            f"{DADATA_NOTE_PREFIX}: name candidate ownership unresolved by semantic selector "
+            f"({selection_reason}); identity not promoted."
+        )
         state = (
             RegistryMirrorState.CONFLICTING
-            if best_score >= 4 and best_score == runner_up
+            if len(semantic_candidates) > 1
             else RegistryMirrorState.UNRESOLVED
-        )
-        notes.append(
-            f"{DADATA_NOTE_PREFIX}: name candidate ownership ambiguous "
-            f"(best_score={best_score}, runner_up={runner_up}); identity not promoted."
         )
         return anchors, DaDataLookupResult(
             state=state,
             query=query,
-            records=suggested.records,
+            records=[record for _, record, _ in semantic_candidates],
             conflicts=(
                 ["ambiguous_name_candidates"]
                 if state is RegistryMirrorState.CONFLICTING
@@ -321,25 +308,6 @@ async def discover_identity_candidate_with_dadata(
             authority_verified=False,
         ), [], notes, checked
 
-    exact_score = _candidate_match_score(
-        exact_record,
-        query=str(identifier),
-        anchors=anchors,
-        company_hint=hint,
-        target_scoped=False,
-    )
-    if exact_score < 4:
-        notes.append(
-            f"{DADATA_NOTE_PREFIX}: exact record no longer matches target name strongly enough; "
-            "identity not promoted."
-        )
-        return anchors, DaDataLookupResult(
-            state=RegistryMirrorState.UNRESOLVED,
-            query=str(identifier),
-            records=exact.records,
-            authority_verified=False,
-        ), [], notes, checked
-
     updated = replace(
         anchors,
         legal_name=exact_record.legal_name or getattr(anchors, "legal_name", None),
@@ -368,8 +336,8 @@ async def discover_identity_candidate_with_dadata(
                 )
             )
     notes.append(
-        f"{DADATA_NOTE_PREFIX}: unique name candidate re-checked by identifier "
-        f"(score={exact_score}); authority gate ФНС remains open."
+        f"{DADATA_NOTE_PREFIX}: semantic name candidate re-checked by exact identifier; "
+        "authority gate ФНС remains open."
     )
     return updated, exact, facts, notes, checked
 
@@ -379,6 +347,7 @@ async def enrich_identifier_candidates_with_dadata(
     candidates: list[tuple[str, str, bool]],
     *,
     company_hint: str,
+    request_json=None,
 ) -> tuple[Any, DaDataLookupResult | None, list[CompanyFact], list[str], int]:
     """Check every checksum-valid first-party identifier and resolve one target candidate.
 
@@ -404,7 +373,7 @@ async def enrich_identifier_candidates_with_dadata(
 
     provider = get_dadata_registry_mirror_provider()
     notes: list[str] = []
-    resolved: list[tuple[int, str, DaDataLookupResult, DaDataPartyRecord]] = []
+    resolved: list[tuple[str, bool, DaDataLookupResult, DaDataPartyRecord]] = []
     observed_results: list[DaDataLookupResult] = []
     checked = 0
     for scheme, value, target_scoped in unique:
@@ -425,14 +394,7 @@ async def enrich_identifier_candidates_with_dadata(
         if result.state is not RegistryMirrorState.VERIFIED or len(result.records) != 1:
             continue
         record = result.records[0]
-        score = _candidate_match_score(
-            record,
-            query=value,
-            anchors=anchors,
-            company_hint=company_hint,
-            target_scoped=target_scoped,
-        )
-        resolved.append((score, value, result, record))
+        resolved.append((value, target_scoped, result, record))
 
     if not resolved:
         notes.append(
@@ -460,45 +422,62 @@ async def enrich_identifier_candidates_with_dadata(
         )
         return anchors, aggregate, [], notes, checked
 
-    # INN and OGRN lookups for the same legal entity must reinforce each other,
-    # not compete as two different candidates.
-    by_entity: dict[tuple[str, str, str], tuple[int, str, DaDataLookupResult, DaDataPartyRecord]] = {}
-    for item in resolved:
-        score, query, result, record = item
+    # INN and OGRN lookups for the same legal entity reinforce one observed entity.
+    by_entity: dict[
+        tuple[str, str, str],
+        tuple[DaDataLookupResult, DaDataPartyRecord, bool],
+    ] = {}
+    for query, target_scoped, result, record in resolved:
         entity_key = (
             str(record.inn or ""),
             str(record.ogrn or ""),
             str(record.legal_name or "").casefold(),
         )
         current = by_entity.get(entity_key)
-        if current is None or score > current[0]:
-            by_entity[entity_key] = item
+        if current is None:
+            by_entity[entity_key] = (result, record, target_scoped)
+        elif target_scoped and not current[2]:
+            by_entity[entity_key] = (result, record, True)
 
-    resolved_entities = sorted(by_entity.values(), key=lambda item: (-item[0], item[1]))
-    best_score, _, best_result, best_record = resolved_entities[0]
-    runner_up = resolved_entities[1][0] if len(resolved_entities) > 1 else -1
-    if best_score < 4 or best_score == runner_up:
+    resolved_entities = list(by_entity.values())
+    semantic_candidates = [
+        (f"C{index}", record, target_scoped)
+        for index, (_, record, target_scoped) in enumerate(resolved_entities)
+    ]
+    best_record, selection_reason = await _choose_identity_candidate(
+        semantic_candidates,
+        anchors=anchors,
+        company_hint=company_hint,
+        request_json=request_json,
+    )
+    if best_record is None:
         notes.append(
-            f"{DADATA_NOTE_PREFIX}: checked={checked}; candidate ownership ambiguous "
-            f"(best_score={best_score}, runner_up={runner_up}); identity не повышена."
+            f"{DADATA_NOTE_PREFIX}: checked={checked}; candidate ownership unresolved "
+            f"by semantic selector ({selection_reason}); identity не повышена."
         )
-        ambiguous_state = (
+        state = (
             RegistryMirrorState.CONFLICTING
-            if best_score == runner_up
+            if len(semantic_candidates) > 1
             else RegistryMirrorState.UNRESOLVED
         )
         aggregate = DaDataLookupResult(
-            state=ambiguous_state,
+            state=state,
             query="multi_identifier_candidates",
-            records=[item[3] for item in resolved_entities],
+            records=[record for _, record, _ in semantic_candidates],
             conflicts=(
                 ["ambiguous_target_ownership"]
-                if ambiguous_state is RegistryMirrorState.CONFLICTING
+                if state is RegistryMirrorState.CONFLICTING
                 else []
             ),
             authority_verified=False,
         )
         return anchors, aggregate, [], notes, checked
+
+    best_result = next(
+        result
+        for result, record, _ in resolved_entities
+        if record is best_record
+    )
 
     updated = replace(
         anchors,
@@ -529,6 +508,6 @@ async def enrich_identifier_candidates_with_dadata(
             )
     notes.append(
         f"{DADATA_NOTE_PREFIX}: checked={checked}; target candidate selected "
-        f"with score={best_score}; authority gate ФНС остаётся открытым."
+        "by closed-list semantic resolver; authority gate ФНС остаётся открытым."
     )
     return updated, best_result, facts, notes, checked

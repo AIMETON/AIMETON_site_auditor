@@ -41,11 +41,6 @@ from app.routerai_split_v2 import (
 from app.routerai_strict_request import request_json_strict
 
 
-MAX_COMPILED_CONTEXT_CHARS = 120_000
-MAX_ROOT_TEXT_CHARS = 18_000
-MAX_DOCUMENT_CONTEXT_CHARS = 6_000
-MIN_DOCUMENT_CONTEXT_CHARS = 900
-
 _CHILD_SOURCE_ID = re.compile(r"^(?P<parent>.+)-b\d+-\d+$")
 
 _EVIDENCE_RANK = {
@@ -154,58 +149,36 @@ def compile_company_context(
     text: str,
     external_sources: list[dict[str, Any]],
 ) -> tuple[str, CompiledContextStats]:
-    """Compile the evidence corpus once for a single profile extraction call.
+    """Compile the complete semantically selected evidence corpus.
 
-    The persistent/raw evidence ledger is untouched. This projection groups repeated
-    model-facing records by stable document/source id and applies a fair bounded text
-    budget so every document remains represented.
+    Search/verification decides whether evidence adds meaning before it reaches this
+    compiler. The compiler therefore groups duplicate source records but does not
+    impose arbitrary character budgets or per-document truncation. A real provider
+    context-window constraint must be handled by semantic compaction, not by slicing
+    evidence at fixed character offsets.
     """
     records = _merge_document_records(external_sources)
-    root = _compact_text(text)[:MAX_ROOT_TEXT_CHARS]
-    base = {
+    root = _compact_text(text)
+    compiled_docs = [
+        {
+            **record,
+            "text": str(record.get("text") or ""),
+        }
+        for record in records
+    ]
+    payload = {
         "official_url": url,
         "official_root_source_id": "S1",
         "title": title,
         "official_root_text": root,
-        "documents": [],
+        "documents": compiled_docs,
     }
-    fixed_chars = len(json.dumps(base, ensure_ascii=False, separators=(",", ":")))
-    remaining = max(0, MAX_COMPILED_CONTEXT_CHARS - fixed_chars)
-    truncated = len(_compact_text(text)) > len(root)
-
-    compiled_docs: list[dict[str, Any]] = []
-    for index, record in enumerate(records):
-        docs_left = max(1, len(records) - index)
-        fair_share = max(MIN_DOCUMENT_CONTEXT_CHARS, remaining // docs_left)
-        allowance = min(MAX_DOCUMENT_CONTEXT_CHARS, fair_share)
-        raw_text = str(record.get("text") or "")
-        bounded = raw_text[:allowance]
-        if len(raw_text) > len(bounded):
-            truncated = True
-        doc = {**record, "text": bounded}
-        compiled_docs.append(doc)
-        cost = len(json.dumps(doc, ensure_ascii=False, separators=(",", ":")))
-        remaining = max(0, remaining - cost)
-
-    payload = {**base, "documents": compiled_docs}
     serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    while len(serialized) > MAX_COMPILED_CONTEXT_CHARS and compiled_docs:
-        overflow = len(serialized) - MAX_COMPILED_CONTEXT_CHARS
-        target = compiled_docs[-1]
-        current_text = str(target.get("text") or "")
-        if not current_text:
-            compiled_docs.pop()
-        else:
-            shrink = min(len(current_text), max(overflow + 256, len(current_text) // 4))
-            target["text"] = current_text[:-shrink]
-            truncated = True
-        payload = {**base, "documents": compiled_docs}
-        serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     return serialized, CompiledContextStats(
         input_records=len(external_sources),
         document_groups=len(records),
         context_chars=len(serialized),
-        truncated=truncated,
+        truncated=False,
     )
 
 

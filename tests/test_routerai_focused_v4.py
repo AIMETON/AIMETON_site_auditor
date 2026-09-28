@@ -197,26 +197,25 @@ def test_focused_schemas_assign_each_fact_field_to_one_owner() -> None:
     assert "revenue" in owners
 
 
-def test_focused_schemas_are_semantic_shortlists() -> None:
-    caps = {
-        focused.IdentityFocusedSlice: 14,
-        focused.OfferingsFocusedSlice: 14,
-        focused.EconomicsFocusedSlice: 12,
-    }
-    for schema_type, expected_max in caps.items():
+def test_focused_schemas_do_not_encode_arbitrary_semantic_size_caps() -> None:
+    for schema_type in (
+        focused.IdentityFocusedSlice,
+        focused.OfferingsFocusedSlice,
+        focused.EconomicsFocusedSlice,
+        focused.SignalsFocusedSlice,
+    ):
         schema = schema_type.model_json_schema()
-        facts = (schema.get("properties") or {}).get("company_facts") or {}
-        assert facts.get("maxItems") == expected_max
+        properties = schema.get("properties") or {}
+        facts = properties.get("company_facts") or {}
+        signals = properties.get("economic_signals") or {}
+        summary = properties.get("summary") or {}
+        assert "maxItems" not in facts
+        assert "maxItems" not in signals
+        assert "maxLength" not in summary
 
-    signal_schema = focused.SignalsFocusedSlice.model_json_schema()
-    signals = (signal_schema.get("properties") or {}).get("economic_signals") or {}
-    assert signals.get("maxItems") == 10
-
-    economics_schema = focused.EconomicsFocusedSlice.model_json_schema()
-    summary = (economics_schema.get("properties") or {}).get("summary") or {}
-    assert summary.get("maxLength") == 700
-    economics_signals = (economics_schema.get("properties") or {}).get("economic_signals") or {}
-    assert economics_signals.get("maxItems") == 10
+    identity_schema = focused.IdentityFocusedSlice.model_json_schema()
+    identity_fact = identity_schema["$defs"]["IdentityFocusedFact"]
+    assert "maxLength" not in identity_fact["properties"]["value"]
 
 
 def test_signal_focus_accepts_longer_text_and_normalizes_confidence() -> None:
@@ -260,39 +259,40 @@ def test_focused_business_summary_falls_back_when_offerings_pass_missing() -> No
 
 def test_focus_failure_descriptor_exposes_safe_validation_location_only() -> None:
     try:
-        focused.FocusedEconomicSignal(
-            signal="x" * 241,
-            evidence="evidence",
-            business_effect="effect",
-            source_ids=["S1"],
+        focused.IdentityFocusedSlice(
+            company_facts=[{
+                "field": "products",
+                "value": "Имплантация",
+                "source_ids": ["S1"],
+            }],
         )
     except Exception as cause:
-        wrapped = SplitSynthesisPhaseError("profile_focus_signals_risks_change", "ValidationError")
+        wrapped = SplitSynthesisPhaseError("profile_focus_identity_governance", "ValidationError")
         wrapped.__cause__ = cause
     else:
         raise AssertionError("expected validation error")
 
     descriptor = focused._focus_failure_descriptor(wrapped)
 
-    assert descriptor == "ValidationError@signal:string_too_long"
-    assert "x" * 20 not in descriptor
+    assert descriptor == "ValidationError@company_facts.0.field:literal_error"
+    assert "Имплантация" not in descriptor
 
 
-def test_focused_summary_accepts_observed_transport_size() -> None:
-    summary = "Экономика и инфраструктура. " + ("подтверждённый факт " * 24)
+def test_focused_summary_preserves_semantically_useful_long_text() -> None:
+    summary = "Экономика и инфраструктура. " + ("подтверждённый факт " * 80)
 
     result = focused.EconomicsFocusedSlice(summary=summary, company_facts=[])
 
-    assert len(result.summary) > 320
-    assert len(result.summary) <= 700
+    assert result.summary == summary
+    assert len(result.summary) > 700
 
 
-def test_economics_transport_buffer_preserves_five_signal_profile_cap() -> None:
+def test_economics_focus_preserves_all_distinct_signals() -> None:
     items = [
         focused.CompactEconomicSignal(
             signal=f"signal-{index}",
-            evidence="evidence",
-            business_effect="effect",
+            evidence=f"evidence-{index}",
+            business_effect=f"effect-{index}",
             confidence="Средняя",
             source_ids=["S1"],
         )
@@ -304,10 +304,9 @@ def test_economics_transport_buffer_preserves_five_signal_profile_cap() -> None:
         economic_signals=items,
     )
 
-    bounded = focused._bounded_focused_signal_items(result)
+    preserved = focused._focused_signal_items(result)
 
-    assert len(result.economic_signals) == 7
-    assert [item.signal for item in bounded] == [f"signal-{index}" for index in range(5)]
+    assert [item.signal for item in preserved] == [f"signal-{index}" for index in range(7)]
 
 
 @pytest.mark.asyncio
@@ -373,3 +372,50 @@ def test_fact_bearing_focus_rejects_silent_schema_drift():
             "focus": "economics_workforce_technology",
             "summary": "Используются цифровые каналы",
         })
+
+
+
+def test_identity_focus_preserves_long_atomic_values_without_length_cap() -> None:
+    value = "г. Красноярск, " + ("значимая адресная деталь; " * 80)
+
+    result = focused.IdentityFocusedSlice(
+        summary="Идентичность и контакты",
+        company_facts=[{
+            "field": "address",
+            "value": value,
+            "confidence": "Высокая",
+            "source_ids": ["S1"],
+        }],
+    )
+
+    assert result.company_facts[0].value == value
+    schema = focused.IdentityFocusedSlice.model_json_schema()
+    fact_def = schema["$defs"]["IdentityFocusedFact"]
+    assert "maxLength" not in fact_def["properties"]["value"]
+
+
+
+
+def test_compiled_context_preserves_semantically_selected_long_evidence() -> None:
+    root = "Официальный факт " * 3000
+    external = [{
+        "id": "R1",
+        "url": "https://registry.example/company",
+        "source_class": "registry",
+        "query_kind": "registry",
+        "evidence_level": "corroborated_signal",
+        "evidence_quote": "Реестровый факт " * 2000,
+    }]
+
+    context, stats = focused.compile_company_context(
+        url="https://example.org/",
+        title="Example",
+        text=root,
+        external_sources=external,
+    )
+
+    payload = __import__("json").loads(context)
+    assert payload["official_root_text"] == " ".join(root.split())
+    assert payload["documents"][0]["text"] == " ".join(external[0]["evidence_quote"].split())
+    assert stats.truncated is False
+    assert stats.context_chars == len(context)
