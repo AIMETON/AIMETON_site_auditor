@@ -141,6 +141,8 @@ def _write_report(
                 "documents_attempted",
                 "search_attempts",
                 "identity_candidates_checked",
+                "dadata_identifier_candidates_checked",
+                "dadata_name_candidates_checked",
                 "identity_resolution_state",
             )
             if key in research
