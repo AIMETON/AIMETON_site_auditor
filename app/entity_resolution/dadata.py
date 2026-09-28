@@ -18,6 +18,9 @@ from app.sef.models import Digest, Identifier
 DADATA_FIND_PARTY_URL = (
     "https://suggestions.dadata.ru/suggestions/api/4_1/rs/findById/party"
 )
+DADATA_SUGGEST_PARTY_URL = (
+    "https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/party"
+)
 
 
 class DaDataModel(BaseModel):
@@ -190,8 +193,82 @@ class DaDataRegistryMirrorProvider:
         )
         return result
 
+    def suggest(self, query: str, *, count: int = 10) -> DaDataLookupResult:
+        """Discover preliminary party candidates by name/address without asserting identity."""
+        normalized_query = _clean_query(query)
+        bounded_count = max(1, min(20, int(count)))
+        cache_key = f"suggest:{bounded_count}:{normalized_query.casefold()}"
+        cached = self._cache.get(cache_key)
+        now = time.monotonic()
+        if cached and cached.expires_at > now:
+            return cached.result.model_copy(update={"cache_hit": True})
+        if not self._api_token:
+            return DaDataLookupResult(
+                state=RegistryMirrorState.UNAVAILABLE,
+                query=normalized_query,
+                gaps=[
+                    "dadata_api_token_missing",
+                    "name_candidate_only",
+                    "official_registry_verification",
+                ],
+            )
+
+        owns_client = self._client is None
+        client = self._client or httpx.Client(timeout=15.0)
+        try:
+            response = client.post(
+                DADATA_SUGGEST_PARTY_URL,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "Authorization": f"Token {self._api_token}",
+                },
+                json={"query": normalized_query, "count": bounded_count},
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"dadata_registry_mirror_http_{exc.response.status_code}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise RuntimeError("dadata_registry_mirror_transport_failed") from exc
+        except ValueError as exc:
+            raise RuntimeError("dadata_registry_mirror_invalid_json") from exc
+        finally:
+            if owns_client:
+                client.close()
+
+        suggestions = payload.get("suggestions", []) if isinstance(payload, dict) else []
+        records = [
+            self._record(
+                normalized_query,
+                suggestion,
+                source_url=DADATA_SUGGEST_PARTY_URL,
+            )
+            for suggestion in suggestions
+            if isinstance(suggestion, dict)
+        ]
+        records = [record for record in records if record is not None]
+        result = DaDataLookupResult(
+            state=RegistryMirrorState.UNRESOLVED,
+            query=normalized_query,
+            records=records,
+            gaps=["name_candidate_only", "official_registry_verification"],
+        )
+        self._cache[cache_key] = _CacheEntry(
+            expires_at=now + self._cache_ttl_seconds,
+            result=result,
+        )
+        return result
+
     @staticmethod
-    def _record(query: str, suggestion: dict[str, Any]) -> DaDataPartyRecord | None:
+    def _record(
+        query: str,
+        suggestion: dict[str, Any],
+        *,
+        source_url: str = DADATA_FIND_PARTY_URL,
+    ) -> DaDataPartyRecord | None:
         data = suggestion.get("data")
         if not isinstance(data, dict):
             return None
@@ -207,6 +284,7 @@ class DaDataRegistryMirrorProvider:
             accessed_at=datetime.now(UTC),
             response_digest=response_digest,
             query=query,
+            source_url=source_url,
             legal_name=legal_name.strip(),
             short_name=name.get("short_with_opf"),
             inn=data.get("inn"),
