@@ -26,6 +26,22 @@
           "price_input": null,
           "price_output": null,
           "price_cached_input": null
+        },
+        "qwen3.6-35b-a3b": {
+          "enabled": true,
+          "capabilities": {
+            "chat": true,
+            "streaming": null,
+            "reasoning": true,
+            "tools": null,
+            "structured_output": null,
+            "json_mode": null
+          },
+          "context_window": 262000,
+          "max_output_tokens": null,
+          "price_input": null,
+          "price_output": null,
+          "price_cached_input": null
         }
       }
     }
