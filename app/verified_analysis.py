@@ -366,6 +366,38 @@ def _merge_search_triage(
     })
 
 
+def _semantic_loop_signature(
+    coverage: CoverageSnapshot,
+    semantic_state: tuple[str, ...],
+    plan: list[tuple[SourceKind, str]],
+) -> tuple[object, ...]:
+    """Stable progress signature used only as a cycle safeguard.
+
+    This is deliberately not a numeric iteration cap. A repeated signature means
+    the controller is about to execute the same semantic state and the same query
+    plan again, so another wave cannot represent forward progress.
+    """
+    normalized_state = tuple(sorted(
+        {
+            " ".join(str(item or "").split()).casefold()
+            for item in semantic_state
+            if " ".join(str(item or "").split()).strip()
+        }
+    ))
+    normalized_plan = tuple(sorted(
+        (
+            str(kind),
+            " ".join(str(query or "").split()).casefold(),
+        )
+        for kind, query in plan
+    ))
+    return (
+        tuple(sorted(coverage.states.items())),
+        normalized_state,
+        normalized_plan,
+    )
+
+
 def _append_unique_wave_sources(
     existing: list[IntelligenceSource],
     incoming: list[IntelligenceSource],
@@ -532,6 +564,9 @@ async def _run_verified_enriched_site_analysis(
     semantic_gain_exhausted = False
     semantic_state: tuple[str, ...] = ()
     semantic_gain_history: list[dict[str, object]] = []
+    semantic_cycle_guard_triggered = False
+    semantic_cycle_guard_reason = ""
+    semantic_cycle_signatures: set[tuple[object, ...]] = set()
     search_triage = SearchTriageSummary(total=0, selected=0, rejected=0)
     try:
         external_sources, notes, diagnostics = await collect_external_sources_adaptive(
@@ -847,7 +882,43 @@ async def _run_verified_enriched_site_analysis(
             })
             break
 
+        attempted_before_optional = {query for _, query in attempted_queries}
+        if any(query in attempted_before_optional for _, query in optional_plan):
+            semantic_cycle_guard_triggered = True
+            semantic_cycle_guard_reason = "optional_plan_reused_attempted_query"
+            semantic_gain_exhausted = True
+            semantic_gain_history.append({
+                "wave": "cycle_guard",
+                "meaningful_gain": False,
+                "semantic_state_items": len(semantic_state),
+                "model_used": selection.model_used,
+                "model_unavailable": selection.model_unavailable,
+                "reason": semantic_cycle_guard_reason,
+            })
+            break
+
+        cycle_signature = _semantic_loop_signature(
+            coverage,
+            semantic_state,
+            optional_plan,
+        )
+        if cycle_signature in semantic_cycle_signatures:
+            semantic_cycle_guard_triggered = True
+            semantic_cycle_guard_reason = "repeated_semantic_state_and_query_plan"
+            semantic_gain_exhausted = True
+            semantic_gain_history.append({
+                "wave": "cycle_guard",
+                "meaningful_gain": False,
+                "semantic_state_items": len(semantic_state),
+                "model_used": selection.model_used,
+                "model_unavailable": selection.model_unavailable,
+                "reason": semantic_cycle_guard_reason,
+            })
+            break
+        semantic_cycle_signatures.add(cycle_signature)
+
         before_optional = coverage
+        semantic_state_before_optional = semantic_state
         optional_verified: list[IntelligenceSource] = []
         search_waves_executed += 1
         attempted_queries.extend(optional_plan)
@@ -903,6 +974,23 @@ async def _run_verified_enriched_site_analysis(
             "wave": f"optional_{search_waves_executed}",
             **gain.safe_dict(),
         })
+        if (
+            gain.meaningful_gain
+            and semantic_state == semantic_state_before_optional
+            and coverage.states == before_optional.states
+        ):
+            semantic_cycle_guard_triggered = True
+            semantic_cycle_guard_reason = "meaningful_gain_without_semantic_or_coverage_change"
+            semantic_gain_exhausted = True
+            semantic_gain_history.append({
+                "wave": "cycle_guard",
+                "meaningful_gain": False,
+                "semantic_state_items": len(semantic_state),
+                "model_used": gain.model_used,
+                "model_unavailable": gain.model_unavailable,
+                "reason": semantic_cycle_guard_reason,
+            })
+            break
         if not gain.meaningful_gain:
             semantic_gain_exhausted = True
 
@@ -1130,6 +1218,8 @@ async def _run_verified_enriched_site_analysis(
         search_stop_reason = "evidence_sufficient"
     elif current_research() and current_research().stop_requested:
         search_stop_reason = "stopped_by_user"
+    elif semantic_cycle_guard_triggered:
+        search_stop_reason = "semantic_cycle_guard_triggered"
     elif semantic_gain_exhausted:
         search_stop_reason = "marginal_semantic_gain_exhausted"
     else:
@@ -1153,6 +1243,8 @@ async def _run_verified_enriched_site_analysis(
         "search_semantic_gain_model_used": semantic_gain_model_used,
         "search_semantic_gain_model_unavailable": semantic_gain_model_unavailable,
         "search_semantic_gain_exhausted": semantic_gain_exhausted,
+        "search_semantic_cycle_guard_triggered": semantic_cycle_guard_triggered,
+        "search_semantic_cycle_guard_reason": semantic_cycle_guard_reason,
         "search_semantic_state_items": len(semantic_state),
         "search_semantic_gain_history": semantic_gain_history,
         "search_results_triaged": search_triage.total,
