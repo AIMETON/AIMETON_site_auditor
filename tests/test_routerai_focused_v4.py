@@ -197,26 +197,25 @@ def test_focused_schemas_assign_each_fact_field_to_one_owner() -> None:
     assert "revenue" in owners
 
 
-def test_focused_schemas_are_semantic_shortlists() -> None:
-    caps = {
-        focused.IdentityFocusedSlice: 14,
-        focused.OfferingsFocusedSlice: 14,
-        focused.EconomicsFocusedSlice: 12,
-    }
-    for schema_type, expected_max in caps.items():
+def test_focused_schemas_do_not_encode_arbitrary_semantic_size_caps() -> None:
+    for schema_type in (
+        focused.IdentityFocusedSlice,
+        focused.OfferingsFocusedSlice,
+        focused.EconomicsFocusedSlice,
+        focused.SignalsFocusedSlice,
+    ):
         schema = schema_type.model_json_schema()
-        facts = (schema.get("properties") or {}).get("company_facts") or {}
-        assert facts.get("maxItems") == expected_max
+        properties = schema.get("properties") or {}
+        facts = properties.get("company_facts") or {}
+        signals = properties.get("economic_signals") or {}
+        summary = properties.get("summary") or {}
+        assert "maxItems" not in facts
+        assert "maxItems" not in signals
+        assert "maxLength" not in summary
 
-    signal_schema = focused.SignalsFocusedSlice.model_json_schema()
-    signals = (signal_schema.get("properties") or {}).get("economic_signals") or {}
-    assert signals.get("maxItems") == 10
-
-    economics_schema = focused.EconomicsFocusedSlice.model_json_schema()
-    summary = (economics_schema.get("properties") or {}).get("summary") or {}
-    assert summary.get("maxLength") == 700
-    economics_signals = (economics_schema.get("properties") or {}).get("economic_signals") or {}
-    assert economics_signals.get("maxItems") == 10
+    identity_schema = focused.IdentityFocusedSlice.model_json_schema()
+    identity_fact = identity_schema["$defs"]["IdentityFocusedFact"]
+    assert "maxLength" not in identity_fact["properties"]["value"]
 
 
 def test_signal_focus_accepts_longer_text_and_normalizes_confidence() -> None:
@@ -278,21 +277,21 @@ def test_focus_failure_descriptor_exposes_safe_validation_location_only() -> Non
     assert "x" * 20 not in descriptor
 
 
-def test_focused_summary_accepts_observed_transport_size() -> None:
-    summary = "Экономика и инфраструктура. " + ("подтверждённый факт " * 24)
+def test_focused_summary_preserves_semantically_useful_long_text() -> None:
+    summary = "Экономика и инфраструктура. " + ("подтверждённый факт " * 80)
 
     result = focused.EconomicsFocusedSlice(summary=summary, company_facts=[])
 
-    assert len(result.summary) > 320
-    assert len(result.summary) <= 700
+    assert result.summary == summary
+    assert len(result.summary) > 700
 
 
-def test_economics_transport_buffer_preserves_five_signal_profile_cap() -> None:
+def test_economics_focus_preserves_all_distinct_signals() -> None:
     items = [
         focused.CompactEconomicSignal(
             signal=f"signal-{index}",
-            evidence="evidence",
-            business_effect="effect",
+            evidence=f"evidence-{index}",
+            business_effect=f"effect-{index}",
             confidence="Средняя",
             source_ids=["S1"],
         )
@@ -304,10 +303,9 @@ def test_economics_transport_buffer_preserves_five_signal_profile_cap() -> None:
         economic_signals=items,
     )
 
-    bounded = focused._bounded_focused_signal_items(result)
+    preserved = focused._focused_signal_items(result)
 
-    assert len(result.economic_signals) == 7
-    assert [item.signal for item in bounded] == [f"signal-{index}" for index in range(5)]
+    assert [item.signal for item in preserved] == [f"signal-{index}" for index in range(7)]
 
 
 @pytest.mark.asyncio
@@ -376,8 +374,8 @@ def test_fact_bearing_focus_rejects_silent_schema_drift():
 
 
 
-def test_identity_focus_allows_moderately_long_atomic_values() -> None:
-    value = "г. Красноярск, " + ("ул. Тестовая, д. 1; " * 15)
+def test_identity_focus_preserves_long_atomic_values_without_length_cap() -> None:
+    value = "г. Красноярск, " + ("значимая адресная деталь; " * 80)
 
     result = focused.IdentityFocusedSlice(
         summary="Идентичность и контакты",
@@ -389,22 +387,8 @@ def test_identity_focus_allows_moderately_long_atomic_values() -> None:
         }],
     )
 
-    assert len(result.company_facts[0].value) > 200
-    assert len(result.company_facts[0].value) <= 600
-
-
-def test_identity_focus_transport_bound_remains_finite() -> None:
-    with pytest.raises(ValidationError):
-        focused.IdentityFocusedSlice(
-            summary="Идентичность",
-            company_facts=[{
-                "field": "address",
-                "value": "x" * 601,
-                "confidence": "Средняя",
-                "source_ids": ["S1"],
-            }],
-        )
-
+    assert result.company_facts[0].value == value
     schema = focused.IdentityFocusedSlice.model_json_schema()
     fact_def = schema["$defs"]["IdentityFocusedFact"]
-    assert fact_def["properties"]["value"]["maxLength"] == 600
+    assert "maxLength" not in fact_def["properties"]["value"]
+
