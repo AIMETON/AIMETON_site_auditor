@@ -434,7 +434,7 @@ def _late_identity_name_hints(
     *,
     exclude: str = "",
 ) -> list[str]:
-    """Return a bounded set of LLM-normalized identity hints for one late retry."""
+    """Return unique LLM-normalized identity hints without arbitrary size/count caps."""
     values: list[str] = []
     for field_name in ("legal_name", "brand_name"):
         for fact in analysis.company_facts:
@@ -455,9 +455,7 @@ def _late_identity_name_hints(
         if not key or key == excluded or key in seen:
             continue
         seen.add(key)
-        result.append(value[:240])
-        if len(result) >= 3:
-            break
+        result.append(value)
     return result
 
 
@@ -472,7 +470,7 @@ def _late_identity_anchors(
         if fact.field != "geography":
             continue
         value = " ".join(str(fact.value or "").split()).strip()
-        if value and len(value) <= 120:
+        if value:
             return replace(anchors, cities=(value,))
     return anchors
 
