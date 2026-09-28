@@ -228,15 +228,9 @@ def _normalized_signal(item: BaseModel) -> EconomicSignal:
     )
 
 
-def _bounded_focused_signal_items(result: FocusedPassBase) -> list[BaseModel]:
-    items = list(getattr(result, "economic_signals", []))
-    caps = {
-        "offerings_customer_operations": 3,
-        "economics_workforce_technology": 5,
-        "signals_risks_change": 10,
-    }
-    cap = caps.get(str(getattr(result, "focus", "")), len(items))
-    return items[:cap]
+def _focused_signal_items(result: FocusedPassBase) -> list[BaseModel]:
+    """Preserve all semantically distinct signals produced by the focused agent."""
+    return list(getattr(result, "economic_signals", []))
 
 
 def _safe_phase_failure_descriptor(outcome: Exception) -> str:
@@ -284,12 +278,8 @@ def _focused_business_summary(results: list[FocusedPassBase]) -> str:
     ordered.extend(result for result in results if result not in ordered)
     for result in ordered:
         value = " ".join(str(result.summary or "").split()).strip()
-        if not value:
-            continue
-        if len(value) <= 700:
+        if value:
             return value
-        clipped = value[:700].rsplit(" ", 1)[0].rstrip(" ,;:-")
-        return clipped + "…"
     return ""
 
 
@@ -374,7 +364,7 @@ async def analyze_with_routerai_focused_v4(
     focused_signals = [
         _normalized_signal(item)
         for focused_result in focused_results
-        for item in _bounded_focused_signal_items(focused_result)
+        for item in _focused_signal_items(focused_result)
     ]
     focused_risks = [
         str(item)
