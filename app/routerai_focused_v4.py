@@ -41,63 +41,68 @@ from app.compiled_context_ledger import persist_compiled_context
 class FocusedPassBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    focus: str = Field(default="", max_length=80)
-    summary: str = Field(default="", max_length=700)
-    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=5)
+    focus: str = ""
+    summary: str = ""
+    risks_and_assumptions: list[str] = Field(default_factory=list)
 
 
-class IdentityFocusedFact(CompactCompanyFact):
+class FocusedCompanyFact(CompactCompanyFact):
+    """Focused extraction fact without arbitrary semantic-size caps.
+
+    The focused agent is responsible for atomicity and semantic compression. Runtime
+    controls decide whether more research adds meaning; transport validation must not
+    discard a pass merely because a meaningful value is long.
+    """
+    value: str
+    period: str | None = None
+    source_ids: list[str] = Field(default_factory=list)
+
+
+class IdentityFocusedFact(FocusedCompanyFact):
     field: Literal[
         "legal_name", "brand_name", "inn", "ogrn", "registration_status",
         "address", "phones", "emails", "website", "social_accounts", "geography",
         "founders", "executives", "beneficial_owners", "affiliates",
     ]
-    # Identity values can legitimately be longer than the generic compact 200-char
-    # transport bound (postal addresses, management/ownership labels, social URLs).
-    # Keep the field bounded, but do not discard the whole identity pass for a
-    # moderately long atomic value.
-    value: str = Field(max_length=600)
 
 
 class IdentityFocusedSlice(FocusedPassBase):
     focus: Literal["identity_governance"] = "identity_governance"
-    company_facts: list[IdentityFocusedFact] = Field(max_length=14)
+    company_facts: list[IdentityFocusedFact]
 
 
-class OfferingsFocusedFact(CompactCompanyFact):
+class OfferingsFocusedFact(FocusedCompanyFact):
     field: Literal["products", "customers", "suppliers"]
 
 
 class OfferingsFocusedSlice(FocusedPassBase):
     focus: Literal["offerings_customer_operations"] = "offerings_customer_operations"
-    company_facts: list[OfferingsFocusedFact] = Field(max_length=14)
-    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=3)
+    company_facts: list[OfferingsFocusedFact]
+    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list)
 
 
-class EconomicsFocusedFact(CompactCompanyFact):
+class EconomicsFocusedFact(FocusedCompanyFact):
     field: Literal["headcount", "revenue", "profit", "assets", "taxes", "other"]
 
 
 class EconomicsFocusedSlice(FocusedPassBase):
     focus: Literal["economics_workforce_technology"] = "economics_workforce_technology"
-    company_facts: list[EconomicsFocusedFact] = Field(max_length=12)
-    # Transport buffer: the semantic contract remains five signals, but tolerate
-    # small provider over-production and trim deterministically after validation.
-    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list, max_length=10)
+    company_facts: list[EconomicsFocusedFact]
+    economic_signals: list[CompactEconomicSignal] = Field(default_factory=list)
 
 
 class FocusedEconomicSignal(BaseModel):
-    signal: str = Field(max_length=240)
-    evidence: str = Field(max_length=360)
-    business_effect: str = Field(max_length=360)
-    confidence: str = Field(default="Средняя", max_length=32)
-    source_ids: list[str] = Field(default_factory=list, max_length=5)
+    signal: str
+    evidence: str
+    business_effect: str
+    confidence: str = "Средняя"
+    source_ids: list[str] = Field(default_factory=list)
 
 
 class SignalsFocusedSlice(FocusedPassBase):
     focus: Literal["signals_risks_change"] = "signals_risks_change"
-    economic_signals: list[FocusedEconomicSignal] = Field(default_factory=list, max_length=10)
-    risks_and_assumptions: list[str] = Field(default_factory=list, max_length=6)
+    economic_signals: list[FocusedEconomicSignal] = Field(default_factory=list)
+    risks_and_assumptions: list[str] = Field(default_factory=list)
 
 
 _FOCUS_PASSES: tuple[tuple[str, type[FocusedPassBase], str], ...] = (
@@ -111,8 +116,9 @@ founders, executives, beneficial_owners, affiliates.
 Не превращай учредителя, директора, врача или контактное лицо автоматически в
 beneficial_owner. Для relationship-фактов нужен прямой source_id.
 Один company_fact должен содержать один атомарный факт. Не склеивай несколько адресов,
-людей, телефонов, аккаунтов или связей в одну длинную строку; разделяй их на отдельные
-company_facts. Значение одного факта держи короче 600 символов.
+людей, телефонов, аккаунтов или связей в одну строку; разделяй их на отдельные
+company_facts. Сжимай формулировку по смыслу, но не обрезай значимые детали ради
+формального лимита длины.
 Не извлекай каталог услуг, цены и коммерческие рекомендации.""",
     ),
     (
@@ -135,7 +141,8 @@ company_facts. Значение одного факта держи короче 
 процессов, оборудования, цифровых каналов, автоматизации, вакансий и операционных
 ограничений. Для финансов обязательно сохраняй период. Если отдельного поля нет,
 используй other только для конкретного проверяемого бизнес-факта, а не рекламного
-слогана. Верни не более 5 economic_signals, по убыванию бизнес-значимости.
+слогана. Economic signals возвращай только когда каждый следующий сигнал добавляет
+новый бизнес-смысл, а не перефразирует уже найденное.
 Не повторяй полный каталог услуг.""",
     ),
     (
