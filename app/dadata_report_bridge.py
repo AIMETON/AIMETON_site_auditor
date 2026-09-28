@@ -139,6 +139,20 @@ def _identity_name_compacts(value: str | None) -> set[str]:
     return compacts
 
 
+def _identity_region_matches(record: DaDataPartyRecord, region: str | None) -> bool:
+    """Require an explicit address-region match when first-party region is known."""
+    region_value = str(region or "").strip()
+    if not region_value:
+        return True
+    address = str(record.address or "").strip()
+    if not address:
+        return False
+    normalize = lambda value: re.sub(r"[^0-9A-Za-zА-Яа-яЁё]+", "", value).casefold()
+    region_key = normalize(region_value)
+    address_key = normalize(address)
+    return bool(region_key and region_key in address_key)
+
+
 def _candidate_match_score(
     record: DaDataPartyRecord,
     *,
@@ -215,6 +229,23 @@ async def discover_identity_candidate_with_dadata(
         )
         return anchors, suggested, [], notes, checked
 
+    region_matched_records = [
+        record
+        for record in suggested.records
+        if _identity_region_matches(record, region)
+    ]
+    if region and not region_matched_records:
+        notes.append(
+            f"{DADATA_NOTE_PREFIX}: name candidates do not match first-party region; "
+            "identity not promoted."
+        )
+        return anchors, DaDataLookupResult(
+            state=RegistryMirrorState.UNRESOLVED,
+            query=query,
+            records=suggested.records,
+            authority_verified=False,
+        ), [], notes, checked
+
     ranked = sorted(
         (
             (
@@ -227,7 +258,7 @@ async def discover_identity_candidate_with_dadata(
                 ),
                 record,
             )
-            for record in suggested.records
+            for record in (region_matched_records or suggested.records)
         ),
         key=lambda item: (-item[0], str(item[1].inn or item[1].ogrn or "")),
     )
@@ -278,6 +309,18 @@ async def discover_identity_candidate_with_dadata(
         return anchors, exact, [], notes, checked
 
     exact_record = exact.records[0]
+    if region and not _identity_region_matches(exact_record, region):
+        notes.append(
+            f"{DADATA_NOTE_PREFIX}: exact record does not match first-party region; "
+            "identity not promoted."
+        )
+        return anchors, DaDataLookupResult(
+            state=RegistryMirrorState.UNRESOLVED,
+            query=str(identifier),
+            records=exact.records,
+            authority_verified=False,
+        ), [], notes, checked
+
     exact_score = _candidate_match_score(
         exact_record,
         query=str(identifier),
