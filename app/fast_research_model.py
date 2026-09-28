@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from app.research_control import record_llm_failure, record_llm_start, record_llm_success, record_llm_usage
 from app.research_execution import operation_timeout, research_timed
-from app.llm_runtime_settings import LlmReasoningMode, LlmRole, effective_llm_output_mode, resolve_llm_runtime
+from app.llm_runtime_settings import LlmOutputMode, LlmReasoningMode, LlmRole, resolve_llm_runtime
 
 
 TModel = TypeVar("TModel", bound=BaseModel)
@@ -61,7 +61,14 @@ async def request_fast_json(
     model = resolve_fast_research_model()
     timeout_seconds = min(30.0, max(2.0, float(model.timeout_seconds or timeout_seconds)))
     effective_max_tokens = min(int(max_tokens), int(model.max_tokens or max_tokens))
-    output_mode = effective_llm_output_mode(model).value
+    if model.output_mode is LlmOutputMode.INHERIT:
+        output_mode = (
+            LlmOutputMode.STRICT_SCHEMA.value
+            if model.structured_output_supported is True
+            else LlmOutputMode.JSON_OBJECT.value
+        )
+    else:
+        output_mode = model.output_mode.value
     if output_mode == "strict_schema":
         response_format = {
             "type": "json_schema",
