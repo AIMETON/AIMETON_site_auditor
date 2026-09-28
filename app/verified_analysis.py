@@ -23,6 +23,7 @@ from app.site_applicability import (
 
 from app.adaptive_external_sources import collect_external_sources_adaptive
 from app.dadata_report_bridge import (
+    discover_identity_candidate_with_dadata,
     enrich_identity_with_dadata,
     enrich_identifier_candidates_with_dadata,
 )
@@ -469,6 +470,7 @@ async def _run_verified_enriched_site_analysis(
     dadata_identifier_candidates_checked = (
         1 if (first_party_anchors.inn or first_party_anchors.ogrn) and dadata_result is not None else 0
     )
+    dadata_name_candidates_checked = 0
 
     full_plan = research_queries if research_queries is not None else query_plan(company_hint, anchors=anchors)
     progressive_search = bool(deep and research_queries is None)
@@ -580,6 +582,29 @@ async def _run_verified_enriched_site_analysis(
             if batch_facts and (batch_anchors.inn or batch_anchors.ogrn):
                 anchors = batch_anchors
                 batch_winner = True
+        elif not (first_party_anchors.inn or first_party_anchors.ogrn):
+            (
+                name_anchors,
+                name_result,
+                name_facts,
+                name_notes,
+                name_checked,
+            ) = await discover_identity_candidate_with_dadata(
+                first_party_anchors,
+                company_hint=identity_company_hint,
+            )
+            dadata_name_candidates_checked = name_checked
+            dadata_notes = [
+                note for note in dadata_notes
+                if "not_attempted" not in note
+            ]
+            dadata_notes.extend(name_notes)
+            if name_result is not None:
+                dadata_result = name_result
+            if name_facts and (name_anchors.inn or name_anchors.ogrn):
+                anchors = name_anchors
+                dadata_facts = name_facts
+                batch_winner = True
 
         identity_progress_state = (
             dadata_result.state.value
@@ -592,7 +617,7 @@ async def _run_verified_enriched_site_analysis(
         )
         identity_selected = bool(dadata_facts and (anchors.inn or anchors.ogrn))
         record_identity_resolution_progress(
-            candidates_checked=dadata_identifier_candidates_checked,
+            candidates_checked=dadata_identifier_candidates_checked + dadata_name_candidates_checked,
             resolution_state=identity_progress_state,
             selected_inn=anchors.inn if identity_selected else None,
             selected_ogrn=anchors.ogrn if identity_selected else None,
@@ -984,6 +1009,7 @@ async def _run_verified_enriched_site_analysis(
         "deterministic_first_party_identifier_count": len(deterministic_identity_facts),
         "late_identity_duplicates_merged": late_identity_duplicates_merged,
         "dadata_identifier_candidates_checked": dadata_identifier_candidates_checked,
+        "dadata_name_candidates_checked": dadata_name_candidates_checked,
     }
     if current_research():
         analysis.research_status.update(current_research().snapshot())

@@ -70,6 +70,21 @@
       "notes": "The party lookup can return company records linked to natural persons; downstream retention/use must be inventoried."
     },
     {
+      "id": "dadata_suggest_party",
+      "kind": "static_literal",
+      "endpoint": "https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/party",
+      "payload_classes": [
+        "company_name",
+        "company_region_or_address_hint",
+        "company_and_person_related_response_possible"
+      ],
+      "service_operator_country": "RU",
+      "downstream_country": "RU_or_contract_defined",
+      "personal_data_possible": true,
+      "review_state": "contract_and_retention_review",
+      "notes": "Name-based party suggestions are candidate discovery only; queries may contain company/region context and responses may include natural-person-linked company data."
+    },
+    {
       "id": "searxng",
       "kind": "env_base_url",
       "endpoint": null,

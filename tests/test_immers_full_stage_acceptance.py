@@ -53,3 +53,5 @@ def test_immers_acceptance_uses_production_inherited_output_policy_and_requires_
     assert '"effective_output_mode"' in driver
     assert 'commercial_reasoning_state") != "succeeded"' in driver
     assert "immers_extraction_returned_no_company_facts" in driver
+    assert '"dadata_identifier_candidates_checked"' in driver
+    assert '"dadata_name_candidates_checked"' in driver
