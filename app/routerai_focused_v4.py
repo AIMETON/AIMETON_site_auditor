@@ -176,10 +176,11 @@ def _focus_prompt(*, focus: str, instructions: str, context: str) -> str:
 - Неизвестное не заполняй догадкой.
 - Не делай финальный commercial synthesis.
 - Пиши компактно: это предварительный слой сжатия, который затем объединит отдельный LLM.
-- Это semantic shortlist, а не исчерпывающий реестр. Выбирай только самые значимые,
-  репрезентативные и независимые факты своего фокуса.
-- Нормальный объём — 5–10 элементов. Не заполняй массив до максимума только потому,
-  что схема это разрешает. Если 6 фактов описывают бизнес лучше, верни 6.
+- Это semantic shortlist, а не механический реестр. Включай каждый независимый факт,
+  который меняет понимание бизнеса в рамках фокуса, и не добавляй повтор ради объёма.
+- Количество элементов определяется только смысловым разнообразием evidence: прекращай
+  добавление, когда следующий элемент лишь повторяет уже сохранённый смысл; не отбрасывай
+  новый независимый факт ради целевого количества элементов.
 - Для products группируй конкретные процедуры/тарифные варианты в бизнес-различимые
   направления услуг; детали прайса остаются в raw evidence и не обязаны попадать сюда.
 
@@ -630,6 +631,7 @@ async def analyze_with_routerai_focused_v4(
         synthesis_error_phase = str(getattr(exc, "phase", "") or "")
         synthesis_error_descriptor = _safe_phase_failure_descriptor(exc)
 
+    focus_llm_calls = len(_FOCUS_PASSES) + (2 * recovery_subdivisions)
     result.research_status.update({
         "analysis_orchestration": "focused_v4_multipass",
         "compiled_context": context_stats.safe_dict(),
@@ -643,11 +645,11 @@ async def analyze_with_routerai_focused_v4(
         "focused_profile_recovery_failures": ",".join(recovery_failures),
         "profile_consolidation": consolidation.safe_dict(),
         "extraction_coverage": profile.coverage,
-        "core_llm_focus_calls": len(_FOCUS_PASSES),
+        "core_llm_focus_calls": focus_llm_calls,
         "core_llm_reconcile_calls": 0,
         "core_llm_merge_calls": 0,
         "core_llm_synthesis_calls": synthesis_calls,
-        "core_llm_calls": len(_FOCUS_PASSES) + synthesis_calls,
+        "core_llm_calls": focus_llm_calls + synthesis_calls,
         "commercial_reasoning_state": synthesis_state,
         "commercial_reasoning_error_phase": synthesis_error_phase,
         "commercial_reasoning_failure": synthesis_error_descriptor,
