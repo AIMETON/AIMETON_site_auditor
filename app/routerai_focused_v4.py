@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -26,6 +27,7 @@ from app.routerai_profile_extraction import (
 from app.routerai_split_synthesis import (
     BusinessMachineSynthesis,
     CommercialSynthesis,
+    SplitSynthesisPhaseError,
     _assemble_site_analysis,
 )
 from app.routerai_split_v2 import (
@@ -174,10 +176,11 @@ def _focus_prompt(*, focus: str, instructions: str, context: str) -> str:
 - Неизвестное не заполняй догадкой.
 - Не делай финальный commercial synthesis.
 - Пиши компактно: это предварительный слой сжатия, который затем объединит отдельный LLM.
-- Это semantic shortlist, а не исчерпывающий реестр. Выбирай только самые значимые,
-  репрезентативные и независимые факты своего фокуса.
-- Нормальный объём — 5–10 элементов. Не заполняй массив до максимума только потому,
-  что схема это разрешает. Если 6 фактов описывают бизнес лучше, верни 6.
+- Это semantic shortlist, а не механический реестр. Включай каждый независимый факт,
+  который меняет понимание бизнеса в рамках фокуса, и не добавляй повтор ради объёма.
+- Количество элементов определяется только смысловым разнообразием evidence: прекращай
+  добавление, когда следующий элемент лишь повторяет уже сохранённый смысл; не отбрасывай
+  новый независимый факт ради целевого количества элементов.
 - Для products группируй конкретные процедуры/тарифные варианты в бизнес-различимые
   направления услуг; детали прайса остаются в raw evidence и не обязаны попадать сюда.
 
@@ -187,6 +190,72 @@ FOCUS: {focus}
 PREPARED EVIDENCE CONTEXT:
 {context}
 """
+
+
+@dataclass(frozen=True)
+class FocusedPassOutcome:
+    results: tuple[FocusedPassBase, ...] = ()
+    recovery_failures: tuple[str, ...] = ()
+    subdivisions: int = 0
+
+    @property
+    def recovered(self) -> bool:
+        return self.subdivisions > 0 and bool(self.results)
+
+
+def _is_output_truncated(exc: Exception) -> bool:
+    return isinstance(exc, SplitSynthesisPhaseError) and exc.error_type == "OutputTruncated"
+
+
+def _split_focused_context(context: str) -> list[str]:
+    """Split only along existing evidence boundaries, never by an arbitrary char cap."""
+    try:
+        payload = json.loads(context)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    documents = list(payload.get("documents") or [])
+    root_text = str(payload.get("official_root_text") or "")
+
+    def serialized(*, root: str, docs: list[dict[str, Any]]) -> str:
+        child = dict(payload)
+        child["official_root_text"] = root
+        child["documents"] = docs
+        return json.dumps(child, ensure_ascii=False, separators=(",", ":"))
+
+    if len(documents) > 1:
+        midpoint = len(documents) // 2
+        return [
+            serialized(root=root_text, docs=documents[:midpoint]),
+            serialized(root="", docs=documents[midpoint:]),
+        ]
+
+    if documents and root_text:
+        return [
+            serialized(root=root_text, docs=[]),
+            serialized(root="", docs=documents),
+        ]
+
+    if len(documents) == 1 and not root_text:
+        document = dict(documents[0])
+        evidence_units = [
+            value for value in str(document.get("text") or "").splitlines()
+            if value.strip()
+        ]
+        if len(evidence_units) > 1:
+            midpoint = len(evidence_units) // 2
+            left = dict(document)
+            right = dict(document)
+            left["text"] = "\n".join(evidence_units[:midpoint])
+            right["text"] = "\n".join(evidence_units[midpoint:])
+            return [
+                serialized(root="", docs=[left]),
+                serialized(root="", docs=[right]),
+            ]
+
+    return []
 
 
 async def _run_focused_pass(
@@ -208,10 +277,68 @@ async def _run_focused_pass(
             instructions=instructions,
             context=context,
         ),
-        max_tokens=4_000,
+        max_tokens=None,
         timeout_seconds=120.0,
         reasoning_enabled=False,
     )
+
+
+async def _run_focused_pass_resilient(
+    *,
+    focus: str,
+    model_type: type[FocusedPassBase],
+    instructions: str,
+    context: str,
+) -> FocusedPassOutcome:
+    """Recover output truncation by recursively subdividing real evidence units.
+
+    There is no attempt-count threshold. Recursion stops only when a context no longer
+    has more than one semantic evidence boundary that can be subdivided.
+    """
+    try:
+        result = await _run_focused_pass(
+            focus=focus,
+            model_type=model_type,
+            instructions=instructions,
+            context=context,
+        )
+        return FocusedPassOutcome(results=(result,))
+    except Exception as exc:
+        if not _is_output_truncated(exc):
+            return FocusedPassOutcome(
+                recovery_failures=(_focus_failure_descriptor(exc),),
+            )
+
+        children = _split_focused_context(context)
+        if len(children) < 2:
+            return FocusedPassOutcome(
+                recovery_failures=("OutputTruncated@indivisible_evidence",),
+            )
+
+        child_outcomes = await asyncio.gather(*[
+            _run_focused_pass_resilient(
+                focus=focus,
+                model_type=model_type,
+                instructions=instructions,
+                context=child_context,
+            )
+            for child_context in children
+        ])
+        results = tuple(
+            result
+            for child in child_outcomes
+            for result in child.results
+        )
+        failures = tuple(
+            failure
+            for child in child_outcomes
+            for failure in child.recovery_failures
+        )
+        return FocusedPassOutcome(
+            results=results,
+            recovery_failures=failures,
+            subdivisions=1 + sum(child.subdivisions for child in child_outcomes),
+        )
 
 
 def _normalized_signal(item: BaseModel) -> EconomicSignal:
@@ -307,7 +434,7 @@ async def analyze_with_routerai_focused_v4(
     )
 
     tasks = [
-        _run_focused_pass(
+        _run_focused_pass_resilient(
             focus=focus,
             model_type=model_type,
             instructions=instructions,
@@ -315,27 +442,42 @@ async def analyze_with_routerai_focused_v4(
         )
         for focus, model_type, instructions in _FOCUS_PASSES
     ]
-    focus_outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+    focus_outcomes = await asyncio.gather(*tasks)
     focused_results: list[FocusedPassBase] = []
     focus_failures: list[str] = []
+    recovery_failures: list[str] = []
+    recovered_focuses: list[str] = []
+    recovery_subdivisions = 0
+    succeeded_focuses = 0
     for (focus, _, _), outcome in zip(_FOCUS_PASSES, focus_outcomes):
-        if isinstance(outcome, Exception):
-            focus_failures.append(f"{focus}:{_focus_failure_descriptor(outcome)}")
-            continue
-        focused_results.append(outcome)
+        recovery_subdivisions += outcome.subdivisions
+        if outcome.results:
+            succeeded_focuses += 1
+            focused_results.extend(outcome.results)
+            if outcome.recovered:
+                recovered_focuses.append(focus)
+        else:
+            descriptor = ",".join(outcome.recovery_failures) or "unknown_failure"
+            focus_failures.append(f"{focus}:{descriptor}")
+        recovery_failures.extend(
+            f"{focus}:{failure}" for failure in outcome.recovery_failures
+        )
 
     if control is not None:
         control.checkpoint(
             "focused_v4/outcomes",
             {
                 "requested": len(_FOCUS_PASSES),
-                "succeeded": len(focused_results),
-                "failed": len(focus_failures),
+                "succeeded": succeeded_focuses,
+                "failed": len(_FOCUS_PASSES) - succeeded_focuses,
                 "failures": list(focus_failures),
+                "recovered_focuses": list(recovered_focuses),
+                "recovery_subdivisions": recovery_subdivisions,
+                "recovery_failures": list(recovery_failures),
             },
         )
 
-    if len(focused_results) < 2:
+    if succeeded_focuses < 2:
         raise RuntimeError(
             "focused_profile_insufficient:"
             + ",".join(focus_failures)
@@ -353,8 +495,8 @@ async def analyze_with_routerai_focused_v4(
         source_chunks_total=context_stats.document_groups,
         source_chunks_processed=context_stats.document_groups,
         extraction_units_total=len(_FOCUS_PASSES),
-        extraction_units_processed=len(focused_results),
-        complete=len(focused_results) == len(_FOCUS_PASSES),
+        extraction_units_processed=succeeded_focuses,
+        complete=succeeded_focuses == len(_FOCUS_PASSES),
     )
     focused_facts = [
         CompanyFact.model_validate(item.model_dump(mode="python"))
@@ -489,21 +631,25 @@ async def analyze_with_routerai_focused_v4(
         synthesis_error_phase = str(getattr(exc, "phase", "") or "")
         synthesis_error_descriptor = _safe_phase_failure_descriptor(exc)
 
+    focus_llm_calls = len(_FOCUS_PASSES) + (2 * recovery_subdivisions)
     result.research_status.update({
         "analysis_orchestration": "focused_v4_multipass",
         "compiled_context": context_stats.safe_dict(),
         "compiled_context_record_id": compiled_context_record_id or "",
         "focused_profile_passes_requested": len(_FOCUS_PASSES),
-        "focused_profile_passes_succeeded": len(focused_results),
-        "focused_profile_passes_failed": len(focus_failures),
+        "focused_profile_passes_succeeded": succeeded_focuses,
+        "focused_profile_passes_failed": len(_FOCUS_PASSES) - succeeded_focuses,
         "focused_profile_failures": ",".join(focus_failures),
+        "focused_profile_recovered_focuses": ",".join(recovered_focuses),
+        "focused_profile_recovery_subdivisions": recovery_subdivisions,
+        "focused_profile_recovery_failures": ",".join(recovery_failures),
         "profile_consolidation": consolidation.safe_dict(),
         "extraction_coverage": profile.coverage,
-        "core_llm_focus_calls": len(_FOCUS_PASSES),
+        "core_llm_focus_calls": focus_llm_calls,
         "core_llm_reconcile_calls": 0,
         "core_llm_merge_calls": 0,
         "core_llm_synthesis_calls": synthesis_calls,
-        "core_llm_calls": len(_FOCUS_PASSES) + synthesis_calls,
+        "core_llm_calls": focus_llm_calls + synthesis_calls,
         "commercial_reasoning_state": synthesis_state,
         "commercial_reasoning_error_phase": synthesis_error_phase,
         "commercial_reasoning_failure": synthesis_error_descriptor,

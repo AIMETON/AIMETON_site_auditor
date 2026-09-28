@@ -97,7 +97,7 @@ async def request_json_strict(
     *,
     system: str,
     prompt: str,
-    max_tokens: int,
+    max_tokens: int | None,
     timeout_seconds: float,
     reasoning_enabled: bool | None = None,
     reasoning_effort: ReasoningEffort | None = None,
@@ -110,7 +110,10 @@ async def request_json_strict(
 
     inherited_timeout = max(float(timeout_seconds), 120.0) if deep_research_enabled() else float(timeout_seconds)
     timeout_seconds = float(runtime.timeout_seconds or inherited_timeout)
-    effective_max_tokens = min(int(max_tokens), int(runtime.max_tokens or max_tokens))
+    if max_tokens is None:
+        effective_max_tokens = int(runtime.max_tokens) if runtime.max_tokens is not None else None
+    else:
+        effective_max_tokens = min(int(max_tokens), int(runtime.max_tokens or max_tokens))
     output_mode = effective_llm_output_mode(runtime).value
     schema = model_type.model_json_schema()
     if output_mode == "strict_schema":
@@ -144,13 +147,14 @@ async def request_json_strict(
     payload = {
         "model": runtime.model,
         "temperature": 0.1 if runtime.temperature is None else runtime.temperature,
-        "max_tokens": effective_max_tokens,
         "response_format": response_format,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": effective_prompt},
         ],
     }
+    if effective_max_tokens is not None:
+        payload["max_tokens"] = effective_max_tokens
     if output_mode == "strict_schema" and runtime.provider == "routerai":
         payload["structured_outputs"] = True
 
@@ -226,7 +230,6 @@ async def request_json_strict(
             repair_payload = {
                 "model": runtime.model,
                 "temperature": 0.0,
-                "max_tokens": effective_max_tokens,
                 "response_format": response_format,
                 "messages": [
                     {
@@ -240,6 +243,8 @@ async def request_json_strict(
                 ],
                 "reasoning": {"enabled": False},
             }
+            if effective_max_tokens is not None:
+                repair_payload["max_tokens"] = effective_max_tokens
             if output_mode == "strict_schema" and runtime.provider == "routerai":
                 repair_payload["structured_outputs"] = True
             record_llm_start(
