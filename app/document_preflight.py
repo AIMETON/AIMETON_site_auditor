@@ -7,9 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.analysis_mode import compiled_two_call_enabled, focused_multipass_enabled, minimal_llm_routing_enabled
 from app.fast_research_model import request_fast_json
-from app.research_control import current_research, deep_research_enabled
+from app.research_control import current_research
 
 LARGE_DOCUMENT_CHARS = 48_000
 
@@ -57,16 +56,6 @@ async def screen_document(fetched, *, company_name: str, anchors, request_json=N
     size = len(fetched.normalized_text)
     if size < LARGE_DOCUMENT_CHARS:
         return PreflightResult(decision="include", reason="small_document", document_chars=size)
-    if (
-        deep_research_enabled()
-        and (focused_multipass_enabled() or compiled_two_call_enabled())
-        and minimal_llm_routing_enabled()
-    ):
-        return PreflightResult(
-            decision="include",
-            reason="compiled_deep_no_llm_preflight",
-            document_chars=size,
-        )
     request = request_json or request_fast_json
     sampled = passes = 0
     votes = []
