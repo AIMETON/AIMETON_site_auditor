@@ -359,3 +359,115 @@ async def test_no_identifier_path_uses_name_candidate_fallback_and_registry_foll
         kind == "registry" and '"7707083893"' in query and "egrul.nalog.ru" in query
         for kind, query in followup_queries
     )
+
+
+
+@pytest.mark.asyncio
+async def test_late_llm_identity_retry_uses_normalized_brand_and_geography(monkeypatch):
+    calls = []
+
+    async def collect(*args, **kwargs):
+        return [], [], audit.SearchDiagnostics(state="success")
+
+    async def triage(items, **kwargs):
+        return items, audit.SearchTriageSummary(
+            total=len(items), selected=len(items), rejected=0
+        )
+
+    async def verify(*args, **kwargs):
+        return []
+
+    async def no_identifier(anchors):
+        return anchors, None, [], ["DaData registry mirror: not_attempted"]
+
+    async def discover(anchors, *, company_hint):
+        calls.append((company_hint, anchors.primary_region))
+        if company_hint != "Альфа Дент":
+            return anchors, DaDataLookupResult(
+                state=RegistryMirrorState.UNRESOLVED,
+                query=company_hint,
+                records=[],
+                authority_verified=False,
+            ), [], ["no early candidates"], 0
+
+        updated = IdentityAnchors(
+            domain=anchors.domain,
+            legal_name='ООО "АЛЬФА ДЕНТ"',
+            inn="7707083893",
+            ogrn="1027700132195",
+            cities=anchors.cities,
+            phones=anchors.phones,
+        )
+        result = DaDataLookupResult(
+            state=RegistryMirrorState.VERIFIED,
+            query="7707083893",
+            records=[],
+            authority_verified=False,
+        )
+        facts = [
+            CompanyFact(
+                field="legal_name",
+                value='ООО "АЛЬФА ДЕНТ"',
+                confidence="Средняя",
+                source_ids=[],
+                note="DaData registry mirror; authority_verified=false",
+            ),
+            CompanyFact(
+                field="inn",
+                value="7707083893",
+                confidence="Средняя",
+                source_ids=[],
+                note="DaData registry mirror; authority_verified=false",
+            ),
+            CompanyFact(
+                field="ogrn",
+                value="1027700132195",
+                confidence="Средняя",
+                source_ids=[],
+                note="DaData registry mirror; authority_verified=false",
+            ),
+        ]
+        return updated, result, facts, ["late brand selected"], 1
+
+    async def synthesize(url, title, text, sources):
+        result = heuristic_analysis(url, title, text)
+        result.company_name = "Альфа Дент"
+        result.company_facts = [
+            CompanyFact(
+                field="brand_name",
+                value="Альфа Дент",
+                confidence="Высокая",
+                source_ids=[],
+            ),
+            CompanyFact(
+                field="geography",
+                value="Красноярск",
+                confidence="Высокая",
+                source_ids=[],
+            ),
+        ]
+        return result
+
+    monkeypatch.setattr(audit, "collect_external_sources_adaptive", collect)
+    monkeypatch.setattr(audit, "triage_search_candidates", triage)
+    monkeypatch.setattr(audit, "verify_external_sources", verify)
+    monkeypatch.setattr(audit, "enrich_identity_with_dadata", no_identifier)
+    monkeypatch.setattr(audit, "discover_identity_candidate_with_dadata", discover)
+    monkeypatch.setattr(audit, "analyze_with_routerai", synthesize)
+
+    result = await audit._run_verified_enriched_site_analysis(
+        "https://example.org/",
+        "Лучшая стоматология города | Альфа Дент",
+        "Лечение зубов и контакты клиники.",
+    )
+
+    assert calls[0][0] == "Лучшая стоматология города | Альфа Дент"
+    assert calls[-1] == ("Альфа Дент", "Красноярск")
+    assert result.research_status["dadata_name_queries_attempted"] == 2
+    assert result.research_status["dadata_name_candidates_checked"] == 1
+    assert result.research_status["late_identity_retry_attempted"] is True
+    assert result.research_status["late_identity_retry_succeeded"] is True
+    assert result.readiness.provider_states["dadata"] == "registry_mirror_verified"
+    facts = {(fact.field, str(fact.value)) for fact in result.company_facts}
+    assert ("inn", "7707083893") in facts
+    assert ("ogrn", "1027700132195") in facts
