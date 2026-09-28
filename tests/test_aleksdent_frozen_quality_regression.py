@@ -13,10 +13,7 @@ from app.external_verification import document_matches_entity
 from app.models import CompanyFact, EconomicSignal, IntelligenceSource
 from app.profile_consolidation import consolidate_merged_profile
 from app.reasoning_dossier import build_reasoning_dossier
-from app.research_coverage_controller import (
-    DEFAULT_DEEP_RESULTS_PER_QUERY,
-    initial_wave,
-)
+from app.research_coverage_controller import initial_wave
 from app.routerai_evidence_units import EvidenceCoverage
 from app.routerai_profile_extraction import MergedProfileExtraction
 
@@ -39,21 +36,23 @@ def _anchors(case: dict) -> IdentityAnchors:
     )
 
 
-def test_frozen_case_search_fanout_is_bounded_before_fetch(case: dict) -> None:
+def test_frozen_case_initial_search_targets_core_semantic_directions(case: dict) -> None:
     plan = query_plan(case["target"]["company_name"], anchors=_anchors(case))
     wave = initial_wave(plan)
-    acceptance = case["acceptance"]
 
     assert len(plan) == 20
-    assert len(wave) == acceptance["max_initial_core_queries"] == 6
-    assert DEFAULT_DEEP_RESULTS_PER_QUERY == acceptance["max_deep_results_per_query"] == 8
-    current_initial_ceiling = len(wave) * DEFAULT_DEEP_RESULTS_PER_QUERY
-    assert current_initial_ceiling == acceptance["max_initial_discovery_results"] == 48
+    assert [kind for kind, _ in wave] == [
+        "official",
+        "contact",
+        "registry",
+        "ownership",
+        "finance",
+        "other",
+    ]
 
-    # The old deep policy was 20 queries × 100 results before relevance was known.
-    old_initial_ceiling = len(plan) * 100
-    assert old_initial_ceiling / current_initial_ceiling > 40
-
+    # Regression context: the old implementation expanded volume before relevance
+    # was known. Current continuation is evaluated by semantic gain between waves,
+    # not by a hard-coded discovery-result ceiling.
     baseline = case["bad_run_baseline"]
     assert baseline["documents"] == 586
     assert baseline["llm_calls"] == 680
