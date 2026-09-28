@@ -343,11 +343,9 @@ def _structural_semantic_gain(
         before_state = before.states.get(vertical, "missing")
         if _coverage_state_rank(after_state) > _coverage_state_rank(before_state):
             gains.append(f"{vertical}:{before_state}->{after_state}")
-            continue
-        before_docs = before.qualifying_documents_by_vertical.get(vertical, 0)
-        after_docs = after.qualifying_documents_by_vertical.get(vertical, 0)
-        if after_docs > before_docs:
-            gains.append(f"{vertical}:authority_evidence_added")
+    # More documents inside an already-covered vertical are not semantic progress
+    # by themselves. Corroboration/authority gain there must be judged from meaning
+    # by the semantic model, not inferred from a counter increase.
     return bool(gains), gains
 
 
