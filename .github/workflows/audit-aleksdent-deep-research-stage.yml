@@ -67,11 +67,15 @@ jobs:
           import json, sys
           payload = json.load(open(sys.argv[1], encoding="utf-8"))
           extraction = payload["resolved"]["extraction"]
-          assert extraction["provider"] == "routerai", extraction
-          assert extraction["model"] == "~deepseek/deepseek-v4-flash-latest", extraction
+          provider = str(extraction.get("provider") or "").strip()
+          model = str(extraction.get("model") or "").strip()
+          assert extraction.get("configured") is True, extraction
+          assert provider, extraction
+          assert model, extraction
           print("extraction_profile=" + str(extraction.get("profile_name") or "unknown"))
-          print("extraction_model=" + extraction["model"])
-          print("extraction_configured=" + str(extraction.get("configured", False)).lower())
+          print("extraction_provider=" + provider)
+          print("extraction_model=" + model)
+          print("extraction_configured=true")
           PY
           echo "cookie=$cookie" >> "$GITHUB_OUTPUT"
           echo "model_snapshot=$model_snapshot" >> "$GITHUB_OUTPUT"

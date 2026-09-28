@@ -35,9 +35,9 @@ The equivalent regression path is therefore separate:
 - command: `/audit-aleksdent-deep-stage <exact-stage-sha>`;
 - workflow: `.github/workflows/audit-aleksdent-deep-research-stage.yml`;
 - Stage bootstrap admin authenticates through the normal login endpoint; credentials and cookies are never published;
-- before any research spend, `GET /api/admin/llm-settings` must resolve Extraction to `~deepseek/deepseek-v4-flash-latest`;
+- before any research spend, `GET /api/admin/llm-settings` must resolve Extraction to a configured provider/model; the exact runtime selection is recorded in sanitized evidence instead of being pinned in the regression harness;
 - the analysis starts through `POST /api/analyze/start` with `deep_research=true` and `unlimited_llm_budget=true`;
-- the workflow has a 12-minute polling window and requests cooperative stop if it has not reached a terminal state;
+- the workflow observes the product terminal state without injecting an acceptance-only cooperative stop;
 - published evidence is a bounded sanitized comparison projection, not the raw provider response.
 
 The additional deep run is part of the same owner-requested regression validation: the prior legacy-mode run established a useful failure signal but did not satisfy the requested same-mode comparison.
