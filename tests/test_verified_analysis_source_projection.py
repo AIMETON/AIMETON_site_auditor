@@ -3,6 +3,8 @@ from types import SimpleNamespace
 import pytest
 
 from app import verified_analysis as audit
+from app.entity_resolution.dadata import DaDataLookupResult, RegistryMirrorState
+from app.external_sources import IdentityAnchors
 from app.heuristics import heuristic_analysis
 from app.models import CompanyFact, EvidenceSource, IntelligenceSource
 
@@ -269,3 +271,91 @@ async def test_audit_llm_fallback_attributes_the_resolved_provider(monkeypatch):
 
     assert result.readiness.provider_states["immers"] == "failed"
     assert "routerai" not in result.readiness.provider_states
+
+
+
+@pytest.mark.asyncio
+async def test_no_identifier_path_uses_name_candidate_fallback_and_registry_followup(monkeypatch):
+    followup_queries = []
+
+    async def collect(*args, **kwargs):
+        overrides = kwargs.get("query_overrides")
+        if overrides:
+            followup_queries.extend(overrides)
+        return [], [], audit.SearchDiagnostics(state="success")
+
+    async def triage(items, **kwargs):
+        return items, audit.SearchTriageSummary(
+            total=len(items), selected=len(items), rejected=0
+        )
+
+    async def verify(*args, **kwargs):
+        return []
+
+    async def no_identifier(anchors):
+        return anchors, None, [], ["DaData registry mirror: not_attempted"]
+
+    async def name_fallback(anchors, *, company_hint):
+        assert company_hint
+        updated = IdentityAnchors(
+            domain=anchors.domain,
+            legal_name='ООО "АЛЬФА ДЕНТ"',
+            inn="7707083893",
+            ogrn="1027700132195",
+            cities=anchors.cities,
+            phones=anchors.phones,
+        )
+        result = DaDataLookupResult(
+            state=RegistryMirrorState.VERIFIED,
+            query="7707083893",
+            records=[],
+            authority_verified=False,
+        )
+        facts = [
+            CompanyFact(
+                field="legal_name",
+                value='ООО "АЛЬФА ДЕНТ"',
+                confidence="Средняя",
+                source_ids=[],
+                note="DaData registry mirror; authority_verified=false",
+            ),
+            CompanyFact(
+                field="inn",
+                value="7707083893",
+                confidence="Средняя",
+                source_ids=[],
+                note="DaData registry mirror; authority_verified=false",
+            ),
+            CompanyFact(
+                field="ogrn",
+                value="1027700132195",
+                confidence="Средняя",
+                source_ids=[],
+                note="DaData registry mirror; authority_verified=false",
+            ),
+        ]
+        return updated, result, facts, ["name fallback selected"], 2
+
+    async def synthesize(url, title, text, sources):
+        return heuristic_analysis(url, title, text)
+
+    monkeypatch.setattr(audit, "collect_external_sources_adaptive", collect)
+    monkeypatch.setattr(audit, "triage_search_candidates", triage)
+    monkeypatch.setattr(audit, "verify_external_sources", verify)
+    monkeypatch.setattr(audit, "enrich_identity_with_dadata", no_identifier)
+    monkeypatch.setattr(audit, "discover_identity_candidate_with_dadata", name_fallback)
+    monkeypatch.setattr(audit, "analyze_with_routerai", synthesize)
+
+    result = await audit._run_verified_enriched_site_analysis(
+        "https://example.org/",
+        "Альфа Дент | Стоматология",
+        "Стоматология Альфа Дент",
+    )
+
+    assert result.research_status["dadata_identifier_candidates_checked"] == 0
+    assert result.research_status["dadata_name_candidates_checked"] == 2
+    assert result.readiness.provider_states["dadata"] == "registry_mirror_verified"
+    assert any(
+        kind == "registry" and '"7707083893"' in query and "egrul.nalog.ru" in query
+        for kind, query in followup_queries
+    )
