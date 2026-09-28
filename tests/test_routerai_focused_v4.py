@@ -259,22 +259,23 @@ def test_focused_business_summary_falls_back_when_offerings_pass_missing() -> No
 
 def test_focus_failure_descriptor_exposes_safe_validation_location_only() -> None:
     try:
-        focused.FocusedEconomicSignal(
-            signal="x" * 241,
-            evidence="evidence",
-            business_effect="effect",
-            source_ids=["S1"],
+        focused.IdentityFocusedSlice(
+            company_facts=[{
+                "field": "products",
+                "value": "Имплантация",
+                "source_ids": ["S1"],
+            }],
         )
     except Exception as cause:
-        wrapped = SplitSynthesisPhaseError("profile_focus_signals_risks_change", "ValidationError")
+        wrapped = SplitSynthesisPhaseError("profile_focus_identity_governance", "ValidationError")
         wrapped.__cause__ = cause
     else:
         raise AssertionError("expected validation error")
 
     descriptor = focused._focus_failure_descriptor(wrapped)
 
-    assert descriptor == "ValidationError@signal:string_too_long"
-    assert "x" * 20 not in descriptor
+    assert descriptor == "ValidationError@company_facts.0.field:literal_error"
+    assert "Имплантация" not in descriptor
 
 
 def test_focused_summary_preserves_semantically_useful_long_text() -> None:
