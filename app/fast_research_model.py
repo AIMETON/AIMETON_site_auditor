@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from app.research_control import record_llm_failure, record_llm_start, record_llm_success, record_llm_usage
 from app.research_execution import operation_timeout, research_timed
 from app.llm_runtime_settings import LlmReasoningMode, LlmRole, effective_llm_transport_mode, resolve_llm_runtime
+from app.openai_chat_compat import json_object
 
 
 TModel = TypeVar("TModel", bound=BaseModel)
@@ -147,7 +148,7 @@ async def request_fast_json(
         choice = body["choices"][0]
         if choice.get("finish_reason") == "length":
             raise FastResearchModelUnavailable(f"{phase}:output_truncated")
-        result = model_type.model_validate(json.loads(choice["message"]["content"]))
+        result = model_type.model_validate(json_object(choice["message"]))
         record_llm_success(phase=phase)
         return result
     except FastResearchModelUnavailable as exc:
