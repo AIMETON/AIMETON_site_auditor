@@ -359,3 +359,66 @@ def test_immers_qwen_probe_omits_unqualified_provider_controls(monkeypatch, tmp_
     assert "response_format" not in captured["payload"]
     assert "reasoning" not in captured["payload"]
     assert "The response must match this schema" in captured["payload"]["messages"][0]["content"]
+
+
+def test_immers_probe_accepts_openai_text_parts(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AIMETON_RUNTIME_DB", str(tmp_path / "runtime.sqlite3"))
+    monkeypatch.setenv("IMMERS_API_KEY", "immers-key")
+    monkeypatch.setenv("IMMERS_BASE_URL", "https://chat.immers.cloud/v1/endpoints/generate")
+    monkeypatch.setenv("IMMERS_DEFAULT_MODEL", "deepseek-v4-flash-0731")
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {
+                "model": "qwen3.6-35b-a3b",
+                "choices": [{
+                    "finish_reason": "stop",
+                    "message": {
+                        "content": [{
+                            "type": "text",
+                            "text": '```json\n{"ok":true,"message":"ready"}\n```',
+                        }]
+                    },
+                }],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            }
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, *, headers, json):
+            return FakeResponse()
+
+    monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout: FakeClient())
+    csrf = "csrf-test"
+    response = _client().post(
+        "/api/admin/llm-settings/test",
+        json={
+            "role": "fast_research",
+            "settings": {
+                "profile_name": "immers-primary",
+                "model_id": "qwen3.6-35b-a3b",
+                "temperature": 0,
+                "max_tokens": 256,
+                "timeout_seconds": 30,
+                "output_mode": "inherit",
+                "reasoning_mode": "off",
+                "reasoning_effort": None,
+            },
+        },
+        cookies={"aimeton_csrf": csrf},
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["structured_output_valid"] is True
+    assert body["effective_output_mode"] == "prompt_json"
