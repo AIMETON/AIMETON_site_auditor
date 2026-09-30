@@ -24,6 +24,7 @@ from app.llm_runtime_settings import (
     resolve_llm_runtime,
 )
 from app.inference_provider_registry import runtime_provider_profiles
+from app.openai_chat_compat import json_object
 from app.search_observer_models import OBSERVER_MODEL_PROFILES
 
 
@@ -246,8 +247,7 @@ async def test_llm_settings(
             response.raise_for_status()
         body = response.json()
         choice = body["choices"][0]
-        content = choice["message"]["content"]
-        parsed = _ProbeSchema.model_validate(json.loads(content))
+        parsed = _ProbeSchema.model_validate(json_object(choice["message"]))
         usage = body.get("usage") or {}
         return AdminLlmProbeResult(
             ok=bool(parsed.ok),
