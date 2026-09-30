@@ -225,7 +225,7 @@ def test_fast_direct_provider_accepts_openai_text_parts_and_json_fence(monkeypat
                     "message": {
                         "content": [{
                             "type": "text",
-                            "text": "```json\n{\\\"decision\\\":\\\"include\\\"}\n```",
+                            "text": '```json\n{"decision":"include"}\n```',
                         }]
                     },
                 }],
