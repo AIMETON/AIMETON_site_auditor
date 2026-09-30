@@ -201,3 +201,59 @@ def test_fast_direct_provider_unknown_json_capability_uses_prompt_json(monkeypat
     assert "reasoning" not in captured["payload"]
     system = captured["payload"]["messages"][0]["content"]
     assert "Return only valid JSON matching this schema" in system
+
+
+def test_fast_direct_provider_accepts_openai_text_parts_and_json_fence(monkeypatch) -> None:
+    direct = _runtime().model_copy(update={
+        "profile_name": "immers-primary",
+        "provider": "immers",
+        "base_url": "https://chat.immers.cloud/v1/endpoints/generate",
+        "model": "qwen3.6-35b-a3b",
+        "structured_output_supported": None,
+        "json_mode_supported": None,
+        "reasoning_mode": LlmReasoningMode.OFF,
+    })
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [{
+                    "finish_reason": "stop",
+                    "message": {
+                        "content": [{
+                            "type": "text",
+                            "text": "```json\n{\\\"decision\\\":\\\"include\\\"}\n```",
+                        }]
+                    },
+                }],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 4},
+            }
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, *, headers, json):
+            return Response()
+
+    monkeypatch.setattr(fast, "resolve_fast_research_model", lambda: direct)
+    monkeypatch.setattr(fast.httpx, "AsyncClient", lambda timeout: Client())
+
+    result = asyncio.run(
+        fast.request_fast_json(
+            "fast_probe",
+            _Decision,
+            system="classify",
+            prompt="input",
+            max_tokens=200,
+            timeout_seconds=5,
+        )
+    )
+
+    assert result.decision == "include"
