@@ -379,7 +379,7 @@ def test_immers_probe_accepts_openai_text_parts(monkeypatch, tmp_path) -> None:
                     "message": {
                         "content": [{
                             "type": "text",
-                            "text": "```json\n{\\\"ok\\\":true,\\\"message\\\":\\\"ready\\\"}\n```",
+                            "text": '```json\n{"ok":true,"message":"ready"}\n```',
                         }]
                     },
                 }],
