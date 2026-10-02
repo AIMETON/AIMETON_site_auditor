@@ -11,6 +11,8 @@ from typing import Any
 STAGE_URL = os.environ.get("STAGE_URL", "https://stage-auditor.aimeton.ru").rstrip("/")
 USERNAME = os.environ["AIMETON_BOOTSTRAP_ADMIN_USERNAME"]
 PASSWORD = os.environ["AIMETON_BOOTSTRAP_ADMIN_PASSWORD"]
+PROBE_ATTEMPTS = 2
+RETRIABLE_PROBE_ERRORS = {"ChatContentError", "JSONDecodeError", "ValidationError"}
 
 
 def _opener() -> tuple[urllib.request.OpenerDirector, http.cookiejar.CookieJar]:
@@ -106,27 +108,43 @@ def main() -> int:
     snapshot = _json_request(opener, "GET", "/api/admin/llm-settings", timeout=30)
     candidate = _candidate(snapshot["record"]["settings"])
 
-    probes: dict[str, dict[str, Any]] = {}
+    probes: dict[str, list[dict[str, Any]]] = {}
     for role in ("fast_research", "extraction"):
-        probe = _json_request(
-            opener,
-            "POST",
-            "/api/admin/llm-settings/test",
-            csrf=csrf,
-            payload={"role": role, "settings": candidate[role]},
-            timeout=60,
-        )
-        probes[role] = _safe_probe(probe)
-        print(json.dumps({"event": "immers_probe", "probe": probes[role]}, ensure_ascii=False, sort_keys=True), flush=True)
-        if not probe.get("ok") or probe.get("provider") != "immers":
-            raise RuntimeError(f"immers_probe_failed:{role}")
         expected_model = (
             "qwen3.6-35b-a3b"
             if role == "fast_research"
             else "deepseek-v4-flash-0731"
         )
-        if probe.get("resolved_model") != expected_model:
-            raise RuntimeError(f"immers_probe_wrong_model:{role}")
+        attempts: list[dict[str, Any]] = []
+        probe: dict[str, Any] | None = None
+        for attempt in range(1, PROBE_ATTEMPTS + 1):
+            probe = _json_request(
+                opener,
+                "POST",
+                "/api/admin/llm-settings/test",
+                csrf=csrf,
+                payload={"role": role, "settings": candidate[role]},
+                timeout=60,
+            )
+            safe = _safe_probe(probe)
+            attempts.append(safe)
+            print(
+                json.dumps(
+                    {"event": "immers_probe", "attempt": attempt, "probe": safe},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+            if probe.get("provider") != "immers":
+                raise RuntimeError(f"immers_probe_wrong_provider:{role}")
+            if probe.get("resolved_model") != expected_model:
+                raise RuntimeError(f"immers_probe_wrong_model:{role}")
+            if probe.get("ok"):
+                break
+            if probe.get("error_code") not in RETRIABLE_PROBE_ERRORS or attempt == PROBE_ATTEMPTS:
+                raise RuntimeError(f"immers_probe_failed:{role}")
+        probes[role] = attempts
 
     saved = _json_request(
         opener,

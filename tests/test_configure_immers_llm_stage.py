@@ -40,3 +40,15 @@ def test_immers_stage_configuration_probes_fast_and_heavy_models_before_save():
     assert '"/api/admin/llm-settings/test"' in driver
     assert "immers_probe_failed" in driver
     assert "resolved_model" in driver
+
+
+def test_immers_stage_probe_retry_is_bounded_and_content_only():
+    driver = DRIVER.read_text(encoding="utf-8")
+    assert "PROBE_ATTEMPTS = 2" in driver
+    assert '"ChatContentError"' in driver
+    assert '"JSONDecodeError"' in driver
+    assert '"ValidationError"' in driver
+    assert "for attempt in range(1, PROBE_ATTEMPTS + 1):" in driver
+    assert "immers_probe_wrong_provider" in driver
+    assert "immers_probe_wrong_model" in driver
+    assert "attempt == PROBE_ATTEMPTS" in driver
