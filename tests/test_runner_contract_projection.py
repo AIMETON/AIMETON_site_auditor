@@ -34,8 +34,8 @@ class RunnerProjectionTests(unittest.TestCase):
     def test_generated_projection_has_exact_canonical_provenance(self):
         projection, digest = self.projection_and_digest()
         generation = projection["generation"]
-        self.assertEqual(generation["infrastructure_repository"], "Dimar4713/aimeton-infrastructure")
-        self.assertEqual(generation["infrastructure_source_sha"], "b43a43c593df61eadc8e74151dc1ad68b4d0fc8e")
+        self.assertEqual(generation["infrastructure_repository"], "AIMETON/aimeton-infrastructure")
+        self.assertEqual(generation["infrastructure_source_sha"], "07e33bf276ea4bc724124dbc77f3148a80c4f4ac")
         self.assertEqual(len(digest), 64)
         self.assertEqual(
             {source["path"] for source in generation["sources"]},

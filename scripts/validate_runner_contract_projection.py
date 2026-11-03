@@ -35,7 +35,7 @@ def load_projection(path: Path = PROJECTION_PATH) -> dict[str, Any]:
     generation = projection.get("generation")
     if not isinstance(generation, dict) or generation.get("version") != 2:
         raise ProjectionError("projection generation version is invalid")
-    if generation.get("infrastructure_repository") != "Dimar4713/aimeton-infrastructure":
+    if generation.get("infrastructure_repository") != "AIMETON/aimeton-infrastructure":
         raise ProjectionError("projection canonical repository is invalid")
     if not str(generation.get("generated_at", "")).endswith("Z"):
         raise ProjectionError("projection generation timestamp must be UTC")
