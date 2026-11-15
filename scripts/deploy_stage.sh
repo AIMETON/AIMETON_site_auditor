@@ -42,6 +42,7 @@ fail() {
 [[ "$FAILED_KEEP" =~ ^[0-9]+$ ]] || fail "FAILED_KEEP must be an integer"
 [[ -d "$STACK_DIR" ]] || fail "Stack directory not found: $STACK_DIR"
 [[ -f "$STACK_DIR/docker-compose.yml" ]] || fail "docker-compose.yml not found in $STACK_DIR"
+[[ -f "$STACK_DIR/Dockerfile" ]] || fail "Dockerfile not found in $STACK_DIR"
 [[ -d "$SOURCE_DIR" ]] || fail "Source directory not found: $SOURCE_DIR"
 [[ -f "$SOURCE_DIR/app/main.py" ]] || fail "app/main.py missing from source"
 [[ -f "$SOURCE_DIR/app/mcp_server.py" ]] || fail "app/mcp_server.py missing from source"
@@ -62,7 +63,6 @@ exec 9>"$LOCK_FILE"
 flock -n 9 || fail "Another stage deployment is already running"
 
 DEPLOY_ROOT="$STACK_DIR/.deployments"
-STAGING_DIR="$DEPLOY_ROOT/app-source.$DEPLOY_SHA.$$.staging"
 BACKUP_DIR="$DEPLOY_ROOT/app-source.backup.$(date -u +'%Y%m%dT%H%M%SZ').${DEPLOY_SHA:0:12}"
 FAILED_DIR="$DEPLOY_ROOT/app-source.failed.$(date -u +'%Y%m%dT%H%M%SZ').${DEPLOY_SHA:0:12}"
 CURRENT_DIR="$STACK_DIR/app-source"
@@ -74,6 +74,10 @@ PREVIOUS_SHA="unknown"
 SWITCHED=0
 
 mkdir -p "$DEPLOY_ROOT"
+BUILD_DIR="$(mktemp -d "$DEPLOY_ROOT/build.$DEPLOY_SHA.XXXXXX")"
+STAGING_DIR="$BUILD_DIR/app-source"
+CANDIDATE_IMAGE="aimeton-auditor-stage-candidate:$DEPLOY_SHA"
+trap 'docker image rm "$CANDIDATE_IMAGE" >/dev/null 2>&1 || true; rm -rf -- "$BUILD_DIR"' EXIT
 
 configure_runtime_secrets() {
   local secret_tmp override_tmp
@@ -167,14 +171,14 @@ smoke_test() {
   local headers body status location
 
   log "Smoke: GET /api/health"
-  body="$(curl --fail --silent --show-error --max-time 30 "$STAGE_URL/api/health")"
-  python3 - "$body" <<'PY'
+  body="$(curl --fail --silent --show-error --max-time 30 "$STAGE_URL/api/health")" || return 1
+  python3 - "$body" "$DEPLOY_SHA" <<'PY' || return 1
 import json
 import sys
 payload = json.loads(sys.argv[1])
 assert payload.get("status") == "ok", payload
 deployment_sha = payload.get("deployment_sha")
-assert deployment_sha and len(deployment_sha) == 40, payload
+assert deployment_sha == sys.argv[2], payload
 print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
 PY
 
@@ -192,7 +196,7 @@ PY
     -H 'Content-Type: application/json' \
     -H 'Accept: application/json, text/event-stream' \
     --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"stage-deploy-smoke","version":"1.0"}}}' \
-    "$STAGE_URL/mcp/")"
+    "$STAGE_URL/mcp/")" || return 1
   python3 - "$body" <<'PY'
 import json
 import sys
@@ -216,11 +220,11 @@ rollback() {
     fi
     mv "$BACKUP_DIR" "$CURRENT_DIR"
     printf '%s\n' "$PREVIOUS_SHA" > "$SHA_FILE"
+    SWITCHED=0
 
-    compose_stack build "$SERVICE"
-    compose_stack up -d --force-recreate "$SERVICE"
-
-    if wait_healthy; then
+    if docker image tag "$PREVIOUS_IMAGE_ID" "$SERVICE_IMAGE" \
+      && compose_stack up -d --no-build --force-recreate "$SERVICE" \
+      && wait_healthy; then
       log "Rollback restored SHA: $PREVIOUS_SHA"
     else
       log "CRITICAL: rollback container did not become healthy"
@@ -260,7 +264,6 @@ cleanup_by_count() {
 trap 'rollback "unexpected failure at line $LINENO"' ERR
 
 log "Preparing deployment SHA $DEPLOY_SHA from $SOURCE_DIR"
-rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
 
 tar \
@@ -282,6 +285,45 @@ printf '%s\n' "$DEPLOY_SHA" > "$STAGING_DIR/.aimeton-deploy-sha"
 grep -q 'stage-auditor.aimeton.ru' "$STAGING_DIR/app/mcp_server.py" || fail "Stage MCP host allowlist missing"
 grep -q 'Location.*\/mcp\/' "$STAGING_DIR/app/main.py" || fail "Relative MCP redirect implementation missing"
 
+# Keep the host's Dockerfile as the template, and build only the candidate
+# source bundle. Install the native library before the Playwright driver runs.
+python3 - "$STACK_DIR/Dockerfile" "$BUILD_DIR/Dockerfile" <<'PY'
+from pathlib import Path
+import sys
+
+template, candidate = map(Path, sys.argv[1:])
+dockerfile = template.read_text(encoding="utf-8")
+packages = "apt-get install -y --no-install-recommends curl ca-certificates"
+if dockerfile.count(packages) != 1:
+    raise SystemExit("Unexpected stage Dockerfile OS dependency step")
+fixed = packages + " libatomic1"
+if fixed not in dockerfile:
+    dockerfile = dockerfile.replace(packages, fixed, 1)
+candidate.write_text(dockerfile, encoding="utf-8")
+PY
+if [[ -f "$STACK_DIR/.dockerignore" ]]; then
+  cp "$STACK_DIR/.dockerignore" "$BUILD_DIR/.dockerignore"
+fi
+cat > "$BUILD_DIR/compose.build.yml" <<EOF
+services:
+  $SERVICE:
+    image: "$CANDIDATE_IMAGE"
+    build:
+      context: "$BUILD_DIR"
+      dockerfile: Dockerfile
+EOF
+
+PREVIOUS_IMAGE_ID="$(docker inspect --format '{{.Image}}' "$CONTAINER")"
+[[ "$PREVIOUS_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "Invalid running stage image identity"
+SERVICE_IMAGE="$(cd "$STACK_DIR" && docker compose -f docker-compose.yml config --images "$SERVICE")"
+[[ -n "$SERVICE_IMAGE" && "$SERVICE_IMAGE" != *$'\n'* ]] || fail "Expected one stage service image"
+
+log "Building Docker service from $DEPLOY_SHA before switching the stage bundle"
+(
+  cd "$STACK_DIR"
+  docker compose -f docker-compose.yml -f "$BUILD_DIR/compose.build.yml" build "$SERVICE"
+)
+
 configure_runtime_secrets
 compose_stack config --quiet
 
@@ -293,9 +335,9 @@ mv "$STAGING_DIR" "$CURRENT_DIR"
 printf '%s\n' "$DEPLOY_SHA" > "$SHA_FILE"
 SWITCHED=1
 
-log "Building and recreating Docker service: $SERVICE"
-compose_stack build "$SERVICE"
-compose_stack up -d --force-recreate "$SERVICE"
+log "Recreating Docker service from the verified build: $SERVICE"
+docker image tag "$CANDIDATE_IMAGE" "$SERVICE_IMAGE"
+compose_stack up -d --no-build --force-recreate "$SERVICE"
 
 wait_healthy || rollback "container failed health check"
 verify_runtime_persistence_mount || rollback "runtime persistence mount missing from deployed container"
