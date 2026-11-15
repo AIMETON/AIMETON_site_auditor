@@ -8,9 +8,10 @@
 GitHub main + green Baseline CI
   → self-hosted runner on aimeton-main-server
   → exact checkout by full commit SHA
+  → isolated build of the candidate Docker image
   → protected runtime-secret materialization
   → transactional app-source switch
-  → docker compose base + runtime-secret override build/up
+  → docker compose up from the candidate image
   → container health
   → external health and MCP smoke
   → evidence artifact
@@ -64,28 +65,30 @@ Checkout выполняется именно по этому SHA, после ч�
 2. проверяет полный 40-символьный SHA и обязательные файлы;
 3. формирует новый bundle во временном каталоге на том же файловом разделе;
 4. проверяет наличие stage MCP allowlist и относительного redirect;
-5. атомарно материализует `TAVILY_TOKEN` в отдельный файл `0600` и создаёт
+5. собирает кандидатный образ из подготовленного bundle во временном контексте.
+   В копии Dockerfile пакет `libatomic1` устанавливается до запуска Playwright.
+   Ошибка сборки оставляет текущий контейнер и его bundle на месте;
+6. атомарно материализует `TAVILY_TOKEN` в отдельный файл `0600` и создаёт
    Compose override без значения секрета;
-6. перемещает прежний `app-source` в timestamped backup;
-7. атомарно переименовывает подготовленный bundle в `app-source`;
+7. перемещает прежний `app-source` в timestamped backup и устанавливает новый;
 8. записывает `app-source-sha.txt`;
-9. запускает `docker compose -f docker-compose.yml -f
-   docker-compose.runtime-secrets.yml build auditor`;
-10. выполняет тот же compose stack с `up -d --force-recreate auditor`;
+9. назначает проверенный образ сервису Auditor;
+10. выполняет `up -d --no-build --force-recreate auditor`;
 11. ожидает Docker status `healthy`;
-12. проверяет `/api/health`;
+12. проверяет `/api/health` и совпадение возвращаемого SHA с целевым;
 13. проверяет `/mcp → 307 Location: /mcp/`;
 14. выполняет MCP `initialize` через `POST /mcp/`;
 15. сохраняет deployment evidence как GitHub Actions artifact.
 
 ## Автоматический rollback
 
-Rollback запускается при ошибке build, recreate, health или smoke:
+После переключения bundle ошибка recreate, health или smoke запускает rollback:
 
 1. неуспешный bundle перемещается в `app-source.failed.*`;
 2. предыдущий bundle возвращается из backup;
 3. восстанавливается предыдущий `app-source-sha.txt`;
-4. выполняются повторные build и recreate;
+4. сервису возвращается сохранённый идентификатор предыдущего образа и
+   контейнер пересоздаётся из него;
 5. проверяется health восстановленного контейнера;
 6. в Actions log выводятся последние 200 строк контейнера.
 
