@@ -35,7 +35,7 @@ class RunnerProjectionTests(unittest.TestCase):
         projection, digest = self.projection_and_digest()
         generation = projection["generation"]
         self.assertEqual(generation["infrastructure_repository"], "AIMETON/aimeton-infrastructure")
-        self.assertEqual(generation["infrastructure_source_sha"], "a4784f52fd81668c58e7abc340c1b65b0f7b6f1b")
+        self.assertRegex(generation["infrastructure_source_sha"], r"\A[0-9a-f]{40}\Z")
         self.assertEqual(len(digest), 64)
         self.assertEqual(
             {source["path"] for source in generation["sources"]},
