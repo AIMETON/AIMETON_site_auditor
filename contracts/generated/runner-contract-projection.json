@@ -2,13 +2,13 @@
   "schema_version": "1.0-generated",
   "generation": {
     "version": 2,
-    "generated_at": "2026-10-30T02:20:43.955776Z",
+    "generated_at": "2026-11-09T14:35:04.362622Z",
     "infrastructure_repository": "AIMETON/aimeton-infrastructure",
-    "infrastructure_source_sha": "07e33bf276ea4bc724124dbc77f3148a80c4f4ac",
+    "infrastructure_source_sha": "a4784f52fd81668c58e7abc340c1b65b0f7b6f1b",
     "sources": [
       {
         "path": "ops/main-server/runners.json",
-        "git_blob_sha": "ffaadb71582b007c3d2c896e0102f96209d61cdf"
+        "git_blob_sha": "ac3be24b05816beefb096194edf5c1da94314d6c"
       },
       {
         "path": "ops/burst-runner/site-auditor-runners.json",
@@ -16,7 +16,7 @@
       },
       {
         "path": "ops/burst-runner/repository-pools.json",
-        "git_blob_sha": "e4811a96cf6a626a3a91a7352af9b6c088b1e20a"
+        "git_blob_sha": "c59f2b889f1d147597c6a7492807cc3c4b5eb6e8"
       }
     ],
     "canonical_projection_sha256": "9dd96b50560532e79c14b67e9c015faf7c234ab191ec6b30bd5540f7056298dc"
