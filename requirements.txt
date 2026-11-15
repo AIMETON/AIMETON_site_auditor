@@ -3,7 +3,8 @@ uvicorn[standard]==0.34.0
 httpx==0.28.1
 beautifulsoup4==4.12.3
 charset-normalizer>=3.4,<4
-pydantic>=2.11,<3
+# Pin the generator version used by the committed JSON Schema snapshots.
+pydantic==2.13.4
 python-dotenv==1.2.2
 pytest==9.1.1
 jsonschema>=4.23,<5
